@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "bufferevent.h": "c"
+        "bufferevent.h": "c",
+        "buffer.h": "c"
     }
 }
