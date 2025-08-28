@@ -66,10 +66,6 @@ static void sendTcpFrame(struct bufferevent* pstBufEvent, int16_t nCmd,
 }
 
 /* Handlers */
-static void handle_echo(TCP_CTX* pstTcpCtx, const MSG_ID* pstMsgId, const uint8_t* p, int32_t n) {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    sendTcpFrame(pstTcpCtx->pstBufEvent, CMD_ECHO, pstMsgId, 0, p, n);
-}
 static void handle_keepalive(TCP_CTX* pstTcpCtx, const MSG_ID* pstMsgId, const REQ_KEEP_ALIVE* req) {
     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)req;
@@ -146,10 +142,7 @@ static int try_consume_one_frame(struct evbuffer* pstEventBuffer, TCP_CTX* pstTc
     pstTcpCtx->iCmdState = 1;
 
     /* Dispatch */
-    switch (cmd) {
-        case CMD_ECHO:
-            handle_echo(pstTcpCtx, &ids, payload, plen);
-            break;
+    switch (cmd) {        
         case CMD_KEEP_ALIVE: {
             if (plen == (int32_t)sizeof(REQ_KEEP_ALIVE)) {
                 REQ_KEEP_ALIVE req; memcpy(&req, payload, sizeof(req));

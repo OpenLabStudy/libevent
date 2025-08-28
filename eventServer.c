@@ -80,10 +80,6 @@ static void send_frame(struct bufferevent* bev, int16_t nCmd,
 }
 
 /* Handlers */
-static void handle_echo(ConnCtx* ctx, const MSG_ID* ids, const uint8_t* p, int32_t n) {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    send_frame(ctx->bev, CMD_ECHO, ids, 0, p, n);
-}
 static void handle_keepalive(ConnCtx* ctx, const MSG_ID* ids, const REQ_KEEP_ALIVE* req) {
     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)req;
@@ -145,10 +141,7 @@ static int try_consume_one_frame(struct evbuffer* in, ConnCtx* ctx) {
     ctx->busy = 1;
 
     /* Dispatch */
-    switch (cmd) {
-        case CMD_ECHO:
-            handle_echo(ctx, &ids, payload, plen);
-            break;
+    switch (cmd) {        
         case CMD_KEEP_ALIVE: {
             if (plen == (int32_t)sizeof(REQ_KEEP_ALIVE)) {
                 REQ_KEEP_ALIVE req; memcpy(&req, payload, sizeof(req));

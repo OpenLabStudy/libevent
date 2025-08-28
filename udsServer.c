@@ -42,8 +42,9 @@
 #define READ_HIGH_WM (1u * 1024u * 1024u)   /* 1MB */
 #define MAX_PAYLOAD  (4u * 1024u * 1024u)   /* 4MB */
 
+typedef struct app_ctx;
 /* === Per-connection context === */
-typedef struct {
+typedef struct uds_ctx{
     struct bufferevent *pstBufEvent;
 
     /* 요청/응답 흐름 제어 */
@@ -61,13 +62,19 @@ typedef struct {
     int16_t  qCmd;
     uint8_t  qPayload[256];
     int32_t  qLen;
+
+    /* --- 추가: 연결 리스트/역포인터 --- */
+    struct uds_ctx *pstUdsNext;
+    struct app_ctx *pstApp;
 } UDS_CTX;
 
-/* === Server context (전역 제거) === */
-typedef struct {
-    struct event_base     *pstEventBase;
-    struct evconnlistener *pstUdsEventListener;
-    struct event          *pstEventSigint;
+typedef struct app_ctx{
+    struct event_base       *pstEventBase;
+    struct evconnlistener   *pstUdsEventListener;
+    struct event            *pstEventSigint;
+
+    UDS_CTX                 *pConnHead;
+    struct event            *pstKeepAliveTimer;
 } APP_CTX;
 
 /* === Forward declarations === */
@@ -105,6 +112,28 @@ static void sendUdsFrame(struct bufferevent* bev, int16_t nCmd,
     if (len > 0 && pl)
         bufferevent_write(bev, pl, len);
     bufferevent_write(bev, &t, sizeof(t));
+}
+
+/* === 10초마다: 모든 연결에 KEEP_ALIVE REQ 전송 === */
+static void keepaliveCb(evutil_socket_t fd, short ev, void* pvData)
+{
+    (void)fd;
+    (void)ev;
+    APP_CTX* pstAppCtx = (APP_CTX*)pvData;
+
+    /* 모든 연결 순회 */
+    for (UDS_CTX* c = pstAppCtx->pConnHead; c; c = c->pstUdsNext) {
+        if (!c->iReqBusy) {
+            REQ_KEEP_ALIVE ka = (REQ_KEEP_ALIVE){0};
+            enqueue_request(c, CMD_KEEP_ALIVE, &ka, sizeof(ka));
+        }
+    }
+
+    /* 재무장 (10초 주기) */
+    if (pstAppCtx->pstKeepAliveTimer) {
+        struct timeval tv = {10, 0};
+        evtimer_add(pstAppCtx->pstKeepAliveTimer, &tv);
+    }
 }
 
 /* === 요청 큐 적재 === */
@@ -236,6 +265,15 @@ static int try_consume_one_frame(struct evbuffer* pstEventBuffer, UDS_CTX* pstUd
 
         /* 명령별 응답 후크 (필요시 바꾸기) */
         switch (cmd) {
+            case CMD_REQ_ID: {
+                if (plen == (int32_t)sizeof(RES_ID)) {
+                    const RES_ID* res = (const RES_ID*)payload;
+                    fprintf(stderr, "[SockFd=%d] RES_ID RES: result=%d\n", pstUdsCtx->iSockFd, res->chResult);
+                } else {
+                    fprintf(stderr, "[SockFd=%d] RES_ID RES len=%d\n", pstUdsCtx->iSockFd, plen);
+                }
+                break;
+            }
             case CMD_KEEP_ALIVE: {
                 if (plen == (int32_t)sizeof(RES_KEEP_ALIVE)) {
                     const RES_KEEP_ALIVE* res = (const RES_KEEP_ALIVE*)payload;
@@ -323,8 +361,8 @@ static void udsListenerCb(struct evconnlistener *listener, evutil_socket_t iSock
     (void)listener;
     (void)sa;
     (void)socklen;
-    struct event_base *pstEventBase = (struct event_base*)pvData;
-
+    APP_CTX* pstAppCtx = (APP_CTX*)pvData;
+    struct event_base *pstEventBase = pstAppCtx->pstEventBase;
     struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
     if (!pstBufferEvent) 
         return;
@@ -337,27 +375,45 @@ static void udsListenerCb(struct evconnlistener *listener, evutil_socket_t iSock
 
     pstUdsCtx->pstBufEvent = pstBufferEvent;
     pstUdsCtx->iSockFd = (int)iSockFd;
+    /* 타이머 생성 (응답 타임아웃/송신 킥만 유지) */
+    pstUdsCtx->pstRespTimeout   = evtimer_new(pstEventBase, resp_timeout_cb, pstUdsCtx);
+    pstUdsCtx->pstSendKickTimer = evtimer_new(pstEventBase, send_kick_cb,   pstUdsCtx);
+
+    /* 연결 리스트 등록 */
+    pstUdsCtx->pstApp = pstAppCtx;
+    pstUdsCtx->pstUdsNext  = pstAppCtx->pConnHead;
+    pstAppCtx->pConnHead = pstUdsCtx;
 
     bufferevent_setcb(pstBufferEvent, udsReadCb, udsWriteCb, udsEventCb, pstUdsCtx);
     bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(pstBufferEvent, EV_READ, 0, READ_HIGH_WM);
 
-    /* 타이머 생성 (응답 타임아웃/송신 킥만 유지) */
-    pstUdsCtx->pstRespTimeout   = evtimer_new(pstEventBase, resp_timeout_cb, pstUdsCtx);
-    pstUdsCtx->pstSendKickTimer = evtimer_new(pstEventBase, send_kick_cb,   pstUdsCtx);
-
     printf("Accepted UDS client (iSockFd=%d)\n", pstUdsCtx->iSockFd);
 
     /* 연결 직후 초기 요청 예시: KEEP_ALIVE */
-    REQ_KEEP_ALIVE ka = {0};
-    enqueue_request(pstUdsCtx, CMD_KEEP_ALIVE, &ka, sizeof(ka));
+    REQ_ID stReqId = {0};
+    enqueue_request(pstUdsCtx, CMD_REQ_ID, &stReqId, sizeof(stReqId));
 }
 
 /* === Helper: 연결 자원 정리 === */
 static void udsCloseAndFree(UDS_CTX* pstUdsCtx)
 {
-    if (!pstUdsCtx) 
+    if (!pstUdsCtx)
         return;
+
+    /* 리스트에서 제거 */
+    if (pstUdsCtx->pstApp) {
+        APP_CTX* app = pstUdsCtx->pstApp;
+        UDS_CTX** pp = &app->pConnHead;
+        while (*pp) {
+            if (*pp == pstUdsCtx) { 
+                *pp = pstUdsCtx->pstUdsNext; 
+                break;
+            }
+            pp = &((*pp)->pstUdsNext);
+        }
+    }
+
     if (pstUdsCtx->pstSendKickTimer)
         event_free(pstUdsCtx->pstSendKickTimer);
     if (pstUdsCtx->pstRespTimeout)
@@ -366,6 +422,8 @@ static void udsCloseAndFree(UDS_CTX* pstUdsCtx)
         bufferevent_free(pstUdsCtx->pstBufEvent);
     free(pstUdsCtx);
 }
+
+
 
 /* === main === */
 int main(int argc, char** argv)
@@ -395,10 +453,9 @@ int main(int argc, char** argv)
     socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + iSize + 1);
 
     stAppCtx.pstUdsEventListener =
-        evconnlistener_new_bind(stAppCtx.pstEventBase, udsListenerCb, stAppCtx.pstEventBase,
+        evconnlistener_new_bind(stAppCtx.pstEventBase, udsListenerCb, &stAppCtx,
             LEV_OPT_REUSEABLE|LEV_OPT_CLOSE_ON_FREE, -1,
             (struct sockaddr*)&stSocketUn, uiSocketLength);
-
     if (!stAppCtx.pstUdsEventListener) {
         fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
         event_base_free(stAppCtx.pstEventBase);
@@ -415,9 +472,24 @@ int main(int argc, char** argv)
         unlink(UDS_COMMAND_PATH);
         return 1;
     }
+    /* --- 추가: 10초 주기 KEEPALIVE 타이머 설치 --- */
+    stAppCtx.pstKeepAliveTimer = evtimer_new(stAppCtx.pstEventBase, keepaliveCb, &stAppCtx);
+    if (!stAppCtx.pstKeepAliveTimer) {
+        fprintf(stderr, "Could not create keepalive timer!\n");
+        evconnlistener_free(stAppCtx.pstUdsEventListener);
+        event_base_free(stAppCtx.pstEventBase);
+        unlink(UDS_COMMAND_PATH);
+        return 1;
+    }
+    {
+        struct timeval tv = {10, 0};
+        evtimer_add(stAppCtx.pstKeepAliveTimer, &tv);
+    }
 
     printf("UDS server listening on %s\n", UDS_COMMAND_PATH);
     event_base_dispatch(stAppCtx.pstEventBase);
+    if (stAppCtx.pstKeepAliveTimer)
+        event_free(stAppCtx.pstKeepAliveTimer);
 
     evconnlistener_free(stAppCtx.pstUdsEventListener);
     event_free(stAppCtx.pstEventSigint);

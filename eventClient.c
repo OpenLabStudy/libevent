@@ -97,9 +97,7 @@ static int try_consume_one_frame(struct evbuffer* in) {
 
     /* Print */
     printf("client: <RESP cmd=%d len=%d>\n", (int)cmd, (int)plen);
-    if (cmd == CMD_ECHO) {
-        printf("  ECHO text: \"%.*s\"\n", plen, (const char*)payload);
-    } else if (cmd == CMD_KEEP_ALIVE) {
+    if (cmd == CMD_KEEP_ALIVE) {
         if (plen == (int)sizeof(RES_KEEP_ALIVE)) {
             RES_KEEP_ALIVE r; memcpy(&r, payload, sizeof(r));
             printf("  KEEP_ALIVE result=%d\n", (int)r.chResult);
@@ -135,7 +133,6 @@ static void on_event(struct bufferevent *bev, short events, void *arg) {
     ClientCtx* ctx = (ClientCtx*)arg;
     if (events & BEV_EVENT_CONNECTED) {
         printf("client: connected. Type commands:\n");
-        printf("  echo <text>\n");
         printf("  keepalive\n");
         printf("  ibit <n>\n");
         printf("  quit\n");
@@ -156,11 +153,7 @@ static void on_stdin(evutil_socket_t fd, short what, void *arg) {
     }
     line[strcspn(line, "\n")] = '\0';
 
-    if (strcmp(line, "echo") == 0) {
-        const char* text = line+5;
-        send_frame(ctx->bev, CMD_ECHO, &ctx->ids, 0, text, (int32_t)strlen(text));
-        printf("client: sent ECHO(\"%s\")\n", text);
-    } else if (strcmp(line, "keepalive") == 0) {
+    if (strcmp(line, "keepalive") == 0) {
         REQ_KEEP_ALIVE req = { .chTmp = 0 };
         send_frame(ctx->bev, CMD_KEEP_ALIVE, &ctx->ids, 0, &req, (int32_t)sizeof(req));
         printf("client: sent KEEP_ALIVE\n");

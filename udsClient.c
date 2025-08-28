@@ -45,7 +45,7 @@ typedef struct {
     struct event_base   *base;
     struct bufferevent  *bev;
     struct event        *sigint_ev;
-    char                 sock_path[sizeof(((struct sockaddr_un*)0)->sun_path)];
+    int                 iMyId;
 } APP_CTX;
 
 /* === 전방 선언 === */
@@ -86,7 +86,7 @@ static void sendUdsFrame(struct bufferevent* bev, int16_t nCmd,
 /* === 프레임 하나 파싱 및 처리 ===
  * return: 1 consumed, 0 need more, -1 fatal
  */
-static int try_consume_one_frame(struct evbuffer* in, APP_CTX* app)
+static int try_consume_one_frame(struct evbuffer* in, APP_CTX* pstAppCtx)
 {
     if (evbuffer_get_length(in) < sizeof(FRAME_HEADER))
         return 0;
@@ -139,6 +139,19 @@ static int try_consume_one_frame(struct evbuffer* in, APP_CTX* app)
     MSG_ID res_ids = { .chSrcId = ids.chDstId, .chDstId = ids.chSrcId };
 
     switch (cmd) {
+    case CMD_REQ_ID: {
+        /* 요청 payload 검사 (옵션) */
+        if ((int32_t)sizeof(REQ_ID) == plen) {
+            const REQ_ID* req = (const REQ_ID*)payload;
+            (void)req; /* 필요 시 사용 */
+        }
+        RES_ID res = {0};
+        /* 예: 0=OK 로 가정 */
+        res.chResult = pstAppCtx->iMyId;
+        sendUdsFrame(pstAppCtx->bev, CMD_REQ_ID, &res_ids, 0, &res, (int32_t)sizeof(res));
+        fprintf(stderr, "[CLIENT] RES ID sent\n");
+        break;
+    }
     case CMD_KEEP_ALIVE: {
         /* 요청 payload 검사 (옵션) */
         if ((int32_t)sizeof(REQ_KEEP_ALIVE) == plen) {
@@ -148,7 +161,7 @@ static int try_consume_one_frame(struct evbuffer* in, APP_CTX* app)
         RES_KEEP_ALIVE res = {0};
         /* 예: 0=OK 로 가정 */
         res.chResult = 0;
-        sendUdsFrame(app->bev, CMD_KEEP_ALIVE, &res_ids, 0, &res, (int32_t)sizeof(res));
+        sendUdsFrame(pstAppCtx->bev, CMD_KEEP_ALIVE, &res_ids, 0, &res, (int32_t)sizeof(res));
         fprintf(stderr, "[CLIENT] RES KEEP_ALIVE sent\n");
         break;
     }
@@ -161,14 +174,8 @@ static int try_consume_one_frame(struct evbuffer* in, APP_CTX* app)
         /* 예: 0=OK 가정, 위치 결과도 0(정상) */
         res.chBitTotResult   = 0;
         res.chPositionResult = 0;
-        sendUdsFrame(app->bev, CMD_IBIT, &res_ids, 0, &res, (int32_t)sizeof(res));
+        sendUdsFrame(pstAppCtx->bev, CMD_IBIT, &res_ids, 0, &res, (int32_t)sizeof(res));
         fprintf(stderr, "[CLIENT] RES IBIT sent\n");
-        break;
-    }
-    case CMD_ECHO: {
-        /* Echo: 그대로 반사(RES payload == REQ payload) */
-        sendUdsFrame(app->bev, CMD_ECHO, &res_ids, 0, payload, plen);
-        fprintf(stderr, "[CLIENT] RES ECHO sent (len=%d)\n", plen);
         break;
     }
     default:
@@ -238,16 +245,11 @@ static void on_sigint(evutil_socket_t sig, short ev, void* arg)
 int main(int argc, char** argv)
 {
     APP_CTX app;
+    int iUdsPathLength = strlen(DEFAULT_UDS_PATH);
     memset(&app, 0, sizeof(app));
-
-    const char* path = (argc > 1) ? argv[1] : DEFAULT_UDS_PATH;
-    size_t L = strlen(path);
-    if (L >= sizeof(app.sock_path)) {
-        fprintf(stderr, "UDS path too long: %s\n", path);
-        return 1;
-    }
-    memcpy(app.sock_path, path, L+1);
-
+    
+    app.iMyId = (argc == 2) ? atoi(argv[1]) : 0;
+    fprintf(stderr,"### MY ID is %d[%d,%s] \n", app.iMyId, argc, argv[1]);
     signal(SIGPIPE, SIG_IGN);
 
     app.base = event_base_new();
@@ -260,8 +262,8 @@ int main(int argc, char** argv)
     struct sockaddr_un sun;
     memset(&sun, 0, sizeof(sun));
     sun.sun_family = AF_UNIX;
-    memcpy(sun.sun_path, app.sock_path, L+1);
-    socklen_t slen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + L + 1);
+    strcpy(sun.sun_path, DEFAULT_UDS_PATH);
+    socklen_t slen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + iUdsPathLength + 1);
 
     /* bufferevent + connect */
     app.bev = bufferevent_socket_new(app.base, -1, BEV_OPT_CLOSE_ON_FREE);
@@ -291,7 +293,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    printf("UDS client connecting to %s\n", app.sock_path);
+    printf("UDS client connecting to %s\n", DEFAULT_UDS_PATH);
     event_base_dispatch(app.base);
 
     if (app.sigint_ev) event_free(app.sigint_ev);

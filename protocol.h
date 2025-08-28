@@ -14,9 +14,9 @@
 
 /* ===== Commands ===== */
 enum {
-    CMD_ECHO       = 1,
-    CMD_KEEP_ALIVE = 2,
-    CMD_IBIT       = 3
+    CMD_REQ_ID      = 1,
+    CMD_KEEP_ALIVE  = 2,
+    CMD_IBIT        = 3
 };
 
 /* ===== Packing portability ===== */
@@ -45,6 +45,10 @@ typedef struct PACKED {
     char         chCrc;      /* XOR of payload              */
     uint16_t     unEtx;      /* ETX                         */
 } FRAME_TAIL;
+
+/* REQ_ID */
+typedef struct PACKED { char chTmp;     } REQ_ID;
+typedef struct PACKED { char chResult;  } RES_ID;
 
 /* KEEP_ALIVE */
 typedef struct PACKED { char chTmp;     } REQ_KEEP_ALIVE;
