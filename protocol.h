@@ -20,30 +20,25 @@ enum {
 };
 
 /* ===== Packing portability ===== */
-#if defined(_MSC_VER)
-  #pragma pack(push, 1)
-  #define PACKED
-#else
-  #define PACKED __attribute__((__packed__))
-#endif
+#define PACKED __attribute__((__packed__))
 
 /* ===== Message types ===== */
 typedef struct PACKED {
-    char chSrcId;
-    char chDstId;
+    unsigned char   uchSrcId;
+    unsigned char   uchDstId;
 } MSG_ID;
 
 typedef struct PACKED {
-    uint16_t     unStx;      /* STX (network order on wire) */
-    int32_t      iLength;    /* payload length (bytes)      */
-    MSG_ID       stMsgId;    /* src/dst IDs                 */
-    char         chSubModule;
-    int16_t      nCmd;       /* command id                  */
+    unsigned short  unStx;      /* STX (network order on wire) */
+    int             iDataLength;    /* payload length (bytes)      */
+    MSG_ID          stMsgId;    /* src/dst IDs                 */
+    unsigned char   uchSubModule;
+    unsigned short  unCmd;       /* command id                  */
 } FRAME_HEADER;
 
 typedef struct PACKED {
-    char         chCrc;      /* XOR of payload              */
-    uint16_t     unEtx;      /* ETX                         */
+    unsigned char   uchCrc;      /* XOR of payload              */
+    unsigned short  unEtx;      /* ETX                         */
 } FRAME_TAIL;
 
 /* REQ_ID */

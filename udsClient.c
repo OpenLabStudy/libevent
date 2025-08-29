@@ -42,218 +42,212 @@
 #define MAX_PAYLOAD      (4u * 1024u * 1024u)   /* 4MB */
 
 typedef struct {
-    struct event_base   *base;
-    struct bufferevent  *bev;
-    struct event        *sigint_ev;
+    struct event_base   *pstEventBase;
+    struct bufferevent  *pstBufferEvent;
+    struct event        *pstEventSigint;
     int                 iMyId;
-} APP_CTX;
+} UDS_CLIENT_CTX;
 
 /* === 전방 선언 === */
-static void on_read(struct bufferevent*, void*);
-static void on_write(struct bufferevent*, void*);
-static void on_event(struct bufferevent*, short, void*);
-static void on_sigint(evutil_socket_t, short, void*);
+static void udsReadCb(struct bufferevent*, void*);
+static void udsEventCb(struct bufferevent*, short, void*);
+static void signalCb(evutil_socket_t, short, void*);
 
 /* === 프레임 송신 === */
-static void sendUdsFrame(struct bufferevent* bev, int16_t nCmd,
-                         const MSG_ID* mid, char submodule,
-                         const void* pl, int32_t len)
+static void sendUdsFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
+                       const MSG_ID* pstMsgId, unsigned char uchSubModule,
+                       const void* pvPayload, int iDataLength)
 {
-    FRAME_HEADER h;
-    FRAME_TAIL   t;
+    FRAME_HEADER stFrameHeader;
+    FRAME_TAIL   stFrameTail;
 
-    h.unStx       = htons(STX_CONST);
-    h.iLength     = htonl(len);
-    h.stMsgId     = *mid;     /* MSG_ID는 1바이트 필드 가정 */
-    h.chSubModule = submodule;
-    h.nCmd        = htons(nCmd);
+    stFrameHeader.unStx             = htons(STX_CONST);
+    stFrameHeader.iDataLength       = htonl(iDataLength);
+    stFrameHeader.stMsgId.uchSrcId  = pstMsgId->uchSrcId;
+    stFrameHeader.stMsgId.uchDstId  = pstMsgId->uchDstId;
+    stFrameHeader.uchSubModule      = uchSubModule;
+    stFrameHeader.unCmd             = htons(unCmd);
 
-    uint8_t crc = 0;
-    if (len > 0 && pl)
-        crc = proto_crc8_xor((const uint8_t*)pl, (size_t)len);
-    else
-        crc = proto_crc8_xor((const uint8_t*)"", 0);
+    stFrameTail.uchCrc              = proto_crc8_xor((const uint8_t*)pvPayload, (size_t)iDataLength);
+    stFrameTail.unEtx               = htons(ETX_CONST);
 
-    t.chCrc       = crc;
-    t.unEtx       = htons(ETX_CONST);
-
-    bufferevent_write(bev, &h, sizeof(h));
-    if (len > 0 && pl)
-        bufferevent_write(bev, pl, len);
-    bufferevent_write(bev, &t, sizeof(t));
+    bufferevent_write(pstBufferEvent, &stFrameHeader, sizeof(stFrameHeader));
+    if (iDataLength > 0 && pvPayload)
+        bufferevent_write(pstBufferEvent, pvPayload, iDataLength);
+    bufferevent_write(pstBufferEvent, &stFrameTail, sizeof(stFrameTail));
 }
 
 /* === 프레임 하나 파싱 및 처리 ===
  * return: 1 consumed, 0 need more, -1 fatal
  */
-static int try_consume_one_frame(struct evbuffer* in, APP_CTX* pstAppCtx)
+static int try_consume_one_frame(struct evbuffer* pstEventBuffer, UDS_CLIENT_CTX* pstUdsCtx)
 {
-    if (evbuffer_get_length(in) < sizeof(FRAME_HEADER))
+    if (evbuffer_get_length(pstEventBuffer) < sizeof(FRAME_HEADER))
         return 0;
 
-    FRAME_HEADER fh;
-    if (evbuffer_copyout(in, &fh, sizeof(fh)) != (ssize_t)sizeof(fh))
+    FRAME_HEADER stFrameHeader;
+    if (evbuffer_copyout(pstEventBuffer, &stFrameHeader, sizeof(stFrameHeader)) != (ssize_t)sizeof(stFrameHeader))
         return 0;
 
-    uint16_t stx  = ntohs(fh.unStx);
-    int32_t  plen = ntohl(fh.iLength);
-    int16_t  cmd  = ntohs(fh.nCmd);
-    MSG_ID   ids  = fh.stMsgId;
+    unsigned short  unStx   = ntohs(stFrameHeader.unStx);
+    int iDataLength = ntohl(stFrameHeader.iDataLength);
+    unsigned short  unCmd  = ntohs(stFrameHeader.unCmd);
+    MSG_ID stMsgId  = stFrameHeader.stMsgId;
 
-    if (stx != STX_CONST || plen < 0 || plen > (int32_t)MAX_PAYLOAD)
+    if (unStx != STX_CONST || iDataLength < 0 || iDataLength > (int32_t)MAX_PAYLOAD)
         return -1;
 
-    size_t need = sizeof(FRAME_HEADER) + (size_t)plen + sizeof(FRAME_TAIL);
-    if (evbuffer_get_length(in) < need)
+    int iNeedSize = sizeof(FRAME_HEADER) + (size_t)iDataLength + sizeof(FRAME_TAIL);
+    if (evbuffer_get_length(pstEventBuffer) < iNeedSize)
         return 0;
 
     /* HEADER 소비 */
-    evbuffer_drain(in, sizeof(FRAME_HEADER));
+    evbuffer_drain(pstEventBuffer, sizeof(FRAME_HEADER));
 
     /* PAYLOAD */
-    uint8_t* payload = NULL;
-    if (plen > 0) {
-        payload = (uint8_t*)malloc((size_t)plen);
-        if (!payload) return -1;
-        if (evbuffer_remove(in, payload, (size_t)plen) != (ssize_t)plen) {
-            free(payload); return -1;
+    unsigned char* puchPayload = NULL;
+    if (iDataLength > 0) {
+        puchPayload = (uint8_t*)malloc((size_t)iDataLength);
+        if (!puchPayload) 
+            return -1;
+        if (evbuffer_remove(pstEventBuffer, puchPayload, (size_t)iDataLength) != (ssize_t)iDataLength) {
+            free(puchPayload);
+            return -1;
         }
     }
 
     /* TAIL */
-    FRAME_TAIL ft;
-    if (evbuffer_remove(in, &ft, sizeof(ft)) != (ssize_t)sizeof(ft)) {
-        free(payload); return -1;
+    FRAME_TAIL stFrameTail;
+    if (evbuffer_remove(pstEventBuffer, &stFrameTail, sizeof(stFrameTail)) != (ssize_t)sizeof(stFrameTail)) {
+        free(puchPayload);
+        return -1;
     }
 
-    uint8_t calc_crc = (plen > 0) ? proto_crc8_xor(payload, (size_t)plen)
-                                  : proto_crc8_xor((const uint8_t*)"", 0);
-    if (ntohs(ft.unEtx) != ETX_CONST || calc_crc != (uint8_t)ft.chCrc) {
+    unsigned char uchCrc = (iDataLength > 0) ? proto_crc8_xor(puchPayload, (size_t)iDataLength) : proto_crc8_xor((const uint8_t*)"", 0);
+    if (ntohs(stFrameTail.unEtx) != ETX_CONST || uchCrc != (uint8_t)stFrameTail.uchCrc) {
         fprintf(stderr, "[CLIENT] CRC/ETX mismatch\n");
-        free(payload);
+        free(puchPayload);
         return -1;
     }
 
     /* === 요청 처리: 서버가 보낸 REQ에 대해 RES 회신 === */
     /* 응답 MSG_ID는 통상 src/dst를 스왑하는 편이 자연스럽다 */
-    MSG_ID res_ids = { .chSrcId = ids.chDstId, .chDstId = ids.chSrcId };
+    MSG_ID stResMsgId = { .uchSrcId = pstUdsCtx->iMyId, .uchDstId = stMsgId.uchSrcId };
 
-    switch (cmd) {
+    switch (unCmd) {
     case CMD_REQ_ID: {
         /* 요청 payload 검사 (옵션) */
-        if ((int32_t)sizeof(REQ_ID) == plen) {
-            const REQ_ID* req = (const REQ_ID*)payload;
-            (void)req; /* 필요 시 사용 */
+        if ((int)sizeof(REQ_ID) == iDataLength) {
+            const REQ_ID* pstReqId = (const REQ_ID*)puchPayload;
+            (void)pstReqId; /* 필요 시 사용 */
         }
-        RES_ID res = {0};
+        RES_ID stResId = {0};
         /* 예: 0=OK 로 가정 */
-        res.chResult = pstAppCtx->iMyId;
-        sendUdsFrame(pstAppCtx->bev, CMD_REQ_ID, &res_ids, 0, &res, (int32_t)sizeof(res));
+        stResId.chResult = pstUdsCtx->iMyId;
+        sendUdsFrame(pstUdsCtx->pstBufferEvent, CMD_REQ_ID, &stResMsgId, 0, &stResId, (int32_t)sizeof(stResId));
         fprintf(stderr, "[CLIENT] RES ID sent\n");
         break;
     }
     case CMD_KEEP_ALIVE: {
         /* 요청 payload 검사 (옵션) */
-        if ((int32_t)sizeof(REQ_KEEP_ALIVE) == plen) {
-            const REQ_KEEP_ALIVE* req = (const REQ_KEEP_ALIVE*)payload;
-            (void)req; /* 필요 시 사용 */
+        if ((int32_t)sizeof(REQ_KEEP_ALIVE) == iDataLength) {
+            const REQ_KEEP_ALIVE* pstReqKeepAlive = (const REQ_KEEP_ALIVE*)puchPayload;
+            (void)pstReqKeepAlive; /* 필요 시 사용 */
         }
-        RES_KEEP_ALIVE res = {0};
+        RES_KEEP_ALIVE stResKeepAlive = {0};
         /* 예: 0=OK 로 가정 */
-        res.chResult = 0;
-        sendUdsFrame(pstAppCtx->bev, CMD_KEEP_ALIVE, &res_ids, 0, &res, (int32_t)sizeof(res));
+        stResKeepAlive.chResult = 0;
+        sendUdsFrame(pstUdsCtx->pstBufferEvent, CMD_KEEP_ALIVE, &stResMsgId, 0, &stResKeepAlive, (int32_t)sizeof(stResKeepAlive));
         fprintf(stderr, "[CLIENT] RES KEEP_ALIVE sent\n");
         break;
     }
     case CMD_IBIT: {
-        if ((int32_t)sizeof(REQ_IBIT) == plen) {
-            const REQ_IBIT* req = (const REQ_IBIT*)payload;
-            (void)req; /* 필요 시 세부옵션 참고 */
+        if ((int32_t)sizeof(REQ_IBIT) == iDataLength) {
+            const REQ_IBIT* pstReqIbit = (const REQ_IBIT*)puchPayload;
+            (void)pstReqIbit; /* 필요 시 세부옵션 참고 */
         }
-        RES_IBIT res = {0};
+        RES_IBIT stResIbit = {0};
         /* 예: 0=OK 가정, 위치 결과도 0(정상) */
-        res.chBitTotResult   = 0;
-        res.chPositionResult = 0;
-        sendUdsFrame(pstAppCtx->bev, CMD_IBIT, &res_ids, 0, &res, (int32_t)sizeof(res));
+        stResIbit.chBitTotResult   = 0;
+        stResIbit.chPositionResult = 0;
+        sendUdsFrame(pstUdsCtx->pstBufferEvent, CMD_IBIT, &stResMsgId, 0, &stResIbit, (int32_t)sizeof(stResIbit));
         fprintf(stderr, "[CLIENT] RES IBIT sent\n");
         break;
     }
     default:
         /* 알 수 없는 요청 → 빈 응답이나 무시 (정책에 따라) */
-        fprintf(stderr, "[CLIENT] Unknown REQ cmd=%d len=%d (ignored)\n", cmd, plen);
+        fprintf(stderr, "[CLIENT] Unknown REQ cmd=%d len=%d (ignored)\n", unCmd, iDataLength);
         break;
     }
 
-    free(payload);
+    free(puchPayload);
     return 1;
 }
 
 /* === Libevent 콜백 === */
-static void on_read(struct bufferevent* bev, void* arg)
+static void udsReadCb(struct bufferevent* pstBufferEvent, void* pvData)
 {
-    (void)bev;
-    APP_CTX* app = (APP_CTX*)arg;
-    struct evbuffer* in = bufferevent_get_input(app->bev);
+    (void)pstBufferEvent;
+    UDS_CLIENT_CTX* pstUdsCtx = (UDS_CLIENT_CTX*)pvData;
+    struct evbuffer* pstEvBuffer = bufferevent_get_input(pstUdsCtx->pstBufferEvent);
 
     for (;;) {
-        int r = try_consume_one_frame(in, app);
+        int r = try_consume_one_frame(pstEvBuffer, pstUdsCtx);
         if (r == 0) break;
         if (r < 0) {
             fprintf(stderr, "[CLIENT] fatal parse error -> closing\n");
-            bufferevent_free(app->bev);
-            app->bev = NULL;
-            event_base_loopexit(app->base, NULL);
+            bufferevent_free(pstUdsCtx->pstBufferEvent);
+            pstUdsCtx->pstBufferEvent = NULL;
+            event_base_loopexit(pstUdsCtx->pstEventBase, NULL);
             return;
         }
     }
 }
 
-static void on_write(struct bufferevent* bev, void* arg)
+static void udsEventCb(struct bufferevent* pstBufferEvent, short nEvents, void* pvData)
 {
-    (void)bev; (void)arg;
-    /* 필요 시 사용 */
-}
-
-static void on_event(struct bufferevent* bev, short events, void* arg)
-{
-    APP_CTX* app = (APP_CTX*)arg;
-    if (events & BEV_EVENT_CONNECTED) {
+    UDS_CLIENT_CTX* pstUdsCtx = (UDS_CLIENT_CTX*)pvData;
+    if (nEvents & BEV_EVENT_CONNECTED) {
         fprintf(stderr, "[CLIENT] connected\n");
         return;
     }
-    if (events & BEV_EVENT_ERROR) {
+    if (nEvents & BEV_EVENT_ERROR) {
         int err = EVUTIL_SOCKET_ERROR();
         fprintf(stderr, "[CLIENT] BEV error: %s\n",
                 evutil_socket_error_to_string(err));
     }
-    if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
+    if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
         fprintf(stderr, "[CLIENT] disconnected\n");
-        if (app->bev) { bufferevent_free(app->bev); app->bev = NULL; }
-        event_base_loopexit(app->base, NULL);
+        if (pstUdsCtx->pstBufferEvent) { 
+            bufferevent_free(pstUdsCtx->pstBufferEvent); 
+            pstUdsCtx->pstBufferEvent = NULL; 
+        }
+        event_base_loopexit(pstUdsCtx->pstEventBase, NULL);
     }
 }
 
-static void on_sigint(evutil_socket_t sig, short ev, void* arg)
+static void signalCb(evutil_socket_t sig, short nEvents, void* pvData)
 {
-    (void)sig; (void)ev;
-    APP_CTX* app = (APP_CTX*)arg;
+    (void)sig;
+    (void)nEvents;
+    UDS_CLIENT_CTX* pstUdsCtx = (UDS_CLIENT_CTX*)pvData;
     fprintf(stderr, "[CLIENT] SIGINT -> exit loop\n");
-    event_base_loopexit(app->base, NULL);
+    event_base_loopexit(pstUdsCtx->pstEventBase, NULL);
 }
 
 /* === main === */
 int main(int argc, char** argv)
 {
-    APP_CTX app;
+    UDS_CLIENT_CTX stUdsCtx;
     int iUdsPathLength = strlen(DEFAULT_UDS_PATH);
-    memset(&app, 0, sizeof(app));
+    memset(&stUdsCtx, 0, sizeof(stUdsCtx));
     
-    app.iMyId = (argc == 2) ? atoi(argv[1]) : 0;
-    fprintf(stderr,"### MY ID is %d[%d,%s] \n", app.iMyId, argc, argv[1]);
+    stUdsCtx.iMyId = (argc == 2) ? atoi(argv[1]) : 0;
+    fprintf(stderr,"### MY ID is %d[%d,%s] \n", stUdsCtx.iMyId, argc, argv[1]);
     signal(SIGPIPE, SIG_IGN);
 
-    app.base = event_base_new();
-    if (!app.base) {
+    stUdsCtx.pstEventBase = event_base_new();
+    if (!stUdsCtx.pstEventBase) {
         fprintf(stderr, "Could not init libevent\n");
         return 1;
     }
@@ -266,39 +260,45 @@ int main(int argc, char** argv)
     socklen_t slen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + iUdsPathLength + 1);
 
     /* bufferevent + connect */
-    app.bev = bufferevent_socket_new(app.base, -1, BEV_OPT_CLOSE_ON_FREE);
-    if (!app.bev) {
+    stUdsCtx.pstBufferEvent = bufferevent_socket_new(stUdsCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
+    if (!stUdsCtx.pstBufferEvent) {
         fprintf(stderr, "Could not create bufferevent\n");
-        event_base_free(app.base);
+        event_base_free(stUdsCtx.pstEventBase);
         return 1;
     }
 
-    bufferevent_setcb(app.bev, on_read, on_write, on_event, &app);
-    bufferevent_enable(app.bev, EV_READ | EV_WRITE);
-    bufferevent_setwatermark(app.bev, EV_READ, 0, READ_HIGH_WM);
+    bufferevent_setcb(stUdsCtx.pstBufferEvent, udsReadCb, NULL, udsEventCb, &stUdsCtx);
+    bufferevent_enable(stUdsCtx.pstBufferEvent, EV_READ | EV_WRITE);
+    bufferevent_setwatermark(stUdsCtx.pstBufferEvent, EV_READ, 0, READ_HIGH_WM);
 
-    if (bufferevent_socket_connect(app.bev, (struct sockaddr*)&sun, slen) < 0) {
+    if (bufferevent_socket_connect(stUdsCtx.pstBufferEvent, (struct sockaddr*)&sun, slen) < 0) {
         fprintf(stderr, "Connect failed: %s\n", strerror(errno));
-        bufferevent_free(app.bev);
-        event_base_free(app.base);
+        bufferevent_free(stUdsCtx.pstBufferEvent);
+        event_base_free(stUdsCtx.pstEventBase);
         return 1;
     }
 
     /* SIGINT 처리 */
-    app.sigint_ev = evsignal_new(app.base, SIGINT, on_sigint, &app);
-    if (!app.sigint_ev || event_add(app.sigint_ev, NULL) < 0) {
+    stUdsCtx.pstEventSigint = evsignal_new(stUdsCtx.pstEventBase, SIGINT, signalCb, &stUdsCtx);
+    if (!stUdsCtx.pstEventSigint || event_add(stUdsCtx.pstEventSigint, NULL) < 0) {
         fprintf(stderr, "Could not add SIGINT event\n");
-        if (app.bev) bufferevent_free(app.bev);
-        event_base_free(app.base);
+        if (stUdsCtx.pstBufferEvent) 
+            bufferevent_free(stUdsCtx.pstBufferEvent);
+        event_base_free(stUdsCtx.pstEventBase);
         return 1;
     }
 
     printf("UDS client connecting to %s\n", DEFAULT_UDS_PATH);
-    event_base_dispatch(app.base);
+    event_base_dispatch(stUdsCtx.pstEventBase);
 
-    if (app.sigint_ev) event_free(app.sigint_ev);
-    if (app.bev) bufferevent_free(app.bev);
-    if (app.base) event_base_free(app.base);
+    if (stUdsCtx.pstEventSigint) 
+        event_free(stUdsCtx.pstEventSigint);
+
+    if (stUdsCtx.pstBufferEvent) 
+        bufferevent_free(stUdsCtx.pstBufferEvent);
+
+    if (stUdsCtx.pstEventBase) 
+        event_base_free(stUdsCtx.pstEventBase);
 
     printf("done\n");
     return 0;

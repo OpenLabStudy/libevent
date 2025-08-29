@@ -58,25 +58,27 @@ static void close_and_free(ConnCtx* ctx);
 static uint8_t crc8_xor(const uint8_t* p, size_t n) {
     uint8_t c=0; for(size_t i=0;i<n;i++) c ^= p[i]; return c;
 }
-static void send_frame(struct bufferevent* bev, int16_t nCmd,
-                       const MSG_ID* ids, char submodule,
-                       const void* payload, int32_t payload_len)
+static void send_frame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
+                       const MSG_ID* pstMsgId, unsigned char uchSubModule,
+                       const void* pvPayload, int iDataLength)
 {
-    FRAME_HEADER h;
-    FRAME_TAIL   t;
+    FRAME_HEADER stFrameHeader;
+    FRAME_TAIL   stFrameTail;
 
-    h.unStx       = htons(STX_CONST);
-    h.iLength     = htonl(payload_len);
-    h.stMsgId     = *ids;            /* 1-byte fields */
-    h.chSubModule = submodule;
-    h.nCmd        = htons(nCmd);
+    stFrameHeader.unStx             = htons(STX_CONST);
+    stFrameHeader.iDataLength       = htonl(iDataLength);
+    stFrameHeader.stMsgId.uchSrcId  = pstMsgId->uchSrcId;
+    stFrameHeader.stMsgId.uchDstId  = pstMsgId->uchDstId;
+    stFrameHeader.uchSubModule      = uchSubModule;
+    stFrameHeader.unCmd             = htons(unCmd);
 
-    t.chCrc       = proto_crc8_xor((const uint8_t*)payload, (size_t)payload_len);
-    t.unEtx       = htons(ETX_CONST);
+    stFrameTail.uchCrc              = proto_crc8_xor((const uint8_t*)pvPayload, (size_t)iDataLength);
+    stFrameTail.unEtx               = htons(ETX_CONST);
 
-    bufferevent_write(bev, &h, sizeof(h));
-    if (payload_len > 0 && payload) bufferevent_write(bev, payload, payload_len);
-    bufferevent_write(bev, &t, sizeof(t));
+    bufferevent_write(pstBufferEvent, &stFrameHeader, sizeof(stFrameHeader));
+    if (iDataLength > 0 && pvPayload)
+        bufferevent_write(pstBufferEvent, pvPayload, iDataLength);
+    bufferevent_write(pstBufferEvent, &stFrameTail, sizeof(stFrameTail));
 }
 
 /* Handlers */

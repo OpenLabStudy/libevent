@@ -23,7 +23,7 @@
 
 /* === Per-connection context === */
 typedef struct {
-    struct bufferevent *pstBufEvent;
+    struct bufferevent *pstBufferEvent;
     struct event       *pstBitEventTimer;     /* 주기 BIT 타이머 (EV_PERSIST) */
     char                achTcpIpInfo[INET6_ADDRSTRLEN];
     short               unTcpPort;
@@ -43,26 +43,27 @@ static void runBitNow(TCP_CTX* pstTcpCtx);
 static void tcpCloseAndFree(TCP_CTX* pstTcpCtx);
 
 
-static void sendTcpFrame(struct bufferevent* pstBufEvent, int16_t nCmd,
-                       const MSG_ID* pstMsgId, char chSubmodule,
-                       const void* pvPayload, int32_t iPayloadLen)
+static void sendTcpFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
+                       const MSG_ID* pstMsgId, unsigned char uchSubModule,
+                       const void* pvPayload, int iDataLength)
 {
-    FRAME_HEADER h;
-    FRAME_TAIL   t;
+    FRAME_HEADER stFrameHeader;
+    FRAME_TAIL   stFrameTail;
 
-    h.unStx       = htons(STX_CONST);
-    h.iLength     = htonl(iPayloadLen);
-    h.stMsgId     = *pstMsgId;            /* 1-byte fields */
-    h.chSubModule = chSubmodule;
-    h.nCmd        = htons(nCmd);
+    stFrameHeader.unStx             = htons(STX_CONST);
+    stFrameHeader.iDataLength       = htonl(iDataLength);
+    stFrameHeader.stMsgId.uchSrcId  = pstMsgId->uchSrcId;
+    stFrameHeader.stMsgId.uchDstId  = pstMsgId->uchDstId;
+    stFrameHeader.uchSubModule      = uchSubModule;
+    stFrameHeader.unCmd             = htons(unCmd);
 
-    t.chCrc       = proto_crc8_xor((const uint8_t*)pvPayload, (size_t)iPayloadLen);
-    t.unEtx       = htons(ETX_CONST);
+    stFrameTail.uchCrc              = proto_crc8_xor((const uint8_t*)pvPayload, (size_t)iDataLength);
+    stFrameTail.unEtx               = htons(ETX_CONST);
 
-    bufferevent_write(pstBufEvent, &h, sizeof(h));
-    if (iPayloadLen > 0 && pvPayload) 
-        bufferevent_write(pstBufEvent, pvPayload, iPayloadLen);
-    bufferevent_write(pstBufEvent, &t, sizeof(t));
+    bufferevent_write(pstBufferEvent, &stFrameHeader, sizeof(stFrameHeader));
+    if (iDataLength > 0 && pvPayload)
+        bufferevent_write(pstBufferEvent, pvPayload, iDataLength);
+    bufferevent_write(pstBufferEvent, &stFrameTail, sizeof(stFrameTail));
 }
 
 /* Handlers */
@@ -70,59 +71,57 @@ static void handle_keepalive(TCP_CTX* pstTcpCtx, const MSG_ID* pstMsgId, const R
     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)req;
     RES_KEEP_ALIVE res = { .chResult = 1 };
-    sendTcpFrame(pstTcpCtx->pstBufEvent, CMD_KEEP_ALIVE, pstMsgId, 0, &res, (int32_t)sizeof(res));
+    sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_KEEP_ALIVE, pstMsgId, 0, &res, (int32_t)sizeof(res));
 }
 static void handle_ibit(TCP_CTX* pstTcpCtx, const MSG_ID* pstMsgId, const REQ_IBIT* req) {
     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)req; /* 여기선 받은 값과 무관하게 정상 응답 */
     RES_IBIT res = { .chBitTotResult = 1, .chPositionResult = 0 };
-    sendTcpFrame(pstTcpCtx->pstBufEvent, CMD_IBIT, pstMsgId, 0, &res, (int32_t)sizeof(res));
+    sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_IBIT, pstMsgId, 0, &res, (int32_t)sizeof(res));
 }
 
 /* Try to consume exactly one frame; return 1 consumed, 0 need more, -1 fatal */
-static int try_consume_one_frame(struct evbuffer* pstEventBuffer, TCP_CTX* pstTcpCtx) {
-    if (evbuffer_get_length(pstEventBuffer) < sizeof(FRAME_HEADER))
+static int try_consume_one_frame(struct evbuffer* pstEvBuffer, TCP_CTX* pstTcpCtx) {
+    if (evbuffer_get_length(pstEvBuffer) < sizeof(FRAME_HEADER))
         return 0;
 
-    FRAME_HEADER h;
-    if (evbuffer_copyout(pstEventBuffer, &h, sizeof(h)) != (ssize_t)sizeof(h))
+    FRAME_HEADER stFrameHeader;
+    if (evbuffer_copyout(pstEvBuffer, &stFrameHeader, sizeof(stFrameHeader)) != (ssize_t)sizeof(stFrameHeader))
         return 0;
 
-    uint16_t stx  = ntohs(h.unStx);
-    int32_t  plen = ntohl(h.iLength);
-    int16_t  cmd  = ntohs(h.nCmd);
-    MSG_ID   ids  = h.stMsgId;
-    /* char sub = h.chSubModule; // 필요시 사용 */
+    unsigned short  unStx   = ntohs(stFrameHeader.unStx);
+    int iDataLength = ntohl(stFrameHeader.iDataLength);
+    unsigned short  unCmd  = ntohs(stFrameHeader.unCmd);
+    MSG_ID stMsgId;
+    stMsgId.uchSrcId = stFrameHeader.stMsgId.uchSrcId;
+    stMsgId.uchDstId = stFrameHeader.stMsgId.uchDstId;
 
-    if (stx != STX_CONST) {
+    if (unStx != STX_CONST || iDataLength < 0 || iDataLength > (int32_t)MAX_PAYLOAD) {
         fprintf(stderr,"[%s:%u] Bad STX\n", pstTcpCtx->achTcpIpInfo, pstTcpCtx->unTcpPort);
         return -1;
     }
-    if (plen < 0 || plen > (int32_t)MAX_PAYLOAD) {
-        fprintf(stderr,"[%s:%u] Bad length=%d\n", pstTcpCtx->achTcpIpInfo, pstTcpCtx->unTcpPort, plen);
+    
+    int iNeedSize = sizeof(FRAME_HEADER) + (size_t)iDataLength + sizeof(FRAME_TAIL);
+    if (evbuffer_get_length(pstEvBuffer) < iNeedSize){
         return -1;
     }
 
-    size_t need = sizeof(FRAME_HEADER) + (size_t)plen + sizeof(FRAME_TAIL);
-    if (evbuffer_get_length(pstEventBuffer) < need)
-        return 0;
-
     /* pop header */
-    evbuffer_drain(pstEventBuffer, sizeof(FRAME_HEADER));
+    evbuffer_drain(pstEvBuffer, sizeof(FRAME_HEADER));
 
     uint8_t* payload = NULL;
     if (plen > 0) {
         payload = (uint8_t*)malloc((size_t)plen);
         if (!payload) 
             return -1;
-        if (evbuffer_remove(pstEventBuffer, payload, (size_t)plen) != (ssize_t)plen) {
+        if (evbuffer_remove(pstEvBuffer, payload, (size_t)plen) != (ssize_t)plen) {
             free(payload); 
             return -1;
         }
     }
 
     FRAME_TAIL t;
-    if (evbuffer_remove(pstEventBuffer, &t, sizeof(t)) != (ssize_t)sizeof(t)) { 
+    if (evbuffer_remove(pstEvBuffer, &t, sizeof(t)) != (ssize_t)sizeof(t)) { 
         free(payload);
         return -1; 
     }
@@ -149,7 +148,7 @@ static int try_consume_one_frame(struct evbuffer* pstEventBuffer, TCP_CTX* pstTc
                 handle_keepalive(pstTcpCtx, &ids, &req);
             } else {
                 /* 잘못된 길이: 빈 응답 */
-                sendTcpFrame(pstTcpCtx->pstBufEvent, CMD_KEEP_ALIVE, &ids, 0, NULL, 0);
+                sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_KEEP_ALIVE, &ids, 0, NULL, 0);
             }
             break;
         }
@@ -158,13 +157,13 @@ static int try_consume_one_frame(struct evbuffer* pstEventBuffer, TCP_CTX* pstTc
                 REQ_IBIT req; memcpy(&req, payload, sizeof(req));
                 handle_ibit(pstTcpCtx, &ids, &req);
             } else {
-                sendTcpFrame(pstTcpCtx->pstBufEvent, CMD_IBIT, &ids, 0, NULL, 0);
+                sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_IBIT, &ids, 0, NULL, 0);
             }
             break;
         }
         default:
             /* 알 수 없는 명령: 빈 payload 응답 */
-            sendTcpFrame(pstTcpCtx->pstBufEvent, cmd, &ids, 0, NULL, 0);
+            sendTcpFrame(pstTcpCtx->pstBufferEvent, cmd, &ids, 0, NULL, 0);
             break;
     }
 
@@ -184,10 +183,10 @@ static int try_consume_one_frame(struct evbuffer* pstEventBuffer, TCP_CTX* pstTc
 
 
 /* === Read: 완전한 프레임 단위로 파싱/디스패치 === */
-static void tcpReadCb(struct bufferevent *pstBufEvent, void *pvData)
+static void tcpReadCb(struct bufferevent *pstBufferEvent, void *pvData)
 {
     TCP_CTX* pstTcpCtx = (TCP_CTX*)pvData;
-    struct evbuffer *pstEventBuffer = bufferevent_get_input(pstBufEvent);    
+    struct evbuffer *pstEventBuffer = bufferevent_get_input(pstBufferEvent);    
 
     for (;;) {
         int r = try_consume_one_frame(pstEventBuffer, pstTcpCtx);
@@ -200,18 +199,11 @@ static void tcpReadCb(struct bufferevent *pstBufEvent, void *pvData)
     }
 }
 
-/* === Write: 현재 별도 동작 없음 === */
-static void tcpWriteCb(struct bufferevent *pstBufEvent, void *pvData)
-{
-    (void)pstBufEvent;//컴파일에게 일부러 사용하지 않음을 알리기 위함
-    (void)pvData;
-}
-
 /* === Event: EOF/ERROR 처리 === */
-static void tcpEventCb(struct bufferevent *pstBufEvent, short nEvents, void *pvData)
+static void tcpEventCb(struct bufferevent *pstBufferEvent, short nEvents, void *pvData)
 {
     TCP_CTX* pstTcpCtx = (TCP_CTX*)pvData;
-    (void)pstBufEvent;
+    (void)pstBufferEvent;
     if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
         tcpCloseAndFree(pstTcpCtx);
     }
@@ -254,7 +246,7 @@ static void runBitNow(TCP_CTX* pstTcpCtx)
     /* 서버-initiated 푸시: ids는 임의(여기서는 1/1) */
     MSG_ID ids = { .chSrcId = 1, .chDstId = 1 };
     RES_IBIT res = { .chBitTotResult = 1, .chPositionResult = 0 };
-    sendTcpFrame(pstTcpCtx->pstBufEvent, CMD_IBIT, &ids, 0, &res, (int32_t)sizeof(res));
+    sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_IBIT, &ids, 0, &res, (int32_t)sizeof(res));
 }
 
 /* === Listener: accept → ConnCtx 생성/설정 === */
@@ -265,18 +257,18 @@ static void listenerCb(struct evconnlistener *listener, evutil_socket_t fd,
     (void)listener;
     (void)socklen;
 
-    struct bufferevent *pstBufEvent = bufferevent_socket_new(pstEventBase, fd, BEV_OPT_CLOSE_ON_FREE);
-    if (!pstBufEvent) { 
+    struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, fd, BEV_OPT_CLOSE_ON_FREE);
+    if (!pstBufferEvent) { 
         event_base_loopbreak(pstEventBase);
         return;
     }
 
     TCP_CTX* pstTcpCtx = (TCP_CTX*)calloc(1, sizeof(TCP_CTX));
     if (!pstTcpCtx) { 
-        bufferevent_free(pstBufEvent);
+        bufferevent_free(pstBufferEvent);
         return;
     }
-    pstTcpCtx->pstBufEvent = pstBufEvent;
+    pstTcpCtx->pstBufferEvent = pstBufferEvent;
     pstTcpCtx->iCmdState = 0;
     pstTcpCtx->iBitPending = 0;
 
@@ -297,9 +289,9 @@ static void listenerCb(struct evconnlistener *listener, evutil_socket_t fd,
     pstTcpCtx->unTcpPort = unTcpPort;
     
     /* 콜백/옵션 */
-    bufferevent_setcb(pstBufEvent, tcpReadCb, tcpWriteCb, tcpEventCb, pstTcpCtx);
-    bufferevent_enable(pstBufEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(pstBufEvent, EV_READ, 0, READ_HIGH_WM);
+    bufferevent_setcb(pstBufferEvent, tcpReadCb, tcpWriteCb, tcpEventCb, pstTcpCtx);
+    bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(pstBufferEvent, EV_READ, 0, READ_HIGH_WM);
 
     /* 주기 IBIT 타이머 (예: 60초) */
     struct timeval interval = {60, 0};
@@ -318,9 +310,9 @@ static void tcpCloseAndFree(TCP_CTX* pstTcpCtx)
         event_free(pstTcpCtx->pstBitEventTimer);
         pstTcpCtx->pstBitEventTimer=NULL;
     }
-    if (pstTcpCtx->pstBufEvent) {
-        bufferevent_free(pstTcpCtx->pstBufEvent);
-        pstTcpCtx->pstBufEvent=NULL;
+    if (pstTcpCtx->pstBufferEvent) {
+        bufferevent_free(pstTcpCtx->pstBufferEvent);
+        pstTcpCtx->pstBufferEvent=NULL;
     }
     free(pstTcpCtx);
 }
