@@ -154,8 +154,10 @@ static void requestCb(evutil_socket_t fd, short ev, void* pvData) {
 /* === 프레임 하나 파싱 & 응답 처리 ===
  * return: 1 consumed, 0 need more, -1 fatal
  */
-static int try_consume_one_frame(struct evbuffer* pstEvBuffer, TCP_SERVER_CTX* pstTcpCtx) {
-    if (evbuffer_get_length(pstEvBuffer) < sizeof(FRAME_HEADER))
+static int try_consume_one_frame(struct evbuffer* pstEvBuffer, TCP_SERVER_CTX* pstTcpCtx) {    
+    int iLength = evbuffer_get_length(pstEvBuffer);
+    fprintf(stderr,"### %s():%d Recv Data Length is %d\n", __func__, __LINE__, iLength);
+    if (iLength < sizeof(FRAME_HEADER))
         return 0;
 
     FRAME_HEADER stFrameHeader;
@@ -204,7 +206,7 @@ static int try_consume_one_frame(struct evbuffer* pstEvBuffer, TCP_SERVER_CTX* p
     /* === 응답 처리 ===
        - 기본 가정: 요청 CMD와 응답 CMD가 동일
     */
-    if (pstTcpCtx->iReqBusy) {
+    if (!pstTcpCtx->iReqBusy) {
         /* 명령별 응답 후크 (필요시 바꾸기) */
         switch (unCmd) {
             case CMD_REQ_ID: {
@@ -253,8 +255,8 @@ static int try_consume_one_frame(struct evbuffer* pstEvBuffer, TCP_SERVER_CTX* p
     }
 
     /* 진행 중 요청이 없거나, 예상 외 프레임이면: (상대 push일 수 있음) */
-    fprintf(stderr, "[SockFd=%d] Unexpected frame cmd=%d len=%d (no pending req or mismatched)\n",
-            pstTcpCtx->iSockFd, unCmd, iDataLength);
+    fprintf(stderr, "[SockFd=%d] Unexpected frame cmd=%d len=%d status=%d(no pending req or mismatched)\n",
+            pstTcpCtx->iSockFd, unCmd, iDataLength, pstTcpCtx->iReqBusy);
     free(uchPayload);
     return 1;
 }
@@ -359,7 +361,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    /* UDS 주소 준비 */
+    /* TCP 주소 준비 */
     struct sockaddr_in stSocketIn;
     stSocketIn.sin_family = AF_INET;
     stSocketIn.sin_port   = htons((unsigned short)DEFAULT_PORT);
