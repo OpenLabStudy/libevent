@@ -93,7 +93,7 @@ static void sendTcpFrame(struct bufferevent* pstBufferEvent, unsigned short unCm
 {
     FRAME_HEADER stFrameHeader;
     FRAME_TAIL   stFrameTail;
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     stFrameHeader.unStx             = htons(STX_CONST);
     stFrameHeader.iDataLength       = htonl(iDataLength);
     stFrameHeader.stMsgId.uchSrcId  = pstMsgId->uchSrcId;

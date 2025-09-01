@@ -1,6 +1,9 @@
 {
     "files.associations": {
         "bufferevent.h": "c",
-        "buffer.h": "c"
+        "buffer.h": "c",
+        "frame.h": "c",
+        "stdio.h": "c",
+        "un.h": "c"
     }
 }

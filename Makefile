@@ -1,7 +1,7 @@
 CFLAGS  = -Wall -O2
 LDFLAGS = -levent
 
-all:   tcpServer tcpClient udsServer udsClient
+all:   tcpServer tcpClient udsServer udsClient tcpSvr tcpCln
 
 eventServer: eventServer.c protocol.h
 	$(CC) $(CFLAGS) -o $@ eventServer.c $(LDFLAGS)
@@ -23,6 +23,12 @@ udsServer: udsServer.c protocol.h
 
 udsClient: udsClient.c protocol.h
 	$(CC) $(CFLAGS) -o $@ udsClient.c $(LDFLAGS)
+
+tcpSvr: tcpSvr.c frame.h icdCommand.h frame-io.c frame-io.c
+	$(CC) $(CFLAGS) -o $@ tcpSvr.c frame-io.c $(LDFLAGS)
+
+tcpCln: tcpCln.c frame.h icdCommand.h frame-io.c frame-io.c
+	$(CC) $(CFLAGS) -o $@ tcpCln.c frame-io.c $(LDFLAGS)	
 
 clean:
 	rm -f eventServer eventClient trackingCtrlApp udsServer udsClient tcpServer tcpClient

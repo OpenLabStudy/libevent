@@ -53,137 +53,6 @@
  static void tcpEventCb(struct bufferevent*, short, void*);
  static void stdInCb(evutil_socket_t, short, void*);
  
- /* === 프레임 송신 === */
- static void sendTcpFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
-                        const MSG_ID* pstMsgId, unsigned char uchSubModule,
-                        const void* pvPayload, int iDataLength)
- {
-     FRAME_HEADER stFrameHeader;
-     FRAME_TAIL   stFrameTail;
- 
-     stFrameHeader.unStx             = htons(STX_CONST);
-     stFrameHeader.iDataLength       = htonl(iDataLength);
-     stFrameHeader.stMsgId.uchSrcId  = pstMsgId->uchSrcId;
-     stFrameHeader.stMsgId.uchDstId  = pstMsgId->uchDstId;
-     stFrameHeader.uchSubModule      = uchSubModule;
-     stFrameHeader.unCmd             = htons(unCmd);
- 
-     stFrameTail.uchCrc              = proto_crc8_xor((const uint8_t*)pvPayload, (size_t)iDataLength);
-     stFrameTail.unEtx               = htons(ETX_CONST);
- 
-     bufferevent_write(pstBufferEvent, &stFrameHeader, sizeof(stFrameHeader));
-     if (iDataLength > 0 && pvPayload)
-         bufferevent_write(pstBufferEvent, pvPayload, iDataLength);
-     bufferevent_write(pstBufferEvent, &stFrameTail, sizeof(stFrameTail));
-     fprintf(stderr,"client send %d\n", iDataLength + sizeof(stFrameHeader) + sizeof(stFrameTail));
- }
- 
- /* === 프레임 하나 파싱 및 처리 ===
-  * return: 1 consumed, 0 need more, -1 fatal
-  */
- static int try_consume_one_frame(struct evbuffer* pstEventBuffer, TCP_CLIENT_CTX* pstTcpCtx)
- {
-     if (evbuffer_get_length(pstEventBuffer) < sizeof(FRAME_HEADER))
-         return 0;
- 
-     FRAME_HEADER stFrameHeader;
-     if (evbuffer_copyout(pstEventBuffer, &stFrameHeader, sizeof(stFrameHeader)) != (ssize_t)sizeof(stFrameHeader))
-         return 0;
- 
-     unsigned short  unStx   = ntohs(stFrameHeader.unStx);
-     int iDataLength = ntohl(stFrameHeader.iDataLength);
-     unsigned short  unCmd  = ntohs(stFrameHeader.unCmd);
-     MSG_ID stMsgId  = stFrameHeader.stMsgId;
- 
-     if (unStx != STX_CONST || iDataLength < 0 || iDataLength > (int32_t)MAX_PAYLOAD)
-         return -1;
- 
-     int iNeedSize = sizeof(FRAME_HEADER) + (size_t)iDataLength + sizeof(FRAME_TAIL);
-     if (evbuffer_get_length(pstEventBuffer) < iNeedSize)
-         return 0;
- 
-     /* HEADER 소비 */
-     evbuffer_drain(pstEventBuffer, sizeof(FRAME_HEADER));
- 
-     /* PAYLOAD */
-     unsigned char* puchPayload = NULL;
-     if (iDataLength > 0) {
-         puchPayload = (uint8_t*)malloc((size_t)iDataLength);
-         if (!puchPayload) 
-             return -1;
-         if (evbuffer_remove(pstEventBuffer, puchPayload, (size_t)iDataLength) != (ssize_t)iDataLength) {
-             free(puchPayload);
-             return -1;
-         }
-     }
- 
-     /* TAIL */
-     FRAME_TAIL stFrameTail;
-     if (evbuffer_remove(pstEventBuffer, &stFrameTail, sizeof(stFrameTail)) != (ssize_t)sizeof(stFrameTail)) {
-         free(puchPayload);
-         return -1;
-     }
- 
-     unsigned char uchCrc = (iDataLength > 0) ? proto_crc8_xor(puchPayload, (size_t)iDataLength) : proto_crc8_xor((const uint8_t*)"", 0);
-     if (ntohs(stFrameTail.unEtx) != ETX_CONST || uchCrc != (uint8_t)stFrameTail.uchCrc) {
-         fprintf(stderr, "[CLIENT] CRC/ETX mismatch\n");
-         free(puchPayload);
-         return -1;
-     }
- 
-     /* === 요청 처리: 서버가 보낸 REQ에 대해 RES 회신 === */
-     /* 응답 MSG_ID는 통상 src/dst를 스왑하는 편이 자연스럽다 */
-     MSG_ID stResMsgId = { .uchSrcId = pstTcpCtx->uchMyId, .uchDstId = stMsgId.uchSrcId };
- 
-     switch (unCmd) {
-     case CMD_REQ_ID: {
-         /* 요청 payload 검사 (옵션) */
-         if ((int)sizeof(REQ_ID) == iDataLength) {
-             const REQ_ID* pstReqId = (const REQ_ID*)puchPayload;
-             (void)pstReqId; /* 필요 시 사용 */
-         }
-         RES_ID stResId = {0};
-         /* 예: 0=OK 로 가정 */
-         stResId.chResult = pstTcpCtx->uchMyId;
-         sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_REQ_ID, &stResMsgId, 0, &stResId, (int32_t)sizeof(stResId));
-         fprintf(stderr, "[CLIENT] RES ID sent\n");
-         break;
-     }
-     case CMD_KEEP_ALIVE: {
-         /* 요청 payload 검사 (옵션) */
-         if ((int32_t)sizeof(REQ_KEEP_ALIVE) == iDataLength) {
-             const REQ_KEEP_ALIVE* pstReqKeepAlive = (const REQ_KEEP_ALIVE*)puchPayload;
-             (void)pstReqKeepAlive; /* 필요 시 사용 */
-         }
-         RES_KEEP_ALIVE stResKeepAlive = {0};
-         /* 예: 0=OK 로 가정 */
-         stResKeepAlive.chResult = 0;
-         sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_KEEP_ALIVE, &stResMsgId, 0, &stResKeepAlive, (int32_t)sizeof(stResKeepAlive));
-         fprintf(stderr, "[CLIENT] RES KEEP_ALIVE sent\n");
-         break;
-     }
-     case CMD_IBIT: {
-         if ((int32_t)sizeof(REQ_IBIT) == iDataLength) {
-             const REQ_IBIT* pstReqIbit = (const REQ_IBIT*)puchPayload;
-             (void)pstReqIbit; /* 필요 시 세부옵션 참고 */
-         }
-         RES_IBIT stResIbit = {0};
-         /* 예: 0=OK 가정, 위치 결과도 0(정상) */
-         stResIbit.chBitTotResult   = 0;
-         stResIbit.chPositionResult = 0;
-         sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_IBIT, &stResMsgId, 0, &stResIbit, (int32_t)sizeof(stResIbit));
-         fprintf(stderr, "[CLIENT] RES IBIT sent\n");
-         break;
-     }
-     default:
-         /* 알 수 없는 요청 → 빈 응답이나 무시 (정책에 따라) */
-         fprintf(stderr, "[CLIENT] Unknown REQ cmd=%d len=%d (ignored)\n", unCmd, iDataLength);
-         break;
-     }
- 
-     free(puchPayload);
-     return 1;
- }
  
  /* === Libevent 콜백 === */
  static void tcpReadCb(struct bufferevent* pstBufferEvent, void* pvData)
@@ -191,9 +60,12 @@
      (void)pstBufferEvent;
      TCP_CLIENT_CTX* pstTcpCtx = (TCP_CLIENT_CTX*)pvData;
      struct evbuffer* pstEvBuffer = bufferevent_get_input(pstTcpCtx->pstBufferEvent);
+     MSG_ID stMsgId;
+    stMsgId.uchSrcId = pstTcpCtx->uchMyId;
+    stMsgId.uchDstId = 0x00;
     fprintf(stderr,"### %s():%d ###", __func__, __LINE__);
      for (;;) {
-         int r = try_consume_one_frame(pstEvBuffer, pstTcpCtx);
+         int r = responseFrame(pstEvBuffer, pstTcpCtx->pstBufferEvent, &stMsgId, 0x00);
          if (r == 0) break;
          if (r < 0) {
              fprintf(stderr, "[CLIENT] fatal parse error -> closing\n");
@@ -204,6 +76,8 @@
          }
      }
  }
+
+
  
  static void tcpEventCb(struct bufferevent* pstBufferEvent, short nEvents, void* pvData)
  {
@@ -238,14 +112,11 @@
     }
     achStdInData[strcspn(achStdInData, "\n")] = '\0';
     if (strcmp(achStdInData, "keepalive") == 0) {
-        REQ_KEEP_ALIVE stReqKeepAlive = { .chTmp = 0 };
-        sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_KEEP_ALIVE, &stMsgId, 0, &stReqKeepAlive, (int32_t)sizeof(stReqKeepAlive));
+        requestFrame(pstTcpCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);
         printf("client: sent KEEP_ALIVE\n");
     } else if (strcmp(achStdInData, "ibit") == 0) {        
-        int v = atoi(achStdInData+5);
-        REQ_IBIT stReqIbit = { .chIbit = (char)v };
-        sendTcpFrame(pstTcpCtx->pstBufferEvent, CMD_IBIT, &stMsgId, 0, &stReqIbit, (int32_t)sizeof(stReqIbit));
-        printf("client: sent IBIT(%d)\n", v);
+        requestFrame(pstTcpCtx->pstBufferEvent, &stMsgId, CMD_IBIT);
+        printf("client: sent IBIT\n");
     } else if (!strcmp(achStdInData, "quit") || !strcmp(achStdInData, "exit")) {
         event_base_loopexit(pstTcpCtx->pstEventBase, NULL);
     } else {
