@@ -16,109 +16,42 @@
  *   - uint8_t proto_crc8_xor(const uint8_t* buf, size_t len)
  */
 
- #include <stdio.h>
- #include <stdlib.h>
- #include <stdint.h>
- #include <string.h>
- #include <errno.h>
- #include <signal.h>
- 
- #include <sys/types.h>
- #include <sys/socket.h>
- #include <sys/un.h>
- #include <unistd.h>
- #include <stddef.h> /* offsetof */
- 
- #include <event2/event.h>
- #include <event2/buffer.h>
- #include <event2/bufferevent.h>
- #include <event2/util.h>
- 
- #include "protocol.h"
- 
- /* 서버 코드와 일치시키기 */
- #define DEFAULT_PORT       9995
- #define READ_HIGH_WM       (1u * 1024u * 1024u)   /* 1MB */
- #define MAX_PAYLOAD        (4u * 1024u * 1024u)   /* 4MB */
- 
- typedef struct {
-    struct event_base   *pstEventBase;
-    struct bufferevent  *pstBufferEvent;
-    struct event        *pstEventStdIn;
-    unsigned char       uchMyId;
- } TCP_CLIENT_CTX;
- 
- /* === 전방 선언 === */
- static void tcpReadCb(struct bufferevent*, void*);
- static void tcpEventCb(struct bufferevent*, short, void*);
- static void stdInCb(evutil_socket_t, short, void*);
- 
- 
- /* === Libevent 콜백 === */
- static void tcpReadCb(struct bufferevent* pstBufferEvent, void* pvData)
- {
-     (void)pstBufferEvent;
-     TCP_CLIENT_CTX* pstTcpCtx = (TCP_CLIENT_CTX*)pvData;
-     struct evbuffer* pstEvBuffer = bufferevent_get_input(pstTcpCtx->pstBufferEvent);
-     MSG_ID stMsgId;
-    stMsgId.uchSrcId = pstTcpCtx->uchMyId;
-    stMsgId.uchDstId = 0x00;
-    fprintf(stderr,"### %s():%d ###", __func__, __LINE__);
-     for (;;) {
-         int r = responseFrame(pstEvBuffer, pstTcpCtx->pstBufferEvent, &stMsgId, 0x00);
-         if (r == 0) break;
-         if (r < 0) {
-             fprintf(stderr, "[CLIENT] fatal parse error -> closing\n");
-             bufferevent_free(pstTcpCtx->pstBufferEvent);
-             pstTcpCtx->pstBufferEvent = NULL;
-             event_base_loopexit(pstTcpCtx->pstEventBase, NULL);
-             return;
-         }
-     }
- }
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <errno.h>
+#include <signal.h>
 
+#include <unistd.h>
+#include <stddef.h>     /* offsetof */
 
- 
- static void tcpEventCb(struct bufferevent* pstBufferEvent, short nEvents, void* pvData)
- {
-     TCP_CLIENT_CTX* pstTcpCtx = (TCP_CLIENT_CTX*)pvData;
-     if (nEvents & BEV_EVENT_CONNECTED) {
-         fprintf(stderr, "[CLIENT] connected\n");
-         fprintf(stderr, "keepalive\n");
-         fprintf(stderr, "ibit\n");
-         fprintf(stderr, "quit\n");
-     }
-
-     if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-         fprintf(stderr, "[CLIENT] disconnected\n");
-         if (pstTcpCtx->pstBufferEvent) { 
-             bufferevent_free(pstTcpCtx->pstBufferEvent); 
-             pstTcpCtx->pstBufferEvent = NULL; 
-         }
-         event_base_loopexit(pstTcpCtx->pstEventBase, NULL);
-     }
- }
+#include "frame.h"
+#include "tcpSession.h"
+#include "icdCommand.h"
  
  static void stdInCb(evutil_socket_t sig, short nEvents, void* pvData)
  {
     (void)sig;
-    (void)nEvents;    
-    TCP_CLIENT_CTX* pstTcpCtx = (TCP_CLIENT_CTX*)pvData;
-    MSG_ID stMsgId = {.uchSrcId = pstTcpCtx->uchMyId, .uchDstId = 0x0};
+    (void)nEvents;
+    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+    MSG_ID stMsgId;
     char achStdInData[1024];
     if (!fgets(achStdInData, sizeof(achStdInData), stdin)) {
-        event_base_loopexit(pstTcpCtx->pstEventBase, NULL);
+        event_base_loopexit(pstEventCtx->pstEventBase, NULL);
         return;
     }
+    stMsgId.uchSrcId = pstEventCtx->pstTcpCtx->uchSrcId;
+    stMsgId.uchDstId = pstEventCtx->pstTcpCtx->uchDstId;
     achStdInData[strcspn(achStdInData, "\n")] = '\0';
     if (strcmp(achStdInData, "keepalive") == 0) {
-        requestFrame(pstTcpCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);
         printf("client: sent KEEP_ALIVE\n");
+        requestFrame(pstEventCtx->pstTcpCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);        
     } else if (strcmp(achStdInData, "ibit") == 0) {        
-        requestFrame(pstTcpCtx->pstBufferEvent, &stMsgId, CMD_IBIT);
         printf("client: sent IBIT\n");
+        requestFrame(pstEventCtx->pstTcpCtx->pstBufferEvent, &stMsgId, CMD_IBIT);        
     } else if (!strcmp(achStdInData, "quit") || !strcmp(achStdInData, "exit")) {
-        event_base_loopexit(pstTcpCtx->pstEventBase, NULL);
+        event_base_loopexit(pstEventCtx->pstEventBase, NULL);
     } else {
         printf("usage:\n  echo <text>\n  keepalive\n  ibit <n>\n  quit\n");
     }
@@ -127,70 +60,70 @@
  /* === main === */
  int main(int argc, char** argv)
  {
-    const char *pchHostAddr = (argc > 1) ? argv[1] : "127.0.0.1";
-    unsigned short unPort = (argc > 2) ? (unsigned short)atoi(argv[2]) : DEFAULT_PORT;
-    TCP_CLIENT_CTX stTcpCtx;
-    memset(&stTcpCtx, 0, sizeof(stTcpCtx));
-    stTcpCtx.uchMyId = 0x08;
+    const char *chHost = "127.0.0.1";
+    EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
     
-
     signal(SIGPIPE, SIG_IGN);
-    stTcpCtx.pstEventBase = event_base_new();
-    if (!stTcpCtx.pstEventBase) {
-        fprintf(stderr, "Could not init libevent\n");
+    stEventCtx.pstEventBase = event_base_new();
+    if (!stEventCtx.pstEventBase) {
+        fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
 
-    /* 소켓 주소 준비 */
+    /* TCP 주소 준비 */
     struct sockaddr_in stSocketIn;
+    memset(&stSocketIn,0,sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port = htons(unPort);
-    if (inet_pton(AF_INET, pchHostAddr, &stSocketIn.sin_addr) != 1) {
+    stSocketIn.sin_port   = htons((unsigned short)DEFAULT_PORT);
+    if (inet_pton(AF_INET, chHost, &stSocketIn.sin_addr) != 1) {
         fprintf(stderr,"Bad host\n");
-        event_base_free(stTcpCtx.pstEventBase);
+        event_base_free(stEventCtx.pstEventBase);        
         return 1;
     }
 
-    /* bufferevent + connect */
-    stTcpCtx.pstBufferEvent = bufferevent_socket_new(stTcpCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
-    if (!stTcpCtx.pstBufferEvent) {
-        fprintf(stderr, "Could not create bufferevent\n");
-        event_base_free(stTcpCtx.pstEventBase);
+    stEventCtx.pstTcpCtx = (TCP_CONTEXT*)calloc(1, sizeof(TCP_CONTEXT));
+    if (!stEventCtx.pstTcpCtx) { 
+        event_base_free(stEventCtx.pstEventBase);
+        return; 
+    }
+    stEventCtx.pstTcpCtx->uchIsRespone = 0x00;
+
+    stEventCtx.pstTcpCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
+    if (!stEventCtx.pstTcpCtx->pstBufferEvent){
+        free(stEventCtx.pstTcpCtx);
+        event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-
-    bufferevent_setcb(stTcpCtx.pstBufferEvent, tcpReadCb, NULL, tcpEventCb, &stTcpCtx);
-    bufferevent_enable(stTcpCtx.pstBufferEvent, EV_READ | EV_WRITE);
-    bufferevent_setwatermark(stTcpCtx.pstBufferEvent, EV_READ, 0, READ_HIGH_WM);
-
-    if (bufferevent_socket_connect(stTcpCtx.pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
+    bufferevent_setcb(stEventCtx.pstTcpCtx->pstBufferEvent, tcpReadCb, NULL, tcpEventCb, stEventCtx.pstTcpCtx);
+    bufferevent_enable(stEventCtx.pstTcpCtx->pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(stEventCtx.pstTcpCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
+    if (bufferevent_socket_connect(stEventCtx.pstTcpCtx->pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
         fprintf(stderr, "Connect failed: %s\n", strerror(errno));
-        bufferevent_free(stTcpCtx.pstBufferEvent);
-        event_base_free(stTcpCtx.pstEventBase);
+        bufferevent_free(stEventCtx.pstTcpCtx->pstBufferEvent);
+        event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
 
     /* STDIN Event 처리 */
-    stTcpCtx.pstEventStdIn = event_new(stTcpCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, &stTcpCtx);
-    if (!stTcpCtx.pstEventStdIn || event_add(stTcpCtx.pstEventStdIn, NULL) < 0) {
+    stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, &stEventCtx);
+    if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");
-        if (stTcpCtx.pstBufferEvent) 
-            bufferevent_free(stTcpCtx.pstBufferEvent);
-        event_base_free(stTcpCtx.pstEventBase);
+        if (stEventCtx.pstTcpCtx->pstBufferEvent) 
+            bufferevent_free(stEventCtx.pstTcpCtx->pstBufferEvent);
+        event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    fprintf(stderr,"client: connecting to %s:%u ...\n", pchHostAddr, unPort);
+    fprintf(stderr,"client: connecting to %s:%u ...\n", chHost, DEFAULT_PORT);
+    event_base_dispatch(stEventCtx.pstEventBase);
 
-    event_base_dispatch(stTcpCtx.pstEventBase);
+    if (stEventCtx.pstEvent) 
+        event_free(stEventCtx.pstEvent);
 
-    if (stTcpCtx.pstEventStdIn) 
-        event_free(stTcpCtx.pstEventStdIn);
+    if (stEventCtx.pstTcpCtx->pstBufferEvent)
+        bufferevent_free(stEventCtx.pstTcpCtx->pstBufferEvent);
 
-    if (stTcpCtx.pstBufferEvent) 
-        bufferevent_free(stTcpCtx.pstBufferEvent);
-
-    if (stTcpCtx.pstEventBase) 
-        event_base_free(stTcpCtx.pstEventBase);
+    if (stEventCtx.pstEventBase) 
+        event_base_free(stEventCtx.pstEventBase);
 
     printf("done\n");
     return 0;

@@ -86,6 +86,7 @@ int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEv
         free(uchPayload); 
         return -1;
     }
+    fprintf(stderr,"### %s():%d CMD is %02x###\n",__func__,__LINE__, unCmd);
 
     /* === 응답 처리 ===
        - 기본 가정: 요청 CMD와 응답 CMD가 동일
@@ -104,8 +105,9 @@ int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEv
             RES_KEEP_ALIVE stResKeepAlive;
             stResKeepAlive.chResult = 0x01;
             fprintf(stderr, "RES_KEEP_ALIVE : result=%d, len:%d\n", stResKeepAlive.chResult, iDataLength);
-            if(chReply)
+            if(chReply){
                 writeFrame(pstBufferEvent, CMD_KEEP_ALIVE, pstMsgId, 0, &stResKeepAlive, sizeof(RES_KEEP_ALIVE));
+            }
             break;
         }
         case CMD_IBIT: {
@@ -144,14 +146,14 @@ int requestFrame(struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, unsigned
             REQ_KEEP_ALIVE stReqKeepAlive;
             stReqKeepAlive.chTmp = 0x01;
             fprintf(stderr, "REQ_KEEP_ALIVE\n");
-            writeFrame(pstBufferEvent, CMD_REQ_ID, pstMsgId, 0, &stReqKeepAlive, sizeof(REQ_KEEP_ALIVE));
+            writeFrame(pstBufferEvent, CMD_KEEP_ALIVE, pstMsgId, 0, &stReqKeepAlive, sizeof(REQ_KEEP_ALIVE));
             break;
         }
         case CMD_IBIT: {
             REQ_IBIT stReqIbit;
             stReqIbit.chIbit = 0x01;
             fprintf(stderr, "REQ_IBIT\n");
-            writeFrame(pstBufferEvent, CMD_REQ_ID, pstMsgId, 0, &stReqIbit, sizeof(RES_IBIT));
+            writeFrame(pstBufferEvent, CMD_IBIT, pstMsgId, 0, &stReqIbit, sizeof(RES_IBIT));
             break;
         }
         default:

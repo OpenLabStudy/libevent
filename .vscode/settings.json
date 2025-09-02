@@ -4,6 +4,12 @@
         "buffer.h": "c",
         "frame.h": "c",
         "stdio.h": "c",
-        "un.h": "c"
+        "un.h": "c",
+        "listener.h": "c",
+        "stddef.h": "c",
+        "stdlib.h": "c",
+        "socket.h": "c",
+        "cmath": "c",
+        "in.h": "c"
     }
 }
