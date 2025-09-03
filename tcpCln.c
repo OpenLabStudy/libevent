@@ -27,7 +27,7 @@
 #include <stddef.h>     /* offsetof */
 
 #include "frame.h"
-#include "tcpSession.h"
+#include "sockSession.h"
 #include "icdCommand.h"
  
  static void stdInCb(evutil_socket_t sig, short nEvents, void* pvData)
@@ -41,15 +41,15 @@
         event_base_loopexit(pstEventCtx->pstEventBase, NULL);
         return;
     }
-    stMsgId.uchSrcId = pstEventCtx->pstTcpCtx->uchSrcId;
-    stMsgId.uchDstId = pstEventCtx->pstTcpCtx->uchDstId;
+    stMsgId.uchSrcId = pstEventCtx->pstSockCtx->uchSrcId;
+    stMsgId.uchDstId = pstEventCtx->pstSockCtx->uchDstId;
     achStdInData[strcspn(achStdInData, "\n")] = '\0';
     if (strcmp(achStdInData, "keepalive") == 0) {
         printf("client: sent KEEP_ALIVE\n");
-        requestFrame(pstEventCtx->pstTcpCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);        
+        requestFrame(pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);        
     } else if (strcmp(achStdInData, "ibit") == 0) {        
         printf("client: sent IBIT\n");
-        requestFrame(pstEventCtx->pstTcpCtx->pstBufferEvent, &stMsgId, CMD_IBIT);        
+        requestFrame(pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, CMD_IBIT);        
     } else if (!strcmp(achStdInData, "quit") || !strcmp(achStdInData, "exit")) {
         event_base_loopexit(pstEventCtx->pstEventBase, NULL);
     } else {
@@ -81,25 +81,26 @@
         return 1;
     }
 
-    stEventCtx.pstTcpCtx = (TCP_CONTEXT*)calloc(1, sizeof(TCP_CONTEXT));
-    if (!stEventCtx.pstTcpCtx) { 
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if (!stEventCtx.pstSockCtx) { 
         event_base_free(stEventCtx.pstEventBase);
         return; 
     }
-    stEventCtx.pstTcpCtx->uchIsRespone = 0x00;
+    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
 
-    stEventCtx.pstTcpCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
-    if (!stEventCtx.pstTcpCtx->pstBufferEvent){
-        free(stEventCtx.pstTcpCtx);
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
+    if (!stEventCtx.pstSockCtx->pstBufferEvent){
+        free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    bufferevent_setcb(stEventCtx.pstTcpCtx->pstBufferEvent, tcpReadCb, NULL, tcpEventCb, stEventCtx.pstTcpCtx);
-    bufferevent_enable(stEventCtx.pstTcpCtx->pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(stEventCtx.pstTcpCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
-    if (bufferevent_socket_connect(stEventCtx.pstTcpCtx->pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
+    
+    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, tcpReadCb, NULL, tcpEventCb, &stEventCtx);
+    bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
+    if (bufferevent_socket_connect(stEventCtx.pstSockCtx->pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
         fprintf(stderr, "Connect failed: %s\n", strerror(errno));
-        bufferevent_free(stEventCtx.pstTcpCtx->pstBufferEvent);
+        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
@@ -108,8 +109,8 @@
     stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");
-        if (stEventCtx.pstTcpCtx->pstBufferEvent) 
-            bufferevent_free(stEventCtx.pstTcpCtx->pstBufferEvent);
+        if (stEventCtx.pstSockCtx->pstBufferEvent) 
+            bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
@@ -119,8 +120,8 @@
     if (stEventCtx.pstEvent) 
         event_free(stEventCtx.pstEvent);
 
-    if (stEventCtx.pstTcpCtx->pstBufferEvent)
-        bufferevent_free(stEventCtx.pstTcpCtx->pstBufferEvent);
+    if (stEventCtx.pstSockCtx->pstBufferEvent)
+        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
 
     if (stEventCtx.pstEventBase) 
         event_base_free(stEventCtx.pstEventBase);

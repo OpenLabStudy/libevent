@@ -24,11 +24,11 @@ udsServer: udsServer.c protocol.h
 udsClient: udsClient.c protocol.h
 	$(CC) $(CFLAGS) -o $@ udsClient.c $(LDFLAGS)
 
-tcpSvr: tcpSvr.c frame.h icdCommand.h frame-io.c frame-io.c tcpSession.c tcpSession.h
-	$(CC) $(CFLAGS) -o $@ tcpSvr.c frame-io.c tcpSession.c $(LDFLAGS)
+tcpSvr: tcpSvr.c frame.h icdCommand.h frame-io.c frame-io.c sockSession.c sockSession.h
+	$(CC) $(CFLAGS) -o $@ tcpSvr.c frame-io.c sockSession.c $(LDFLAGS)
 
-tcpCln: tcpCln.c frame.h icdCommand.h frame-io.c frame-io.c  tcpSession.c tcpSession.h
-	$(CC) $(CFLAGS) -o $@ tcpCln.c frame-io.c tcpSession.c $(LDFLAGS)	
+tcpCln: tcpCln.c frame.h icdCommand.h frame-io.c frame-io.c  sockSession.c sockSession.h
+	$(CC) $(CFLAGS) -o $@ tcpCln.c frame-io.c sockSession.c $(LDFLAGS)	
 
 clean:
 	rm -f eventServer eventClient trackingCtrlApp udsServer udsClient tcpServer tcpClient tcpSvr tcpCln

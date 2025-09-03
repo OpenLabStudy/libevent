@@ -9,7 +9,7 @@
 #include <stddef.h>     /* offsetof */
 
 #include "frame.h"
-#include "tcpSession.h"
+#include "sockSession.h"
 
 /* === SIGINT: 루프 종료 및 소켓 파일 제거 === */
 static void signalCb(evutil_socket_t sig, short ev, void* pvData)

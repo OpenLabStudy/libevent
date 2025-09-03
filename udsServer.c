@@ -478,6 +478,7 @@ int main(int argc, char** argv)
         unlink(UDS_COMMAND_PATH);
         return 1;
     }
+    
     /* --- 추가: 10초 주기 KEEPALIVE 타이머 설치 --- */
     stAppCtx.pstKeepAliveTimer = evtimer_new(stAppCtx.pstEventBase, keepaliveCb, &stAppCtx);
     if (!stAppCtx.pstKeepAliveTimer) {
