@@ -60,9 +60,18 @@
  /* === main === */
  int main(int argc, char** argv)
  {
-    const char *chHost = "127.0.0.1";
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if (!stEventCtx.pstSockCtx) { 
+        event_base_free(stEventCtx.pstEventBase);
+        return; 
+    }
+
+    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
+    stEventCtx.pstSockCtx->unPort = (unsigned short)DEFAULT_PORT;
+    memset(stEventCtx.pstSockCtx->achSockAddr, 0x0, sizeof(stEventCtx.pstSockCtx->achSockAddr));
+    strcpy(stEventCtx.pstSockCtx->achSockAddr, "127.0.0.1");
+
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
@@ -74,19 +83,12 @@
     struct sockaddr_in stSocketIn;
     memset(&stSocketIn,0,sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons((unsigned short)DEFAULT_PORT);
-    if (inet_pton(AF_INET, chHost, &stSocketIn.sin_addr) != 1) {
+    stSocketIn.sin_port   = htons(stEventCtx.pstSockCtx->unPort);
+    if (inet_pton(AF_INET, stEventCtx.pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
         fprintf(stderr,"Bad host\n");
         event_base_free(stEventCtx.pstEventBase);        
         return 1;
     }
-
-    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if (!stEventCtx.pstSockCtx) { 
-        event_base_free(stEventCtx.pstEventBase);
-        return; 
-    }
-    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
 
     stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
@@ -114,7 +116,7 @@
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    fprintf(stderr,"client: connecting to %s:%u ...\n", chHost, DEFAULT_PORT);
+    fprintf(stderr,"client: connecting to %s:%u ...\n", stEventCtx.pstSockCtx->achSockAddr, stEventCtx.pstSockCtx->unPort);
     event_base_dispatch(stEventCtx.pstEventBase);
 
     if (stEventCtx.pstEvent) 
