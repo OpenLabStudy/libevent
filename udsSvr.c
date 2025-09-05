@@ -24,6 +24,9 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int main(int argc, char** argv)
 {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+
+    unlink(UDS_COMMAND_PATH);
+
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
@@ -31,16 +34,18 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    /* TCP 주소 준비 */
-    struct sockaddr_in stSocketIn;
-    stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons((unsigned short)DEFAULT_PORT);
-    stSocketIn.sin_addr.s_addr = htonl(INADDR_ANY);
+    /* UDS 주소 준비 */
+    struct sockaddr_un stSocketUn;    
+    memset(&stSocketUn, 0, sizeof(stSocketUn));
+    stSocketUn.sun_family = AF_UNIX;
+    strcpy(stSocketUn.sun_path, UDS_COMMAND_PATH);
+    size_t ulSize = strlen(UDS_COMMAND_PATH);
+    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
 
     stEventCtx.pstEventListener =
         evconnlistener_new_bind(stEventCtx.pstEventBase, listenerCb, &stEventCtx,
             LEV_OPT_REUSEABLE|LEV_OPT_CLOSE_ON_FREE, -1,
-            (struct sockaddr*)&stSocketIn, sizeof(stSocketIn));
+            (struct sockaddr*)&stSocketUn, uiSocketLength);
     if (!stEventCtx.pstEventListener) {
         fprintf(stderr, "Could not create a TCP listener! (%s)\n", strerror(errno));
         event_base_free(stEventCtx.pstEventBase);

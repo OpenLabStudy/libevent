@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void tcpListenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
+void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
                         struct sockaddr *pstSockAddr, int iSockLen, void *pvData)
 {
     (void)listener;
@@ -26,7 +26,7 @@ void tcpListenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
 
     pstEventCtx->pstSockCtx->pstBufferEvent = (void*)pstBufferEvent;
 
-    bufferevent_setcb(pstBufferEvent, tcpReadCb, NULL, tcpEventCb, pstEventCtx);
+    bufferevent_setcb(pstBufferEvent, readCallback, NULL, eventCallback, pstEventCtx);
     bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
 
@@ -34,7 +34,7 @@ void tcpListenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
 }
 
 /* === Libevent callbacks === */
-void tcpReadCb(struct bufferevent *pstBufferEvent, void *pvData)
+void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
     struct evbuffer *pstEvBuffer = bufferevent_get_input(pstBufferEvent);
@@ -49,22 +49,22 @@ void tcpReadCb(struct bufferevent *pstBufferEvent, void *pvData)
         if (r == 0) 
             break;
         if (r < 0) { 
-            tcpCloseAndFree(pvData);
+            closeAndFree(pvData);
             return; 
         }        
     }
 }
 
-void tcpEventCb(struct bufferevent *bev, short nEvents, void *pvData) 
+void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
-    (void)bev;
+    (void)pstBufferEvent;
     if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        tcpCloseAndFree(pstEventCtx->pstSockCtx);
+        closeAndFree(pstEventCtx->pstSockCtx);
     }
 }
 
-void tcpCloseAndFree(void *pvData)
+void closeAndFree(void *pvData)
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
     if (!pstEventCtx->pstSockCtx)

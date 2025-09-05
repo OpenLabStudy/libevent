@@ -3,6 +3,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/un.h>
 #include <arpa/inet.h>
 
 #include <event2/bufferevent.h>  
@@ -14,6 +15,7 @@
 #define READ_HIGH_WM        (1u * 1024u * 1024u)   /* 1MB */
 #define MAX_PAYLOAD         (4u * 1024u * 1024u)   /* 4MB */
 #define MAX_RETRY           1
+#define UDS_COMMAND_PATH    "/tmp/udsCommand.sock"
 
 /* === Per-connection context === */
 typedef struct {
@@ -34,12 +36,12 @@ typedef struct app_ctx{
     struct event_base       *pstEventBase;
     struct evconnlistener   *pstEventListener;
     struct event            *pstEvent;
-    SOCK_CONTEXT             *pstSockCtx;
+    SOCK_CONTEXT            *pstSockCtx;
 } EVENT_CONTEXT;
 
-void tcpListenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, void*);
-void tcpReadCb(struct bufferevent *pstBufferEvent, void *pvData);
-void tcpEventCb(struct bufferevent *bev, short nEvents, void *pvData);
-void tcpCloseAndFree(void *pvData);
+void listenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, void*);
+void readCallback(struct bufferevent*, void*);
+void eventCallback(struct bufferevent*, short, void*);
+void closeAndFree(void *pvData);
 
 #endif

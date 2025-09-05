@@ -1,21 +1,3 @@
-/*
- * Framed responder UDS client (Libevent, Unix Domain Socket)
- * - 서버가 먼저 REQ를 보내면, 클라이언트가 RES를 회신
- * - 서버 코드와 동일한 FRAME_HEADER/TAIL, CRC, byte order 사용
- *
- * Build: gcc -Wall -O2 -o udsClient udsClient.c -levent
- * Run  : ./udsClient /tmp/udsCommand.sock
- *
- * 필요 전제: "protocol.h"에서 아래 심볼/타입이 정의
- *   - STX_CONST, ETX_CONST
- *   - FRAME_HEADER { uint16_t unStx; int32_t iLength; MSG_ID stMsgId; char chSubModule; int16_t nCmd; }
- *   - FRAME_TAIL   { char chCrc; uint16_t unEtx; }
- *   - MSG_ID       { uint8_t chSrcId, chDstId; ... }
- *   - CMD_ECHO, CMD_KEEP_ALIVE, CMD_IBIT
- *   - REQ_KEEP_ALIVE, RES_KEEP_ALIVE, REQ_IBIT, RES_IBIT
- *   - uint8_t proto_crc8_xor(const uint8_t* buf, size_t len)
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -68,7 +50,7 @@
     }
 
     stEventCtx.pstSockCtx->uchIsRespone = 0x00;
-    stEventCtx.pstSockCtx->unPort = (unsigned short)DEFAULT_PORT;
+    stEventCtx.pstSockCtx->unPort = 0;
     memset(stEventCtx.pstSockCtx->achSockAddr, 0x0, sizeof(stEventCtx.pstSockCtx->achSockAddr));
     strcpy(stEventCtx.pstSockCtx->achSockAddr, "127.0.0.1");
 
@@ -79,16 +61,13 @@
         return 1;
     }
 
-    /* TCP 주소 준비 */
-    struct sockaddr_in stSocketIn;
-    memset(&stSocketIn,0,sizeof(stSocketIn));
-    stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons(stEventCtx.pstSockCtx->unPort);
-    if (inet_pton(AF_INET, stEventCtx.pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
-        fprintf(stderr,"Bad host\n");
-        event_base_free(stEventCtx.pstEventBase);        
-        return 1;
-    }
+    /* UDS 주소 준비 */
+    struct sockaddr_un stSocketUn;    
+    memset(&stSocketUn, 0, sizeof(stSocketUn));
+    stSocketUn.sun_family = AF_UNIX;
+    strcpy(stSocketUn.sun_path, UDS_COMMAND_PATH);
+    size_t ulSize = strlen(UDS_COMMAND_PATH);
+    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
 
     stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
@@ -100,7 +79,7 @@
     bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, &stEventCtx);
     bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
-    if (bufferevent_socket_connect(stEventCtx.pstSockCtx->pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
+    if (bufferevent_socket_connect(stEventCtx.pstSockCtx->pstBufferEvent, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
         fprintf(stderr, "Connect failed: %s\n", strerror(errno));
         bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
         event_base_free(stEventCtx.pstEventBase);
