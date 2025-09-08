@@ -43,5 +43,6 @@ void listenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, 
 void readCallback(struct bufferevent*, void*);
 void eventCallback(struct bufferevent*, short, void*);
 void closeAndFree(void *pvData);
-
+int createTcpListenSocket(char* chAddr, unsigned short unPort);
+int createUdsListenSocket(char* chAddr);
 #endif

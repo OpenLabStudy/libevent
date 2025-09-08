@@ -24,28 +24,22 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int main(int argc, char** argv)
 {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+    int iSockFd;
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
-
-    /* TCP 주소 준비 */
-    struct sockaddr_in stSocketIn;
-    stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons((unsigned short)DEFAULT_PORT);
-    stSocketIn.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    stEventCtx.pstEventListener =
-        evconnlistener_new_bind(stEventCtx.pstEventBase, listenerCb, &stEventCtx,
-            LEV_OPT_REUSEABLE|LEV_OPT_CLOSE_ON_FREE, -1,
-            (struct sockaddr*)&stSocketIn, sizeof(stSocketIn));
-    if (!stEventCtx.pstEventListener) {
-        fprintf(stderr, "Could not create a TCP listener! (%s)\n", strerror(errno));
+    iSockFd = createTcpListenSocket("127.0.0.1", DEFAULT_PORT);
+    if(iSockFd == -1){
+        fprintf(stderr,"Error Create Listen socket!\n");
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
+    stEventCtx.pstEventListener = evconnlistener_new(stEventCtx.pstEventBase, listenerCb, &stEventCtx, \
+                                                        LEV_OPT_CLOSE_ON_FREE, -1, iSockFd);
+
 
     /* SIGINT(CTRL+C) 처리 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);

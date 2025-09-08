@@ -24,6 +24,7 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int main(int argc, char** argv)
 {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+    int iFd;
 
     unlink(UDS_COMMAND_PATH);
 
@@ -33,7 +34,7 @@ int main(int argc, char** argv)
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
-
+#if 0
     /* UDS 주소 준비 */
     struct sockaddr_un stSocketUn;    
     memset(&stSocketUn, 0, sizeof(stSocketUn));
@@ -51,6 +52,26 @@ int main(int argc, char** argv)
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
+#else
+    iFd = createUdsListenSocket(UDS_COMMAND_PATH);
+    if(iFd == -1){
+        event_base_free(stEventCtx.pstEventBase);
+        return 1;
+    }
+    stEventCtx.pstEventListener =
+        evconnlistener_new(stEventCtx.pstEventBase,
+                           listenerCb, &stEventCtx,
+                           LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,
+                           -1, /* ignored */
+                           iFd);
+    if (!stEventCtx.pstEventListener) {
+        fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
+        evutil_closesocket(iFd);  /* CLOSE_ON_FREE가 적용되지 않았으니 직접 정리 */
+        event_base_free(stEventCtx.pstEventBase);
+        unlink(UDS_COMMAND_PATH);
+        return 1;
+    }
+#endif
 
     /* SIGINT(CTRL+C) 처리 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
@@ -60,7 +81,7 @@ int main(int argc, char** argv)
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }    
-    fprintf(stderr,"TCP Server Start\n");
+    fprintf(stderr,"UDS Server Start\n");
     event_base_dispatch(stEventCtx.pstEventBase);
 
     evconnlistener_free(stEventCtx.pstEventListener);
