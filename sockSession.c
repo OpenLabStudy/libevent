@@ -58,15 +58,18 @@ void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
 void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)pstBufferEvent;
     if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        closeAndFree(pstEventCtx->pstSockCtx);
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        closeAndFree(pvData);
     }
 }
 
 void closeAndFree(void *pvData)
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!pstEventCtx->pstSockCtx)
         return;
         

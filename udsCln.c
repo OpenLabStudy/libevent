@@ -33,6 +33,7 @@
         printf("client: sent IBIT\n");
         requestFrame(pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, CMD_IBIT);        
     } else if (!strcmp(achStdInData, "quit") || !strcmp(achStdInData, "exit")) {
+        closeAndFree((void*)pvData);
         event_base_loopexit(pstEventCtx->pstEventBase, NULL);
     } else {
         printf("usage:\n  echo <text>\n  keepalive\n  ibit <n>\n  quit\n");
@@ -51,8 +52,6 @@
 
     stEventCtx.pstSockCtx->uchIsRespone = 0x00;
     stEventCtx.pstSockCtx->unPort = 0;
-    memset(stEventCtx.pstSockCtx->achSockAddr, 0x0, sizeof(stEventCtx.pstSockCtx->achSockAddr));
-    strcpy(stEventCtx.pstSockCtx->achSockAddr, "127.0.0.1");
 
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
@@ -95,15 +94,13 @@
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    fprintf(stderr,"client: connecting to %s:%u ...\n", stEventCtx.pstSockCtx->achSockAddr, stEventCtx.pstSockCtx->unPort);
+    fprintf(stderr,"client: connecting to %s ...\n", UDS_COMMAND_PATH);
     event_base_dispatch(stEventCtx.pstEventBase);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     if (stEventCtx.pstEvent) 
         event_free(stEventCtx.pstEvent);
-
-    if (stEventCtx.pstSockCtx->pstBufferEvent)
-        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
-
+    
     if (stEventCtx.pstEventBase) 
         event_base_free(stEventCtx.pstEventBase);
 
