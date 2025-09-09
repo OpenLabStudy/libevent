@@ -59,21 +59,16 @@ void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
 void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)pstBufferEvent;
     if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         closeAndFree(pvData);
     }
 }
 
 static void closeLink(EVENT_CONTEXT *pstEventCtx) {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!pstEventCtx)
         return;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (pstEventCtx->pstSockCtx) {
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         if (pstEventCtx->pstSockCtx->pstBufferEvent) {
             bufferevent_free(pstEventCtx->pstSockCtx->pstBufferEvent);
             pstEventCtx->pstSockCtx->pstBufferEvent = NULL;
@@ -84,41 +79,32 @@ static void closeLink(EVENT_CONTEXT *pstEventCtx) {
 }
 
 static void shutdownApp(EVENT_CONTEXT *pstEventCtx) {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!pstEventCtx)
         return;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     // 1) 역할별 이벤트 정리
     if (pstEventCtx->eRole == ROLE_CLIENT) {
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         // 클라: STDIN 이벤트를 우리가 만들었으므로 우리가 정리
         if (pstEventCtx->pstEvent) {
-            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             event_del(pstEventCtx->pstEvent);
             event_free(pstEventCtx->pstEvent);
             pstEventCtx->pstEvent = NULL;
         }
         // 클라: 이제 루프 종료
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         if (pstEventCtx->pstEventBase){
-            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             event_base_loopexit(pstEventCtx->pstEventBase, NULL);
         }
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 }
 
 void closeAndFree(void *pvData)
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (pstEventCtx->eRole == ROLE_SERVER) {
         closeLink(pstEventCtx);
     }else {
         closeLink(pstEventCtx);
         shutdownApp(pstEventCtx);
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 }
 
 int createTcpListenSocket(char* chAddr, unsigned short unPort)

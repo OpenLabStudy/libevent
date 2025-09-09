@@ -61,6 +61,7 @@
  int main(int argc, char** argv)
  {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+    stEventCtx.eRole = ROLE_CLIENT;
     stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) { 
         event_base_free(stEventCtx.pstEventBase);
@@ -121,9 +122,6 @@
 
     if (stEventCtx.pstEvent) 
         event_free(stEventCtx.pstEvent);
-
-    if (stEventCtx.pstSockCtx->pstBufferEvent)
-        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
 
     if (stEventCtx.pstEventBase) 
         event_base_free(stEventCtx.pstEventBase);
