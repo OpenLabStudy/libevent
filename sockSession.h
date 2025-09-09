@@ -17,8 +17,10 @@
 #define MAX_RETRY           1
 #define UDS_COMMAND_PATH    "/tmp/udsCommand.sock"
 
+typedef enum { ROLE_SERVER = 0, ROLE_CLIENT = 1 } APP_ROLE;
+
 /* === Per-connection context === */
-typedef struct {
+typedef struct {    
     struct bufferevent  *pstBufferEvent;
 
     unsigned short      unCmd;
@@ -33,10 +35,11 @@ typedef struct {
 } SOCK_CONTEXT;
 
 typedef struct app_ctx{
+    APP_ROLE                eRole;             // ★ 서버/클라 구분
     struct event_base       *pstEventBase;
     struct evconnlistener   *pstEventListener;
     struct event            *pstEvent;
-    SOCK_CONTEXT            *pstSockCtx;
+    SOCK_CONTEXT            *pstSockCtx;    
 } EVENT_CONTEXT;
 
 void listenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, void*);

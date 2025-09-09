@@ -20,6 +20,7 @@ void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
         return; 
     }
     pstEventCtx->pstSockCtx->uchIsRespone = 0x01;
+    pstEventCtx->eRole = ROLE_SERVER;
 
     struct sockaddr_in *sin = (struct sockaddr_in*)pstSockAddr;
     inet_ntop(pstSockAddr->sa_family, &(sin->sin_addr), pstEventCtx->pstSockCtx->achSockAddr, sizeof(pstEventCtx->pstSockCtx->achSockAddr));
@@ -66,19 +67,58 @@ void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvDa
     }
 }
 
+static void closeLink(EVENT_CONTEXT *pstEventCtx) {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    if (!pstEventCtx)
+        return;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    if (pstEventCtx->pstSockCtx) {
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        if (pstEventCtx->pstSockCtx->pstBufferEvent) {
+            bufferevent_free(pstEventCtx->pstSockCtx->pstBufferEvent);
+            pstEventCtx->pstSockCtx->pstBufferEvent = NULL;
+        }
+        free(pstEventCtx->pstSockCtx);
+        pstEventCtx->pstSockCtx = NULL;
+    }
+}
+
+static void shutdownApp(EVENT_CONTEXT *pstEventCtx) {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    if (!pstEventCtx)
+        return;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    // 1) 역할별 이벤트 정리
+    if (pstEventCtx->eRole == ROLE_CLIENT) {
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        // 클라: STDIN 이벤트를 우리가 만들었으므로 우리가 정리
+        if (pstEventCtx->pstEvent) {
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            event_del(pstEventCtx->pstEvent);
+            event_free(pstEventCtx->pstEvent);
+            pstEventCtx->pstEvent = NULL;
+        }
+        // 클라: 이제 루프 종료
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        if (pstEventCtx->pstEventBase){
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            event_base_loopexit(pstEventCtx->pstEventBase, NULL);
+        }
+    }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+}
+
 void closeAndFree(void *pvData)
 {
     EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    if (!pstEventCtx->pstSockCtx)
-        return;
-        
-    if (pstEventCtx->pstSockCtx->pstBufferEvent){
-        bufferevent_free(pstEventCtx->pstSockCtx->pstBufferEvent);
-        pstEventCtx->pstSockCtx->pstBufferEvent = NULL;
+    if (pstEventCtx->eRole == ROLE_SERVER) {
+        closeLink(pstEventCtx);
+    }else {
+        closeLink(pstEventCtx);
+        shutdownApp(pstEventCtx);
     }
-    free(pstEventCtx->pstSockCtx);
-    pstEventCtx->pstSockCtx = NULL;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 }
 
 int createTcpListenSocket(char* chAddr, unsigned short unPort)
@@ -128,17 +168,18 @@ int createTcpListenSocket(char* chAddr, unsigned short unPort)
 
 int createUdsListenSocket(char* chAddr)
 {
+    unlink(chAddr); // ★ 바인드 전에 선삭제
     /* ===== 1) UDS 주소 준비 ===== */
     struct sockaddr_un stSocketUn;
     memset(&stSocketUn, 0, sizeof(stSocketUn));
     stSocketUn.sun_family = AF_UNIX;
 
-    size_t iSize = strlen(UDS_COMMAND_PATH);
+    size_t iSize = strlen(chAddr);
     if (iSize >= sizeof(stSocketUn.sun_path)) {
-        fprintf(stderr, "UDS path too long: %s\n", UDS_COMMAND_PATH);
+        fprintf(stderr, "UDS path too long: %s\n", chAddr);
         return -1;
     }
-    memcpy(stSocketUn.sun_path, UDS_COMMAND_PATH, iSize + 1);
+    memcpy(stSocketUn.sun_path, chAddr, iSize + 1);
     socklen_t uiSocketLength =
         (socklen_t)(offsetof(struct sockaddr_un, sun_path) + iSize + 1);
 
@@ -159,20 +200,20 @@ int createUdsListenSocket(char* chAddr)
 
     /* ===== 3) bind() ===== */
     if (bind(iFd, (struct sockaddr*)&stSocketUn, uiSocketLength) < 0) {
-        fprintf(stderr, "bind(%s) failed: %s\n", UDS_COMMAND_PATH, strerror(errno));
+        fprintf(stderr, "bind(%s) failed: %s\n", chAddr, strerror(errno));
         evutil_closesocket(iFd);
-        unlink(UDS_COMMAND_PATH);
+        unlink(chAddr);
         return -1;
     }
 
     /* (선택) 퍼미션 조정: 그룹까지 허용하고 싶다면 예시처럼 */
-    /* chmod(UDS_COMMAND_PATH, 0660); */
+    /* chmod(chAddr, 0660); */
 
     /* ===== 4) listen() ===== */
     if (listen(iFd, SOMAXCONN) < 0) {
         fprintf(stderr, "listen() failed: %s\n", strerror(errno));
         evutil_closesocket(iFd);
-        unlink(UDS_COMMAND_PATH);
+        unlink(chAddr);
         return -1;
     }
     return iFd;

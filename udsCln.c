@@ -52,6 +52,7 @@
 
     stEventCtx.pstSockCtx->uchIsRespone = 0x00;
     stEventCtx.pstSockCtx->unPort = 0;
+    stEventCtx.eRole = ROLE_CLIENT;
 
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
