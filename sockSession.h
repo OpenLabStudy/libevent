@@ -1,5 +1,5 @@
-#ifndef TCP_SESSION_H
-#define TCP_SESSION_H
+#ifndef SOCK_SESSION_H
+#define SOCK_SESSION_H
 
 #include <sys/socket.h>
 #include <netinet/in.h>

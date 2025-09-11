@@ -11,7 +11,7 @@ static inline uint8_t proto_crc8_xor(const uint8_t* p, size_t n) {
 }
 
 /* === 프레임 송신 === */
-void writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
+int writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
                        const MSG_ID* pstMsgId, unsigned char uchSubModule,
                        const void* pvPayload, int iDataLength)
 {
@@ -28,25 +28,46 @@ void writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
     stFrameTail.uchCrc              = proto_crc8_xor((const unsigned char*)pvPayload, (int)iDataLength);
     stFrameTail.unEtx               = htons(ETX_CONST);
 
-    bufferevent_write(pstBufferEvent, &stFrameHeader, sizeof(stFrameHeader));
-    if (iDataLength > 0 && pvPayload)
-        bufferevent_write(pstBufferEvent, pvPayload, iDataLength);
-    bufferevent_write(pstBufferEvent, &stFrameTail, sizeof(stFrameTail));
+    /* === 전체 프레임 크기 계산 === */
+    int iTotalSize = sizeof(FRAME_HEADER) + iDataLength + sizeof(FRAME_TAIL);
+    unsigned char* puchPacket = (unsigned char*)malloc(iTotalSize);
+    if (!puchPacket) {
+        fprintf(stderr, "malloc() failed in writeFrame\n");
+        return -1;//FRAME_ERR_MEMORY_ALLOC_FAIL
+    }    
+
+    unsigned char* p = puchPacket;
+    memcpy(p, &stFrameHeader, sizeof(FRAME_HEADER)); 
+    p += sizeof(FRAME_HEADER);
+    if (iDataLength > 0 && pvPayload) {
+        memcpy(p, pvPayload, iDataLength);
+        p += iDataLength;
+    }
+    memcpy(p, &stFrameTail, sizeof(FRAME_TAIL));
+    if (bufferevent_write(pstBufferEvent, puchPacket, iTotalSize) < 0) {
+        fprintf(stderr, "bufferevent_write() failed in writeFrame\n");
+        return -1;//FRAME_ERR_MEMORY_ALLOC_FAIL
+    }
+    free(puchPacket);
+    return 1;
 }
 
 
 /* === 프레임 하나 파싱 & 응답 처리 ===
  * return: 1 consumed, 0 need more, -1 fatal
  */
-int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, char chReply) {    
+int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, char chReply) {
+    FRAME_HEADER stFrameHeader;
     int iLength = evbuffer_get_length(pstEvBuffer);
     fprintf(stderr,"### %s():%d Recv Data Length is %d[%d]\n", __func__, __LINE__, iLength, sizeof(FRAME_HEADER)+sizeof(FRAME_TAIL)+sizeof(REQ_KEEP_ALIVE));
-    if (iLength < sizeof(FRAME_HEADER))
-        return 0;
+    
+    if (iLength < sizeof(FRAME_HEADER)){
+        return 0;//FRAME_ERR_PACKET_TOO_SHORT
+    }
 
-    FRAME_HEADER stFrameHeader;
-    if (evbuffer_copyout(pstEvBuffer, &stFrameHeader, sizeof(stFrameHeader)) != sizeof(stFrameHeader))
-        return 0;
+    if (evbuffer_copyout(pstEvBuffer, &stFrameHeader, sizeof(stFrameHeader)) != sizeof(stFrameHeader)){
+        return 0;//EV_COPYOUT_SIZE_MISMATCH
+    }
 
     unsigned short  unStx   = ntohs(stFrameHeader.unStx);
     int iDataLength = ntohl(stFrameHeader.iDataLength);
@@ -56,38 +77,44 @@ int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEv
     stMsgId.uchDstId = stFrameHeader.stMsgId.uchSrcId;
 
     if (unStx != STX_CONST || iDataLength < 0)
-        return -1;
+        return -1;////FRAME_ERR_STX_NOT_MATCH
 
     int iNeedSize = sizeof(FRAME_HEADER) + (size_t)iDataLength + sizeof(FRAME_TAIL);
-    if (iLength < iNeedSize)
-        return 0;
+    if (iLength < iNeedSize){
+        return 0;//EV_INCOMPETE_PACKET_IN_BUFFER
+    }
 
     evbuffer_drain(pstEvBuffer, sizeof(FRAME_HEADER));
 
     unsigned char *uchPayload = NULL;
     if (iDataLength > 0) {
         uchPayload = (unsigned char *)malloc((size_t)iDataLength);
-        if (!uchPayload) 
-            return -1;
+        if (!uchPayload){
+            return -1;//FRAME_ERR_MEMORY_ALLOC_FAIL
+        }
         if (evbuffer_remove(pstEvBuffer, uchPayload, (size_t)iDataLength) != iDataLength) {
             free(uchPayload); 
-            return -1;
+            return -1;//EV_REMOVE_SIZE_MISMATCH
         }
     }
 
     FRAME_TAIL stFrameTail;
     if (evbuffer_remove(pstEvBuffer, &stFrameTail, sizeof(stFrameTail)) != (int)sizeof(stFrameTail)) {
         free(uchPayload);
-        return -1;
+        return -1;//EV_REMOVE_SIZE_MISMATCH
     }
 
-    if (ntohs(stFrameTail.unEtx) != ETX_CONST ||
-        proto_crc8_xor(uchPayload, (size_t)iDataLength) != (unsigned char)stFrameTail.uchCrc) {
+    if (proto_crc8_xor(uchPayload, (size_t)iDataLength) != (unsigned char)stFrameTail.uchCrc) {
         free(uchPayload); 
-        return -1;
+        return -1;//FRAME_ERR_CRC_NOT_MATCH
     }
-    fprintf(stderr,"### %s():%d CMD is %02x###\n",__func__,__LINE__, unCmd);
 
+    if (ntohs(stFrameTail.unEtx) != ETX_CONST) {
+        free(uchPayload); 
+        return -1;//FRAME_ERR_ETX_NOT_MATCH
+    }
+
+    fprintf(stderr,"### %s():%d CMD is %02x###\n",__func__,__LINE__, unCmd);
     /* === 응답 처리 ===
        - 기본 가정: 요청 CMD와 응답 CMD가 동일
     */
@@ -126,7 +153,7 @@ int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEv
     free(uchPayload);
     iLength = evbuffer_get_length(pstEvBuffer);
     fprintf(stderr,"### %s():%d Recv Data Length is %d\n", __func__, __LINE__, iLength);
-    return 1;
+    return 1;//FRAME_SUCCESS;
 }
 
 
@@ -160,5 +187,5 @@ int requestFrame(struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, unsigned
             fprintf(stderr, "REQ CMD=%d\n", unCmd);
             break;
     }
-    return 1;
+    return 1;//FRAME_SUCCESS;
 }

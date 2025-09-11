@@ -29,7 +29,7 @@ typedef struct __attribute__((__packed__)) {
 } FRAME_TAIL;
 
 
-void writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
+int writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
                        const MSG_ID* pstMsgId, unsigned char uchSubModule,
                        const void* pvPayload, int iDataLength);
 int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, char chReply);

@@ -12,6 +12,8 @@
         "cmath": "c",
         "in.h": "c",
         "unistd.h": "c",
-        "signal.h": "c"
+        "signal.h": "c",
+        "ranges": "cpp",
+        "util.h": "c"
     }
 }
