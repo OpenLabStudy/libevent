@@ -42,12 +42,29 @@
  
  /* === main === */
  int main(int argc, char** argv)
- {
+ {    
+    int iClientId;
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+    if(argc != 2){        
+        fprintf(stderr,"### %s():%d Error argument ###\n",__func__,__LINE__);
+        return 0;
+    }
+    iClientId = atoi(argv[1]);
     stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) { 
         event_base_free(stEventCtx.pstEventBase);
         return; 
+    }
+    stEventCtx.pstSockCtx->uchDstId = UDS1_SERVER_ID;
+    if(iClientId == 1){
+        stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT1_ID;
+    }else if(iClientId == 2){
+        stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT2_ID;
+    }else if(iClientId == 3){
+        stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT3_ID;
+    }else{
+        fprintf(stderr,"### %s():%d Error Client ID ###\n",__func__,__LINE__);
+        return 0;
     }
 
     stEventCtx.pstSockCtx->uchIsRespone = 0x00;
@@ -65,8 +82,8 @@
     struct sockaddr_un stSocketUn;    
     memset(&stSocketUn, 0, sizeof(stSocketUn));
     stSocketUn.sun_family = AF_UNIX;
-    strcpy(stSocketUn.sun_path, UDS_COMMAND_PATH);
-    size_t ulSize = strlen(UDS_COMMAND_PATH);
+    strcpy(stSocketUn.sun_path, UDS1_PATH);
+    size_t ulSize = strlen(UDS1_PATH);
     socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
 
     stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
@@ -95,7 +112,7 @@
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    fprintf(stderr,"client: connecting to %s ...\n", UDS_COMMAND_PATH);
+    fprintf(stderr,"client: connecting to %s ...\n", UDS1_PATH);
     event_base_dispatch(stEventCtx.pstEventBase);
     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 

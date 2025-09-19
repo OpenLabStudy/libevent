@@ -47,7 +47,7 @@ udsCln.o: udsCln.c $(HDRS)
 udsSvrGtest: udsSvrGtest.o $(FRAME_OBJS) udsSvrNostandalone.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
 
-udsSvrGtest.o: udsSvrGtest.cc $(HDRS)
+udsSvrGtest.o: ./gtest/udsSvrGtest.cc $(HDRS)
 	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -c -o $@ $<
 
 # 테스트용: STANDALONE 미정의로 udsSvr.c 빌드

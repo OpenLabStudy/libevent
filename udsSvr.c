@@ -47,7 +47,7 @@ int run(void)   /* ← 반환형을 int로 명확화 */
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
     int iFd;
 
-    unlink(UDS_COMMAND_PATH);
+    unlink(UDS1_PATH);
 
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
@@ -56,7 +56,7 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         return 1;
     }
 
-    iFd = createUdsListenSocket(UDS_COMMAND_PATH);
+    iFd = createUdsListenSocket(UDS1_PATH);
     if (iFd == -1) {
         event_base_free(stEventCtx.pstEventBase);
         return 1;
@@ -72,10 +72,11 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
         evutil_closesocket(iFd);
         event_base_free(stEventCtx.pstEventBase);
-        unlink(UDS_COMMAND_PATH);
+        unlink(UDS1_PATH);
         return 1;
     }
-
+    stEventCtx.pstSockCtx->uchSrcId = UDS1_SERVER_ID;
+    stEventCtx.pstSockCtx->uchDstId = 0;
     /* SIGINT(CTRL+C) 처리 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {

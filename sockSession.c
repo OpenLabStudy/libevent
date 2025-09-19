@@ -31,7 +31,7 @@ void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
     bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
 
-    printf("Accepted TCP client (iSockFd=%d)\n", iSockFd);
+    fprintf(stdout,"Accepted Client (iSockFd=%d)\n", iSockFd);
 }
 
 /* === Libevent callbacks === */
@@ -43,13 +43,13 @@ void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
     stMsgId.uchSrcId = pstEventCtx->pstSockCtx->uchSrcId;
     stMsgId.uchDstId = pstEventCtx->pstSockCtx->uchDstId;
     for (;;) {
-        int r = responseFrame(pstEvBuffer, pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, pstEventCtx->pstSockCtx->uchIsRespone);
-        if(r == 1){
+        int iRetVal = responseFrame(pstEvBuffer, pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, pstEventCtx->pstSockCtx->uchIsRespone);
+        if(iRetVal == 1){
             break;
         }
-        if (r == 0) 
+        if (iRetVal == 0) 
             break;
-        if (r < 0) { 
+        if (iRetVal < 0) { 
             closeAndFree(pvData);
             return; 
         }        
