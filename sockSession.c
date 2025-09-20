@@ -3,79 +3,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
-                        struct sockaddr *pstSockAddr, int iSockLen, void *pvData)
+static void addClient(SOCK_CONTEXT* pstScokCtx, EVENT_CONTEXT* pstEventCtx)
 {
-    (void)listener;
-    (void)pstSockAddr;
-    (void)iSockLen;
-    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-    struct event_base *pstEventBase = pstEventCtx->pstEventBase;
-    struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
-    if (!pstBufferEvent) 
-        return;
-    pstEventCtx->pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if (!pstEventCtx->pstSockCtx) { 
-        bufferevent_free(pstBufferEvent);
-        return; 
-    }
-    pstEventCtx->pstSockCtx->uchIsRespone = 0x01;
-    pstEventCtx->eRole = ROLE_SERVER;
-
-    struct sockaddr_in *sin = (struct sockaddr_in*)pstSockAddr;
-    inet_ntop(pstSockAddr->sa_family, &(sin->sin_addr), pstEventCtx->pstSockCtx->achSockAddr, sizeof(pstEventCtx->pstSockCtx->achSockAddr));
-
-    pstEventCtx->pstSockCtx->pstBufferEvent = (void*)pstBufferEvent;
-
-    bufferevent_setcb(pstBufferEvent, readCallback, NULL, eventCallback, pstEventCtx);
-    bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
-
-    fprintf(stdout,"Accepted Client (iSockFd=%d)\n", iSockFd);
+    pstScokCtx->pstNextSockCtx = pstEventCtx->pstSockCtx;
+    pstEventCtx->pstSockCtx = pstScokCtx;
 }
 
-/* === Libevent callbacks === */
-void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
+static void removeClient(SOCK_CONTEXT* pstScokCtx, EVENT_CONTEXT* pstEventCtx)
 {
-    EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
-    struct evbuffer *pstEvBuffer = bufferevent_get_input(pstBufferEvent);
-    MSG_ID stMsgId;
-    stMsgId.uchSrcId = pstEventCtx->pstSockCtx->uchSrcId;
-    stMsgId.uchDstId = pstEventCtx->pstSockCtx->uchDstId;
-    for (;;) {
-        int iRetVal = responseFrame(pstEvBuffer, pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, pstEventCtx->pstSockCtx->uchIsRespone);
-        if(iRetVal == 1){
-            break;
+    SOCK_CONTEXT **pstRemoveScokCtx = &pstEventCtx->pstSockCtx;
+    while(*pstRemoveScokCtx){
+        if(*pstRemoveScokCtx == pstScokCtx){
+            *pstRemoveScokCtx = pstScokCtx->pstNextSockCtx;
+            return;
         }
-        if (iRetVal == 0) 
-            break;
-        if (iRetVal < 0) { 
-            closeAndFree(pvData);
-            return; 
-        }        
+        pstRemoveScokCtx = &(*pstRemoveScokCtx)->pstNextSockCtx;
     }
 }
 
-void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
-{
-    EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
-    (void)pstBufferEvent;
-    if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        closeAndFree(pvData);
-    }
-}
-
-static void closeLink(EVENT_CONTEXT *pstEventCtx) {
-    if (!pstEventCtx)
+static void closeClient(SOCK_CONTEXT *pstSockCtx) {
+    if (!pstSockCtx)
         return;
-    if (pstEventCtx->pstSockCtx) {
-        if (pstEventCtx->pstSockCtx->pstBufferEvent) {
-            bufferevent_free(pstEventCtx->pstSockCtx->pstBufferEvent);
-            pstEventCtx->pstSockCtx->pstBufferEvent = NULL;
-        }
-        free(pstEventCtx->pstSockCtx);
-        pstEventCtx->pstSockCtx = NULL;
+
+    if (pstSockCtx->pstBufferEvent) {
+        bufferevent_free(pstSockCtx->pstBufferEvent);
+        pstSockCtx->pstBufferEvent = NULL;
     }
+
+    free(pstSockCtx);
 }
 
 static void shutdownApp(EVENT_CONTEXT *pstEventCtx) {
@@ -96,13 +51,100 @@ static void shutdownApp(EVENT_CONTEXT *pstEventCtx) {
     }
 }
 
+static void closeAllClients(EVENT_CONTEXT *pstEventCtx) {
+    SOCK_CONTEXT *pstSockCtx = pstEventCtx->pstSockCtx;
+    while (pstSockCtx) {
+        SOCK_CONTEXT *pstNextSockCtx = pstSockCtx->pstNextSockCtx;
+        closeClient(pstSockCtx);
+        pstSockCtx = pstNextSockCtx;
+    }
+    pstEventCtx->pstSockCtx = NULL;
+    pstEventCtx->iClientCount = 0;
+}
+
+void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
+                        struct sockaddr *pstSockAddr, int iSockLen, void *pvData)
+{
+    (void)listener;
+    (void)pstSockAddr;
+    (void)iSockLen;
+    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+    struct event_base *pstEventBase = pstEventCtx->pstEventBase;
+    struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
+    if (!pstBufferEvent) 
+        return;
+
+    SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if (!pstSockCtx) { 
+        bufferevent_free(pstBufferEvent);
+        return; 
+    }
+    pstSockCtx->pstBufferEvent  = (void*)pstBufferEvent;
+    pstSockCtx->pstEventCtx     = pstEventCtx;
+    pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
+    pstSockCtx->uchDstId        = 0x00;
+    pstSockCtx->uchIsRespone    = 0x01;
+    pstEventCtx->eRole          = ROLE_SERVER;    
+
+    struct sockaddr_in *sin = (struct sockaddr_in*)pstSockAddr;
+    inet_ntop(pstSockAddr->sa_family, &(sin->sin_addr), pstEventCtx->pstSockCtx->achSockAddr, sizeof(pstEventCtx->pstSockCtx->achSockAddr));
+
+    addClient(pstSockCtx, pstEventCtx);
+    pstEventCtx->iClientCount++;
+
+    bufferevent_setcb(pstBufferEvent, readCallback, NULL, eventCallback, pstSockCtx);
+    bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
+
+    fprintf(stdout,"Accepted Client (iSockFd=%d)\n", iSockFd);
+}
+
+/* === Libevent callbacks === */
+void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
+{
+    SOCK_CONTEXT *pstSockCtx    = (SOCK_CONTEXT *)pvData;
+    struct evbuffer *pstEvBuffer = bufferevent_get_input(pstBufferEvent);
+    MSG_ID stMsgId;
+    stMsgId.uchSrcId = pstSockCtx->uchSrcId;
+    stMsgId.uchDstId = pstSockCtx->uchDstId;
+    fprintf(stderr,"MY ID : %d, Dest ID : %d\n",pstSockCtx->uchSrcId, pstSockCtx->uchDstId);
+    //TODO 접속한 클라이언트의 ID 저장이 필요
+    for (;;) {
+        int iRetVal = responseFrame(pstEvBuffer, pstSockCtx->pstBufferEvent, &stMsgId, pstSockCtx->uchIsRespone);
+        if(iRetVal == 1){
+            break;
+        }
+        if (iRetVal == 0) 
+            break;
+        if (iRetVal < 0) { 
+            closeAndFree(pvData);
+            return; 
+        }        
+    }
+}
+
+void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
+{    
+    (void)pvData;
+    (void)pstBufferEvent;
+    if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
+        closeAndFree(pvData);
+    }
+}
+
 void closeAndFree(void *pvData)
 {
-    EVENT_CONTEXT *pstEventCtx = (EVENT_CONTEXT *)pvData;
+    SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT *)pvData;
+    if(!pstSockCtx)
+        return;
+    EVENT_CONTEXT *pstEventCtx = pstSockCtx->pstEventCtx;
     if (pstEventCtx->eRole == ROLE_SERVER) {
-        closeLink(pstEventCtx);
+        removeClient(pstSockCtx, pstEventCtx);
+        if(pstEventCtx->iClientCount > 0)
+            pstEventCtx->iClientCount--;
+        closeClient(pstSockCtx);
     }else {
-        closeLink(pstEventCtx);
+        closeClient(pstSockCtx);
         shutdownApp(pstEventCtx);
     }
 }

@@ -46,10 +46,9 @@ int run(void)   /* ← 반환형을 int로 명확화 */
 {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
     int iFd;
-
     unlink(UDS1_PATH);
-
     signal(SIGPIPE, SIG_IGN);
+    stEventCtx.pstSockCtx = NULL;
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
@@ -75,8 +74,9 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         unlink(UDS1_PATH);
         return 1;
     }
-    stEventCtx.pstSockCtx->uchSrcId = UDS1_SERVER_ID;
-    stEventCtx.pstSockCtx->uchDstId = 0;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    stEventCtx.uchMyId = UDS1_SERVER_ID;
+    stEventCtx.iClientCount = 0;
     /* SIGINT(CTRL+C) 처리 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {

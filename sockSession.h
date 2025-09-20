@@ -45,10 +45,11 @@
 
 typedef enum { ROLE_SERVER = 0, ROLE_CLIENT = 1 } APP_ROLE;
 
+typedef struct app_ctx      EVENT_CONTEXT;
+typedef struct sock_context SOCK_CONTEXT;
 /* === Per-connection context === */
-typedef struct {    
+struct sock_context{
     struct bufferevent  *pstBufferEvent;
-
     unsigned short      unCmd;
     int                 iDataLength;
 
@@ -58,15 +59,19 @@ typedef struct {
 
     unsigned short      unPort;
     char                achSockAddr[INET6_ADDRSTRLEN];
-} SOCK_CONTEXT;
+    EVENT_CONTEXT       *pstEventCtx;
+    SOCK_CONTEXT        *pstNextSockCtx;
+} ;
 
-typedef struct app_ctx{
+struct app_ctx{
     APP_ROLE                eRole;             // ★ 서버/클라 구분
     struct event_base       *pstEventBase;
     struct evconnlistener   *pstEventListener;
     struct event            *pstEvent;
-    SOCK_CONTEXT            *pstSockCtx;    
-} EVENT_CONTEXT;
+    SOCK_CONTEXT            *pstSockCtx;
+    int                     iClientCount;
+    unsigned char           uchMyId;
+};
 
 void listenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, void*);
 void readCallback(struct bufferevent*, void*);

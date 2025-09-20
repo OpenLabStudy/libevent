@@ -16,7 +16,8 @@
  {
     (void)sig;
     (void)nEvents;
-    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+    SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT *)pvData;
+    EVENT_CONTEXT* pstEventCtx = pstSockCtx->pstEventCtx;
     MSG_ID stMsgId;
     char achStdInData[1024];
     if (!fgets(achStdInData, sizeof(achStdInData), stdin)) {
@@ -45,6 +46,7 @@
  {    
     int iClientId;
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+    stEventCtx.iClientCount = 0;    
     if(argc != 2){        
         fprintf(stderr,"### %s():%d Error argument ###\n",__func__,__LINE__);
         return 0;
@@ -55,13 +57,18 @@
         event_base_free(stEventCtx.pstEventBase);
         return; 
     }
+    stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
+    stEventCtx.pstSockCtx->pstNextSockCtx = NULL;
     stEventCtx.pstSockCtx->uchDstId = UDS1_SERVER_ID;
     if(iClientId == 1){
         stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT1_ID;
+        stEventCtx.uchMyId = UDS1_CLIENT1_ID;
     }else if(iClientId == 2){
         stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT2_ID;
+        stEventCtx.uchMyId = UDS1_CLIENT2_ID;
     }else if(iClientId == 3){
         stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT3_ID;
+        stEventCtx.uchMyId = UDS1_CLIENT3_ID;
     }else{
         fprintf(stderr,"### %s():%d Error Client ID ###\n",__func__,__LINE__);
         return 0;
@@ -93,7 +100,7 @@
         return 1;
     }
     
-    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, &stEventCtx);
+    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
     bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
     if (bufferevent_socket_connect(stEventCtx.pstSockCtx->pstBufferEvent, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
@@ -104,7 +111,7 @@
     }
 
     /* STDIN Event 처리 */
-    stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, &stEventCtx);
+    stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");
         if (stEventCtx.pstSockCtx->pstBufferEvent) 
