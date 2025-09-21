@@ -2,14 +2,16 @@
 #include <gtest/gtest.h>
 #include <pthread.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <vector>
-
 #include <chrono>
+
+// TCP에 필요한 헤더
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 extern "C" {
 #include "../sockSession.h"
@@ -18,8 +20,8 @@ extern "C" {
 
 /* udsSvr.c에 있는 심볼들 (테스트에서 직접 호출) */
 int run(void);
-void udsSvrStop(void);
-int  udsSvrIsRunning(void);
+void tcpSvrStop(void);
+int  tcpSvrIsRunning(void);
 }
 
 /* --- 작은 유틸 --- */
@@ -34,20 +36,25 @@ static bool waitForFileExists(const char* path, int timeout_ms=1500) {
     return false;
 }
 
-static int connectUds(const char* udsPath) {
-    int iFd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-    if (iFd < 0) 
+/* --- TCP connect --- */
+static int connectTcp(const char* addr, int port) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
         return -1;
-    struct sockaddr_un un{};
-    un.sun_family = AF_UNIX;
-    size_t len = strlen(udsPath);
-    memcpy(un.sun_path, udsPath, len+1);
-    if (::connect(iFd, (struct sockaddr*)&un,
-                  (socklen_t)(offsetof(struct sockaddr_un, sun_path)+len+1)) < 0) {
-        ::close(iFd); 
+
+    struct sockaddr_in in{};
+    in.sin_family = AF_INET;
+    in.sin_port   = htons((uint16_t)port);
+    if (inet_pton(AF_INET, addr, &in.sin_addr) != 1) {
+        ::close(fd);
+        errno = EINVAL;
         return -1;
     }
-    return iFd;
+    if (::connect(fd, (struct sockaddr*)&in, (socklen_t)sizeof(in)) < 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
 }
 
 /* === 프레임 하나 파싱 & 응답 처리 ===
@@ -128,49 +135,47 @@ static void  pump(struct event_base* pstEventBase, int ms){
 };
 
 /* --- 픽스처 --- */
-class UdsSvrRunTest : public ::testing::Test {
+class TcpSvrRunTest : public ::testing::Test {
 protected:
     pthread_t tid_{};
 
     void SetUp() override {
-        unlink(UDS1_PATH);
         // 서버 기동
         ASSERT_EQ(0, pthread_create(&tid_, nullptr, serverThread, nullptr));
         // 소켓 파일 생성 대기
-        ASSERT_TRUE(waitForFileExists(UDS1_PATH, 2000)) << "UDS not ready";
+        ASSERT_TRUE(waitForFileExists(UDS1_PATH, 2000)) << "TCP not ready";
         // (선택) 러닝 여부 점검
-        EXPECT_TRUE(udsSvrIsRunning());
+        EXPECT_TRUE(tcpSvrIsRunning());
     }
 
     void TearDown() override {
         // 테스트 종료 → 서버 루프 중단
-        udsSvrStop();
+        tcpSvrStop();
         pthread_join(tid_, nullptr);
         unlink(UDS1_PATH);
     }
 };
 
 /* 1) 접속/해지 */
-TEST_F(UdsSvrRunTest, ConnectDisconnect) {
-    int fd1 = connectUds(UDS1_PATH);
+TEST_F(TcpSvrRunTest, ConnectDisconnect) {
+    int fd1 = connectTcp("127.0.0.1", DEFAULT_PORT);
     ASSERT_GE(fd1, 0) << strerror(errno);
     ::close(fd1);
 
     // 재접속 가능해야 함
-    int fd2 = connectUds(UDS1_PATH);
+    int fd2 = connectTcp("127.0.0.1", DEFAULT_PORT);
     ASSERT_GE(fd2, 0) << "reconnect failed";
     ::close(fd2);
 }
 
 /* 2) KEEP_ALIVE 라운드트립 */
-TEST_F(UdsSvrRunTest, KeepAliveCommandTest) {
-    /* UDS 주소 준비 */    
-    struct sockaddr_un stSocketUn;    
-    memset(&stSocketUn, 0, sizeof(stSocketUn));
-    stSocketUn.sun_family = AF_UNIX;
-    strcpy(stSocketUn.sun_path, UDS1_PATH);
-    size_t ulSize = strlen(UDS1_PATH);
-    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
+TEST_F(TcpSvrRunTest, KeepAliveCommandTest) {
+    /* TCP 주소 준비 */
+    struct sockaddr_in stSocketIn;
+    memset(&stSocketIn,0,sizeof(stSocketIn));
+    stSocketIn.sin_family = AF_INET;
+    stSocketIn.sin_port   = htons((uint16_t)DEFAULT_PORT);
+    ASSERT_EQ(1, inet_pton(AF_INET, "127.0.0.1", &stSocketIn.sin_addr));
 
     // 기존 코드를 최대한 재사용하기 위해 bufferevent를 래핑해 requestFrame() 호출
     struct event_base* pstEventBase = event_base_new();
@@ -179,7 +184,7 @@ TEST_F(UdsSvrRunTest, KeepAliveCommandTest) {
     ASSERT_NE(pstBufferEvent, nullptr);
     bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
-    if (bufferevent_socket_connect(pstBufferEvent, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
+    if (bufferevent_socket_connect(pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
         fprintf(stderr, "Connect failed: %s\n", strerror(errno));
         bufferevent_free(pstBufferEvent);
         event_base_free(pstEventBase);
@@ -213,13 +218,9 @@ TEST_F(UdsSvrRunTest, KeepAliveCommandTest) {
 }
 
 /* 3) quit 동등 시나리오(클라이언트 종료) */
-TEST_F(UdsSvrRunTest, QuitLikeClose) {
-    int iFd = connectUds(UDS1_PATH);
+TEST_F(TcpSvrRunTest, QuitLikeClose) {
+    int iFd = connectTcp("127.0.0.1", DEFAULT_PORT);
     ASSERT_GE(iFd, 0);
     ::close(iFd);  // quit과 동일한 효과
 
-    // 서버는 계속 동작해야 함 → 재접속 확인
-    int iFd2 = connectUds(UDS1_PATH);
-    ASSERT_GE(iFd2, 0);
-    ::close(iFd2);
 }

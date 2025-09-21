@@ -7,26 +7,13 @@
 #include <signal.h>
 
 #include <unistd.h>
-#include <stddef.h>     /* offsetof */
 
 #include "frame.h"
 #include "sockSession.h"
 
 /* === 내부에서 루프 중인 컨텍스트에 접근하기 위한 정지 훅 === */
-#ifndef UDS_SVR_STANDALONE
+#ifdef GOOGLE_TEST
 static EVENT_CONTEXT* g_pRunningCtx = NULL;
-#endif
-
-/* === SIGINT: 루프 종료 및 소켓 파일 제거 === */
-static void signalCb(evutil_socket_t sig, short ev, void* pvData)
-{
-    (void)sig;
-    (void)ev;
-    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-    event_base_loopexit(pstEventCtx->pstEventBase, NULL);
-}
-
-#ifndef UDS_SVR_STANDALONE
 /* 외부(테스트)에서 호출: 이벤트 루프 중단 */
 void udsSvrStop(void)
 {
@@ -42,10 +29,19 @@ int udsSvrIsRunning(void)
 }
 #endif
 
+/* === SIGINT: 루프 종료 및 소켓 파일 제거 === */
+static void signalCb(evutil_socket_t sig, short ev, void* pvData)
+{
+    (void)sig;
+    (void)ev;
+    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+    event_base_loopexit(pstEventCtx->pstEventBase, NULL);
+}
+
 int run(void)   /* ← 반환형을 int로 명확화 */
 {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    int iFd;
+    int iSockFd;
     unlink(UDS1_PATH);
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstSockCtx = NULL;
@@ -55,8 +51,8 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         return 1;
     }
 
-    iFd = createUdsListenSocket(UDS1_PATH);
-    if (iFd == -1) {
+    iSockFd = createUdsListenSocket(UDS1_PATH);
+    if (iSockFd == -1) {
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
@@ -66,15 +62,15 @@ int run(void)   /* ← 반환형을 int로 명확화 */
                            listenerCb, &stEventCtx,
                            LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,
                            -1, /* ignored */
-                           iFd);
+                           iSockFd);
     if (!stEventCtx.pstEventListener) {
         fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
-        evutil_closesocket(iFd);
+        evutil_closesocket(iSockFd);
         event_base_free(stEventCtx.pstEventBase);
         unlink(UDS1_PATH);
         return 1;
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    
     stEventCtx.uchMyId = UDS1_SERVER_ID;
     stEventCtx.iClientCount = 0;
     /* SIGINT(CTRL+C) 처리 */
@@ -89,11 +85,11 @@ int run(void)   /* ← 반환형을 int로 명확화 */
     fprintf(stderr, "UDS Server Start\n");
 
     /* 러닝 컨텍스트 노출 → 테스트에서 udsSvr_stop()로 중단 */
-#ifndef UDS_SVR_STANDALONE
+#ifdef GOOGLE_TEST
     g_pRunningCtx = &stEventCtx;
 #endif 
     event_base_dispatch(stEventCtx.pstEventBase);
-#ifndef UDS_SVR_STANDALONE
+#ifdef GOOGLE_TEST
     g_pRunningCtx = NULL;
 #endif
 
@@ -107,7 +103,7 @@ int run(void)   /* ← 반환형을 int로 명확화 */
 /* === main ===
  * 프로덕션 바이너리 빌드에서만 포함되도록 가드
  */
-#ifdef UDS_SVR_STANDALONE
+#ifndef GOOGLE_TEST
 int main(int argc, char** argv)
 {
     return run();

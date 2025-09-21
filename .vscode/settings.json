@@ -14,6 +14,7 @@
         "unistd.h": "c",
         "signal.h": "c",
         "ranges": "cpp",
-        "util.h": "c"
+        "util.h": "c",
+        "chrono": "cpp"
     }
 }
