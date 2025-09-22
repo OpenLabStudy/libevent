@@ -93,4 +93,4 @@ trackingCtrlApp: trackingCtrlApp.c protocol.h
 
 # === Clean ===
 clean:
-	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln
+	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest

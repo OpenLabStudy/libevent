@@ -71,6 +71,7 @@ void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
     EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
     struct event_base *pstEventBase = pstEventCtx->pstEventBase;
     struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
+    
     if (!pstBufferEvent) 
         return;
 
@@ -79,15 +80,13 @@ void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
         bufferevent_free(pstBufferEvent);
         return; 
     }
+    
     pstSockCtx->pstBufferEvent  = (void*)pstBufferEvent;
     pstSockCtx->pstEventCtx     = pstEventCtx;
     pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
     pstSockCtx->uchDstId        = 0x00;
     pstSockCtx->uchIsRespone    = 0x01;
-    pstEventCtx->eRole          = ROLE_SERVER;    
-
-    struct sockaddr_in *sin = (struct sockaddr_in*)pstSockAddr;
-    inet_ntop(pstSockAddr->sa_family, &(sin->sin_addr), pstEventCtx->pstSockCtx->achSockAddr, sizeof(pstEventCtx->pstSockCtx->achSockAddr));
+    pstEventCtx->eRole          = ROLE_SERVER;
 
     addClient(pstSockCtx, pstEventCtx);
     pstEventCtx->iClientCount++;

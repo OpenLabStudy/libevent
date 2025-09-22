@@ -57,12 +57,11 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         return 1;
     }
 
-    stEventCtx.pstEventListener =
-        evconnlistener_new(stEventCtx.pstEventBase,
-                           listenerCb, &stEventCtx,
-                           LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,
-                           -1, /* ignored */
-                           iSockFd);
+    stEventCtx.pstEventListener = evconnlistener_new(   stEventCtx.pstEventBase,
+                                                        listenerCb, &stEventCtx,
+                                                        LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,
+                                                        -1, /* ignored */
+                                                        iSockFd);
     if (!stEventCtx.pstEventListener) {
         fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
         evutil_closesocket(iSockFd);
@@ -81,10 +80,7 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-
     fprintf(stderr, "UDS Server Start\n");
-
-    /* 러닝 컨텍스트 노출 → 테스트에서 udsSvr_stop()로 중단 */
 #ifdef GOOGLE_TEST
     g_pRunningCtx = &stEventCtx;
 #endif 
@@ -92,7 +88,6 @@ int run(void)   /* ← 반환형을 int로 명확화 */
 #ifdef GOOGLE_TEST
     g_pRunningCtx = NULL;
 #endif
-
     evconnlistener_free(stEventCtx.pstEventListener);
     event_free(stEventCtx.pstEvent);
     event_base_free(stEventCtx.pstEventBase);

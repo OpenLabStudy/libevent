@@ -57,9 +57,14 @@ int run(void)
                                                         listenerCb, &stEventCtx,    \
                                                         LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,      \
                                                         -1, iSockFd);
-    
+    if (!stEventCtx.pstEventListener) {
+        fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
+        evutil_closesocket(iSockFd);
+        event_base_free(stEventCtx.pstEventBase);
+        return 1;
+    }
     stEventCtx.uchMyId = UDS1_SERVER_ID;
-    stEventCtx.iClientCount = 0;
+    stEventCtx.iClientCount = 0;                                                    
     /* SIGINT(CTRL+C) 처리 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {

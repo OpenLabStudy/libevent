@@ -25,32 +25,42 @@ int  tcpSvrIsRunning(void);
 }
 
 /* --- 작은 유틸 --- */
-static bool waitForFileExists(const char* path, int timeout_ms=1500) {
-    const int step=10;
-    int waited=0; 
-    struct stat st{};
+static bool waitForPortOpen(const char* host, int port, int timeout_ms = 3000) {
+    const int step = 50;
+    int waited = 0;
     while (waited < timeout_ms) {
-        if (stat(path, &st) == 0) return true;
-        usleep(step*1000); waited += step;
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            struct sockaddr_in sin; memset(&sin, 0, sizeof(sin));
+            sin.sin_family = AF_INET;
+            sin.sin_port   = htons(port);
+            if (inet_pton(AF_INET, host, &sin.sin_addr) == 1) {
+                if (::connect(fd, (struct sockaddr*)&sin, sizeof(sin)) == 0) {
+                    ::close(fd);
+                    return true; // 연결 성공 = 포트 열림
+                }
+            }
+            ::close(fd);
+        }
+        usleep(step * 1000);
+        waited += step;
     }
     return false;
 }
 
 /* --- TCP connect --- */
-static int connectTcp(const char* addr, int port) {
+static int connectTcp(const char* host, int port) {
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0)
-        return -1;
+    if (fd < 0) return -1;
 
-    struct sockaddr_in in{};
-    in.sin_family = AF_INET;
-    in.sin_port   = htons((uint16_t)port);
-    if (inet_pton(AF_INET, addr, &in.sin_addr) != 1) {
+    struct sockaddr_in sin; memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &sin.sin_addr) != 1) {
         ::close(fd);
-        errno = EINVAL;
         return -1;
     }
-    if (::connect(fd, (struct sockaddr*)&in, (socklen_t)sizeof(in)) < 0) {
+    if (::connect(fd, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
         ::close(fd);
         return -1;
     }
@@ -79,11 +89,6 @@ int checkRecvData(char* pchData, int iDataSize, void* pvResponse) {
     }
 
     FRAME_TAIL *pstFrameTail = (FRAME_TAIL *)(pchData + sizeof(FRAME_HEADER) + iDataLength);
-    // if (proto_crc8_xor(uchPayload, (size_t)iDataLength) != (unsigned char)pstFrameTail->uchCrc) {
-    //     free(uchPayload); 
-    //     return -1;//FRAME_ERR_CRC_NOT_MATCH
-    // }
-
     if (ntohs(pstFrameTail->unEtx) != ETX_CONST) {
         free(uchPayload); 
         return -1;//FRAME_ERR_ETX_NOT_MATCH
@@ -140,11 +145,8 @@ protected:
     pthread_t tid_{};
 
     void SetUp() override {
-        // 서버 기동
         ASSERT_EQ(0, pthread_create(&tid_, nullptr, serverThread, nullptr));
-        // 소켓 파일 생성 대기
-        ASSERT_TRUE(waitForFileExists(UDS1_PATH, 2000)) << "TCP not ready";
-        // (선택) 러닝 여부 점검
+        ASSERT_TRUE(waitForPortOpen("127.0.0.1", DEFAULT_PORT, 2000)) << "TCP not ready";
         EXPECT_TRUE(tcpSvrIsRunning());
     }
 
