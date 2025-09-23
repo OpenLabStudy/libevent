@@ -112,45 +112,6 @@ void acceptCb(int iListenFd, short nKindOfEvent, void* pvData)
     }
 }
 
-
-#if 0
-
-void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
-                        struct sockaddr *pstSockAddr, int iSockLen, void *pvData)
-{
-    (void)listener;
-    (void)pstSockAddr;
-    (void)iSockLen;
-    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-    struct event_base *pstEventBase = pstEventCtx->pstEventBase;
-    struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
-    
-    if (!pstBufferEvent) 
-        return;
-
-    SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if (!pstSockCtx) { 
-        bufferevent_free(pstBufferEvent);
-        return; 
-    }
-    
-    pstSockCtx->pstBufferEvent  = (void*)pstBufferEvent;
-    pstSockCtx->pstEventCtx     = pstEventCtx;
-    pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
-    pstSockCtx->uchDstId        = 0x00;
-    pstSockCtx->uchIsRespone    = 0x01;
-    pstEventCtx->eRole          = ROLE_SERVER;
-
-    addClient(pstSockCtx, pstEventCtx);
-    pstEventCtx->iClientCount++;
-
-    bufferevent_setcb(pstBufferEvent, readCallback, NULL, eventCallback, pstSockCtx);
-    bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
-
-    fprintf(stdout,"Accepted Client (iSockFd=%d)\n", iSockFd);
-}
-#endif
 /* === Libevent callbacks === */
 void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
 {
@@ -201,7 +162,7 @@ void closeAndFree(void *pvData)
     }
 }
 
-int createTcpListenSocket(char* chAddr, unsigned short unPort)
+int createTcpUdpServerSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType)
 {
     struct sockaddr_in stSocketIn;
     int iFd;
@@ -238,15 +199,42 @@ int createTcpListenSocket(char* chAddr, unsigned short unPort)
         return -1;
     }
 
-    /* evconnlistener_new()는 전달된 fd에 대해 listen을 호출하지 않으므로 직접 호출 필요 */
-    if (listen(iFd, SOMAXCONN) < 0) {
-        fprintf(stderr, "listen() failed: %s\n", strerror(errno));
-        return -1;
-    }
+    if(eSockType == SOCK_TYPE_TCP) {
+        /* evconnlistener_new()는 전달된 fd에 대해 listen을 호출하지 않으므로 직접 호출 필요 */
+        if (listen(iFd, SOMAXCONN) < 0) {
+            fprintf(stderr, "listen() failed: %s\n", strerror(errno));
+            return -1;
+        }
+    }   
     return iFd;
 }
 
-int createUdsListenSocket(char* chAddr)
+int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType)
+{
+    int iSockFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (iSockFd < 0) {
+        perror("socket");
+        return -1;
+    }
+
+    /* TCP 주소 준비 */
+    struct sockaddr_in stSocketIn;
+    memset(&stSocketIn,0,sizeof(stSocketIn));
+    stSocketIn.sin_family = AF_INET;
+    stSocketIn.sin_port   = htons(unPort);
+    if (inet_pton(AF_INET, chAddr, &stSocketIn.sin_addr) != 1) {
+        fprintf(stderr,"Bad host\n");     
+        return -1;
+    }
+    if (connect(iSockFd, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
+        perror("connect");
+        close(iSockFd);
+        return -1;
+    }
+    return iSockFd;
+}
+
+int createUdsServerSocket(char* chAddr)
 {
     unlink(chAddr); // ★ 바인드 전에 선삭제
     /* ===== 1) UDS 주소 준비 ===== */
@@ -294,4 +282,28 @@ int createUdsListenSocket(char* chAddr)
         return -1;
     }
     return iFd;
+}
+
+int createUdsClientSocket(char* chAddr)
+{
+    int iSockFd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (iSockFd < 0) {
+        perror("socket");
+        return -1;
+    }
+
+    /* UDS 주소 준비 */
+    struct sockaddr_un stSocketUn;    
+    memset(&stSocketUn, 0, sizeof(stSocketUn));
+    stSocketUn.sun_family = AF_UNIX;
+    strcpy(stSocketUn.sun_path, UDS1_PATH);
+    size_t ulSize = strlen(UDS1_PATH);
+    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
+
+    if (connect(iSockFd, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
+        perror("connect");
+        close(iSockFd);
+        return -1;
+    }
+    return iSockFd;
 }

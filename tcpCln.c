@@ -65,18 +65,8 @@
         return 1;
     }
 
-    /* TCP 주소 준비 */
-    struct sockaddr_in stSocketIn;
-    memset(&stSocketIn,0,sizeof(stSocketIn));
-    stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons(stEventCtx.pstSockCtx->unPort);
-    if (inet_pton(AF_INET, stEventCtx.pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
-        fprintf(stderr,"Bad host\n");
-        event_base_free(stEventCtx.pstEventBase);        
-        return 1;
-    }
-
-    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
+    int iSockFd = createTcpUdpClientSocket("127.0.0.1", DEFAULT_PORT, SOCK_TYPE_TCP);    
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
@@ -86,12 +76,6 @@
     bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
     bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
     bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
-    if (bufferevent_socket_connect(stEventCtx.pstSockCtx->pstBufferEvent, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
-        fprintf(stderr, "Connect failed: %s\n", strerror(errno));
-        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
-        event_base_free(stEventCtx.pstEventBase);
-        return 1;
-    }
 
     /* STDIN Event 처리 */
     stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);

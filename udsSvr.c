@@ -50,7 +50,7 @@ int run(void)   /* ← 반환형을 int로 명확화 */
         return 1;
     }
 
-    stEventCtx.iListenFd = createUdsListenSocket(UDS1_PATH);
+    stEventCtx.iListenFd = createUdsServerSocket(UDS1_PATH);
     if (stEventCtx.iListenFd == -1) {
         event_base_free(stEventCtx.pstEventBase);
         return 1;

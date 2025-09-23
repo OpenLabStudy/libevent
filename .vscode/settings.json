@@ -15,6 +15,7 @@
         "signal.h": "c",
         "ranges": "cpp",
         "util.h": "c",
-        "chrono": "cpp"
+        "chrono": "cpp",
+        "fcntl.h": "c"
     }
 }

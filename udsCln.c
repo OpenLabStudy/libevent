@@ -85,15 +85,8 @@
         return 1;
     }
 
-    /* UDS 주소 준비 */
-    struct sockaddr_un stSocketUn;    
-    memset(&stSocketUn, 0, sizeof(stSocketUn));
-    stSocketUn.sun_family = AF_UNIX;
-    strcpy(stSocketUn.sun_path, UDS1_PATH);
-    size_t ulSize = strlen(UDS1_PATH);
-    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
-
-    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
+    int iSockFd = createUdsClientSocket(UDS1_PATH);
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
@@ -102,13 +95,7 @@
     
     bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
     bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
-    if (bufferevent_socket_connect(stEventCtx.pstSockCtx->pstBufferEvent, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
-        fprintf(stderr, "Connect failed: %s\n", strerror(errno));
-        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
-        event_base_free(stEventCtx.pstEventBase);
-        return 1;
-    }
+    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
 
     /* STDIN Event 처리 */
     stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);

@@ -46,7 +46,7 @@ int run(void)
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
-    stEventCtx.iListenFd = createTcpListenSocket("127.0.0.1", DEFAULT_PORT);
+    stEventCtx.iListenFd = createTcpUdpServerSocket("127.0.0.1", DEFAULT_PORT, SOCK_TYPE_TCP);
     if(stEventCtx.iListenFd == -1){
         fprintf(stderr,"Error Create Listen socket!\n");
         event_base_free(stEventCtx.pstEventBase);

@@ -45,6 +45,13 @@
 
 typedef enum { ROLE_SERVER = 0, ROLE_CLIENT = 1 } APP_ROLE;
 
+/** @brief Socket Type 구분용 */
+typedef enum {
+    SOCK_TYPE_NONE = 0,   ///< 초기값 / 미지정
+    SOCK_TYPE_TCP,        ///< TCP 소켓
+    SOCK_TYPE_UDP         ///< UDP 소켓
+} SOCK_TYPE;
+
 typedef struct app_ctx      EVENT_CONTEXT;
 typedef struct sock_context SOCK_CONTEXT;
 /* === Per-connection context === */
@@ -77,10 +84,11 @@ struct app_ctx{
 };
 
 void acceptCb(int iListenFd, short nKindOfEvent, void* pvData);
-void listenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, void*);
 void readCallback(struct bufferevent*, void*);
 void eventCallback(struct bufferevent*, short, void*);
 void closeAndFree(void *pvData);
-int createTcpListenSocket(char* chAddr, unsigned short unPort);
-int createUdsListenSocket(char* chAddr);
+int createTcpUdpServerSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType);
+int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType);
+int createUdsServerSocket(char* chAddr);
+int createUdsClientSocket(char* chAddr);
 #endif
