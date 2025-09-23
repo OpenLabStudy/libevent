@@ -14,7 +14,7 @@ FRAME_OBJS = frame-io.o sockSession.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: udsSvr udsCln tcpSvr tcpCln
+all: tcpSvr tcpCln udsSvr udsCln
 
 # === Regular apps ===
 udsSvr: udsSvr.o $(FRAME_OBJS)

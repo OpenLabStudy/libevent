@@ -62,6 +62,59 @@ static void closeAllClients(EVENT_CONTEXT *pstEventCtx) {
     pstEventCtx->iClientCount = 0;
 }
 
+/* === Accept 콜백 === */
+void acceptCb(int iListenFd, short nKindOfEvent, void* pvData) 
+{
+    (void)nKindOfEvent;
+    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+
+    for (;;) {
+        //모든 주소 체계를 안전하게 담기 위한 "큰 통" 같은 역할
+        struct sockaddr_storage ss;
+        socklen_t slen = sizeof(ss);
+        int iClientSock = accept(iListenFd, (struct sockaddr*)&ss, &slen);
+        if (iClientSock < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            perror("accept");
+            break;
+        }
+
+        evutil_make_socket_nonblocking(iClientSock);
+        evutil_make_socket_closeonexec(iClientSock);
+
+        EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+        struct event_base *pstEventBase = pstEventCtx->pstEventBase;
+        struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iClientSock, BEV_OPT_CLOSE_ON_FREE);        
+        if (!pstBufferEvent) 
+            return;
+
+        SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+        if (!pstSockCtx) { 
+            bufferevent_free(pstBufferEvent);
+            return; 
+        }
+        
+        pstSockCtx->pstBufferEvent  = (void*)pstBufferEvent;
+        pstSockCtx->pstEventCtx     = pstEventCtx;
+        pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
+        pstSockCtx->uchDstId        = 0x00;
+        pstSockCtx->uchIsRespone    = 0x01;
+        pstEventCtx->eRole          = ROLE_SERVER;
+
+        addClient(pstSockCtx, pstEventCtx);
+        pstEventCtx->iClientCount++;
+
+        bufferevent_setcb(pstBufferEvent, readCallback, NULL, eventCallback, pstSockCtx);
+        bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
+        bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
+
+        fprintf(stdout,"Accepted Client (iSockFd=%d)\n", iClientSock);
+    }
+}
+
+
+#if 0
+
 void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
                         struct sockaddr *pstSockAddr, int iSockLen, void *pvData)
 {
@@ -97,7 +150,7 @@ void listenerCb(struct evconnlistener *listener, evutil_socket_t iSockFd,
 
     fprintf(stdout,"Accepted Client (iSockFd=%d)\n", iSockFd);
 }
-
+#endif
 /* === Libevent callbacks === */
 void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
 {
@@ -232,9 +285,6 @@ int createUdsListenSocket(char* chAddr)
         unlink(chAddr);
         return -1;
     }
-
-    /* (선택) 퍼미션 조정: 그룹까지 허용하고 싶다면 예시처럼 */
-    /* chmod(chAddr, 0660); */
 
     /* ===== 4) listen() ===== */
     if (listen(iFd, SOMAXCONN) < 0) {

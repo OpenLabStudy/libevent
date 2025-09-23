@@ -16,16 +16,16 @@ typedef struct __attribute__((__packed__)) {
 } MSG_ID;
 
 typedef struct __attribute__((__packed__)) {
-    unsigned short  unStx;          /* STX (network order on wire) */
-    int             iDataLength;    /* payload length (bytes)      */
-    MSG_ID          stMsgId;        /* src/dst IDs                 */
+    unsigned short  unStx;
+    int             iDataLength;
+    MSG_ID          stMsgId;
     unsigned char   uchSubModule;
-    unsigned short  unCmd;          /* command id                  */
+    unsigned short  unCmd;
 } FRAME_HEADER;
 
 typedef struct __attribute__((__packed__)) {
-    unsigned char   uchCrc;         /* XOR of payload              */
-    unsigned short  unEtx;          /* ETX                         */
+    unsigned char   uchCrc;
+    unsigned short  unEtx;
 } FRAME_TAIL;
 
 

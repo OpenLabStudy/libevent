@@ -49,7 +49,8 @@ typedef struct app_ctx      EVENT_CONTEXT;
 typedef struct sock_context SOCK_CONTEXT;
 /* === Per-connection context === */
 struct sock_context{
-    struct bufferevent  *pstBufferEvent;
+    struct bufferevent*  pstBufferEvent;
+    EVENT_CONTEXT*      pstEventCtx;
     unsigned short      unCmd;
     int                 iDataLength;
 
@@ -59,20 +60,23 @@ struct sock_context{
 
     unsigned short      unPort;
     char                achSockAddr[INET6_ADDRSTRLEN];
-    EVENT_CONTEXT       *pstEventCtx;
+    
     SOCK_CONTEXT        *pstNextSockCtx;
 } ;
 
 struct app_ctx{
-    APP_ROLE                eRole;             // ★ 서버/클라 구분
-    struct event_base       *pstEventBase;
-    struct evconnlistener   *pstEventListener;
-    struct event            *pstEvent;
-    SOCK_CONTEXT            *pstSockCtx;
-    int                     iClientCount;
-    unsigned char           uchMyId;
+    APP_ROLE            eRole;             // ★ 서버/클라 구분
+    int                 iListenFd;
+    struct event_base*  pstEventBase;
+    struct event*       pstEvent;
+    struct event*       pstAcceptEvent;
+    
+    SOCK_CONTEXT*       pstSockCtx;
+    int                 iClientCount;
+    unsigned char       uchMyId;
 };
 
+void acceptCb(int iListenFd, short nKindOfEvent, void* pvData);
 void listenerCb(struct evconnlistener*, evutil_socket_t, struct sockaddr*, int, void*);
 void readCallback(struct bufferevent*, void*);
 void eventCallback(struct bufferevent*, short, void*);

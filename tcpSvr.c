@@ -39,7 +39,6 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    int iSockFd;
     signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstSockCtx = NULL;
     stEventCtx.pstEventBase = event_base_new();
@@ -47,19 +46,23 @@ int run(void)
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
-    iSockFd = createTcpListenSocket("127.0.0.1", DEFAULT_PORT);
-    if(iSockFd == -1){
+    stEventCtx.iListenFd = createTcpListenSocket("127.0.0.1", DEFAULT_PORT);
+    if(stEventCtx.iListenFd == -1){
         fprintf(stderr,"Error Create Listen socket!\n");
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    stEventCtx.pstEventListener = evconnlistener_new(   stEventCtx.pstEventBase,    \
-                                                        listenerCb, &stEventCtx,    \
-                                                        LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,      \
-                                                        -1, iSockFd);
-    if (!stEventCtx.pstEventListener) {
-        fprintf(stderr, "Could not create a UDS listener! (%s)\n", strerror(errno));
-        evutil_closesocket(iSockFd);
+
+    evutil_make_socket_nonblocking(stEventCtx.iListenFd);
+    evutil_make_socket_closeonexec(stEventCtx.iListenFd);
+
+    stEventCtx.pstAcceptEvent = event_new(stEventCtx.pstEventBase,
+                                          stEventCtx.iListenFd,
+                                          EV_READ | EV_PERSIST,
+                                          acceptCb, &stEventCtx);
+    if (!stEventCtx.pstAcceptEvent || event_add(stEventCtx.pstAcceptEvent, NULL) < 0) {
+        fprintf(stderr, "Could not create/add accept event!\n");
+        evutil_closesocket(stEventCtx.iListenFd);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
@@ -69,7 +72,8 @@ int run(void)
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");
-        evconnlistener_free(stEventCtx.pstEventListener);
+        event_free(stEventCtx.pstAcceptEvent);
+        evutil_closesocket(stEventCtx.iListenFd);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }    
@@ -81,8 +85,13 @@ int run(void)
 #ifdef GOOGLE_TEST
     g_pRunningCtx = NULL;
 #endif
-    evconnlistener_free(stEventCtx.pstEventListener);
-    event_free(stEventCtx.pstEvent);
+    /* 정리 */
+    if (stEventCtx.pstAcceptEvent)
+        event_free(stEventCtx.pstAcceptEvent);
+    if (stEventCtx.pstEvent)
+        event_free(stEventCtx.pstEvent);
+    if (stEventCtx.iListenFd >= 0)
+        evutil_closesocket(stEventCtx.iListenFd);
     event_base_free(stEventCtx.pstEventBase);
     printf("done\n");
     return 0;
