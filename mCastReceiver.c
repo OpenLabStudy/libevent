@@ -10,6 +10,7 @@
 
 #include <event2/event.h>
 #include <event2/util.h>
+#include <event2/buffer.h>
 
 #include "frame.h"
 #include "sockSession.h"
@@ -18,11 +19,43 @@
 #define MCAST_PORT      5000
 
 
-static volatile sig_atomic_t g_stop = 0;
-static void on_sigint(int sig) { 
-    (void)sig;   // sig 변수를 쓰지 않으면 경고 억제
-    g_stop = 1; 
+/* SIGINT 처리 */
+static void signalCb(evutil_socket_t sig, short ev, void* pvData)
+{
+    (void)sig; (void)ev;
+    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
+    event_base_loopexit(pstEventCtx->pstEventBase, NULL);
 }
+
+static void mcastEventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
+{    
+    (void)pvData;
+    (void)pstBufferEvent;
+    if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
+        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
+        //todo multicastSockLeave();
+    }
+}
+
+static void mcastReadCallback(struct bufferevent *pstBufferEvent, void *pvData)
+{
+    SOCK_CONTEXT *pstSockCtx    = (SOCK_CONTEXT *)pvData;
+    struct evbuffer *pstEvBuffer = bufferevent_get_input(pstBufferEvent);
+    int iLength = evbuffer_get_length(pstEvBuffer);
+    char achData[512];
+    fprintf(stderr,"### %s():%d Recv Data Length is %d\n", __func__, __LINE__, iLength);
+    
+    if (iLength <= 0){
+        return 0;
+    }
+
+    if (evbuffer_copyout(pstEvBuffer, achData, iLength) != iLength){
+        return 0;
+    }
+    achData[iLength] = '\0';
+    fprintf(stderr,"<<< len=%zd msg=\"%s\"\n", iLength, achData);  
+}
+
 
 
 
@@ -82,31 +115,39 @@ int run(void)
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
 
     // SIGINT 핸들러 등록
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = on_sigint;
-    sigaction(SIGINT, &sa, NULL);
-
-    // signal(SIGPIPE, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase   = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
+    stEventCtx.iClientCount = 0;
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if (!stEventCtx.pstSockCtx) { 
+        event_base_free(stEventCtx.pstEventBase);
+        return; 
+    }
+    stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
+    stEventCtx.pstSockCtx->pstNextSockCtx = NULL;
+    stEventCtx.pstSockCtx->uchDstId = UDS1_SERVER_ID;
+    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
+    stEventCtx.pstSockCtx->unPort = 0;
+    stEventCtx.eRole = ROLE_CLIENT;
 
+    stEventCtx.iListenFd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (stEventCtx.iListenFd < 0) {
+        fprintf(stderr,"socket() fail...[%s]", strerror(errno));
+        return -1;
+    }
     /* Multicast 주소 준비 */
     struct in_addr stGroupAddr = {0};
     if (inet_pton(AF_INET, MCAST_IP, &stGroupAddr) != 1) {
         fprintf(stderr,"Invalid MULTICAST_IP: %s", MCAST_IP);
         return EXIT_FAILURE;
     }
-    int iSockFd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (iSockFd < 0) {
-        fprintf(stderr,"socket() fail...[%s]", strerror(errno));
-        return -1;
-    }
+    
     int iReuseAddr = 1;
-    if (setsockopt(iSockFd, SOL_SOCKET, SO_REUSEADDR, &iReuseAddr, sizeof(iReuseAddr)) < 0) {
+    if (setsockopt(stEventCtx.iListenFd, SOL_SOCKET, SO_REUSEADDR, &iReuseAddr, sizeof(iReuseAddr)) < 0) {
         fprintf(stderr,"setsockopt(SO_REUSEADDR) fail...[%s]", strerror(errno));
         return -1;
     }
@@ -118,103 +159,52 @@ int run(void)
     stMcastBindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     stMcastBindAddr.sin_port        = htons((uint16_t)MCAST_PORT);
 
-    if (bind(iSockFd, (struct sockaddr *)&stMcastBindAddr, sizeof(struct sockaddr_in)) < 0) {
+    if (bind(stEventCtx.iListenFd, (struct sockaddr *)&stMcastBindAddr, sizeof(struct sockaddr_in)) < 0) {
         fprintf(stderr,"%s():%d fail...[%s]", __func__, __LINE__, strerror(errno));
-        close(iSockFd);
+        close(stEventCtx.iListenFd);
         return -1;
     }
 
     // 인터페이스 지정하여 그룹 가입(미지정시 ANY)
-    if (multicastSockJoin(iSockFd, stGroupAddr.s_addr) < 0) {
-        close(iSockFd);
+    if (multicastSockJoin(stEventCtx.iListenFd, stGroupAddr.s_addr) < 0) {
+        close(stEventCtx.iListenFd);
         return EXIT_FAILURE;
     }
 
     /* ====== 옵션: 수신 버퍼 키우기 (대량 트래픽 시 유용) ====== */
     int iRecvBufferSize = 1*1024;
-    if (setsockopt(iSockFd, SOL_SOCKET, SO_RCVBUF, &iRecvBufferSize, sizeof(iRecvBufferSize)) < 0) {
+    if (setsockopt(stEventCtx.iListenFd, SOL_SOCKET, SO_RCVBUF, &iRecvBufferSize, sizeof(iRecvBufferSize)) < 0) {
         fprintf(stderr,"setsockopt(SO_RCVBUF=%d) warn...[%s]", iRecvBufferSize, strerror(errno));
     }
     fprintf(stderr,"[MCAST-RECV] group=%s port=%u\n", MCAST_IP, (unsigned)MCAST_PORT);
-    fprintf(stderr,"Waiting packets... (Ctrl+C to stop)");
-    // 수신 루프
-    while (!g_stop) {
-        char buf[2048];
-        struct sockaddr_in src; socklen_t slen = sizeof(src);
-        ssize_t n = recvfrom(iSockFd, buf, sizeof(buf)-1, 0, (struct sockaddr*)&src, &slen);
-        if (n < 0) {
-            if (errno == EINTR && g_stop) break;
-            fprintf(stderr,"recvfrom() fail...[%s]", strerror(errno));
-            // 오류 지속 시 탈출할지 여부는 정책에 따라
-            continue;
-        }
-        buf[n] = '\0';
-
-        char src_ip[INET_ADDRSTRLEN] = {0};
-        inet_ntop(AF_INET, &src.sin_addr, src_ip, sizeof(src_ip));
-        fprintf(stderr,"<<< %s:%u len=%zd msg=\"%s\"",
-                 src_ip, ntohs(src.sin_port), n, buf);
-    }
-
-    // 종료: 그룹 탈퇴 → 소켓 닫기
-    if (multicastSockLeave(iSockFd, stGroupAddr.s_addr) < 0) {
-        fprintf(stderr,"dropMulticastSockOpt() warn");
-    }
-    close(iSockFd);
-    fprintf(stderr,"Stopped.");
-
-#if 0
-    struct sockaddr_in stClientSocket;
-    memset(&stClientSocket,0,sizeof(stClientSocket));
-    stClientSocket.sin_family = AF_INET;
-    stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
-    if (inet_pton(AF_INET, "127.0.0.1", &stClientSocket.sin_addr) != 1) {
-        fprintf(stderr,"Bad host\n");
-        close(stEventCtx.iListenFd);
-        event_base_free(stEventCtx.pstEventBase);
-        return -1;
-    }
-    int iConnectRetVal = connect(stEventCtx.iListenFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket));
-    if (iConnectRetVal < 0 && errno != EINPROGRESS) {
-        perror("connect");
-        close(stEventCtx.iListenFd);
-        event_base_free(stEventCtx.pstEventBase);
-        return -1;
-    }    
-    stEventCtx.uchMyId       = UDS1_SERVER_ID;   /* 필요 시 식별자 재사용 */
-    stEventCtx.iClientCount  = 0;                /* UDP는 연결 개념 없지만 통계용으로 사용해도 됨 */
     
-    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if (!stEventCtx.pstSockCtx) {
-        event_base_free(stEventCtx.pstEventBase);
-        close(stEventCtx.iListenFd); 
-        return -1; 
-    }
-    stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
-
+    evutil_make_socket_nonblocking(stEventCtx.iListenFd);
+    evutil_make_socket_closeonexec(stEventCtx.iListenFd);
+    fprintf(stdout,"### %s():%d ###\n",__func__,__LINE__);
     stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iListenFd, BEV_OPT_CLOSE_ON_FREE);
-    if (!stEventCtx.pstSockCtx->pstBufferEvent) { 
-        fprintf(stderr, "bufferevent_socket_new failed\n");
+    if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
-        close(stEventCtx.iListenFd);          // ★ 추가: fd 닫기
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
+    fprintf(stdout,"### %s():%d ###\n",__func__,__LINE__);    
+    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, mcastReadCallback, NULL, mcastEventCallback, stEventCtx.pstSockCtx);
     bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);  
+    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
 
-    /* SIGINT 핸들러 */
+    stEventCtx.uchMyId = UDS1_SERVER_ID;
+    stEventCtx.iClientCount = 0;
+    /* SIGINT(CTRL+C) 처리 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");
-        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
-        free(stEventCtx.pstSockCtx);
+        event_free(stEventCtx.pstAcceptEvent);
+        evutil_closesocket(stEventCtx.iListenFd);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
-    }
-
-    fprintf(stderr, "UDP Server Start 127.0.0.1:%d\n", UDP_SERVER_PORT);
+    }    
+    fprintf(stderr,"Multicast Receiver Start\n");
+    fprintf(stderr,"Waiting packets... (Ctrl+C to stop)\n");
 
     event_base_dispatch(stEventCtx.pstEventBase);
 
@@ -231,7 +221,6 @@ int run(void)
 
     event_base_free(stEventCtx.pstEventBase);
     printf("done\n");
-    #endif
     return 0;
 }
 

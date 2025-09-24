@@ -47,11 +47,11 @@ udpCln.o: udpCln.c $(HDRS)
 tcpSvr: tcpSvr.o $(FRAME_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-tcpCln: tcpCln.o $(FRAME_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
-
 tcpSvr.o: tcpSvr.c $(HDRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+tcpCln: tcpCln.o $(FRAME_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
 tcpCln.o: tcpCln.c $(HDRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -70,11 +70,11 @@ multicastReceiver: multicastReceiver.o
 multicastReceiver.o: multicastReceiver.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-mCastReceiver: mCastReceiver.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+mCastReceiver: mCastReceiver.o $(FRAME_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-mCastReceiver.o: mCastReceiver.c
-	$(CC) $(CFLAGS) -c -o $@ $<	
+mCastReceiver.o: mCastReceiver.c $(HDRS)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 
 # === Common objects ===
@@ -128,4 +128,4 @@ trackingCtrlApp: trackingCtrlApp.c protocol.h
 
 # === Clean ===
 clean:
-	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest udpSvr udpCln
+	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest udpSvr udpCln multicastSender multicastReceiver mCastReceiver
