@@ -45,28 +45,23 @@
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
     stEventCtx.eRole = ROLE_CLIENT;
     stEventCtx.iClientCount = 0;
+    
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
-    
+
     stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) { 
         event_base_free(stEventCtx.pstEventBase);
-        return; 
+        return 1;  
     }
     stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
-    stEventCtx.pstSockCtx->pstNextSockCtx = NULL;
-    stEventCtx.pstSockCtx->uchDstId = UDS1_SERVER_ID;
-    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
-    stEventCtx.pstSockCtx->unPort = (unsigned short)DEFAULT_PORT;
-    memset(stEventCtx.pstSockCtx->achSockAddr, 0x0, sizeof(stEventCtx.pstSockCtx->achSockAddr));
-    strcpy(stEventCtx.pstSockCtx->achSockAddr, "127.0.0.1");
-
-    signal(SIGPIPE, SIG_IGN);
-    int iSockFd = createTcpUdpClientSocket("127.0.0.1", DEFAULT_PORT, SOCK_TYPE_TCP);    
-    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
+    signal(SIGPIPE, SIG_IGN);    
+    // Todo iListenFd 변수 이름 재정의 필요
+    stEventCtx.iListenFd = createTcpUdpClientSocket("127.0.0.1", UDP_SERVER_PORT, SOCK_TYPE_UDP);    
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iListenFd, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);

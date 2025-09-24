@@ -165,7 +165,7 @@ void closeAndFree(void *pvData)
 int createTcpUdpServerSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType)
 {
     struct sockaddr_in stSocketIn;
-    int iFd;
+    int iSockFd;
     int iReuseAddr = 1;
     memset(&stSocketIn, 0, sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
@@ -176,48 +176,80 @@ int createTcpUdpServerSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSoc
         return -1;
     }
 
-    iFd = (int)socket(AF_INET, SOCK_STREAM, 0);
-    if (iFd < 0) {
+    if(eSockType == SOCK_TYPE_TCP) {
+        iSockFd = socket(AF_INET, SOCK_STREAM, 0);
+    }else{
+        iSockFd = socket(AF_INET, SOCK_DGRAM, 0);
+    }
+    if (iSockFd < 0) {
         fprintf(stderr, "socket() failed: %s\n", strerror(errno));
         return -1;
     }
 
     /* 재시작 시 바인드 오류 방지 */
-    if (setsockopt(iFd, SOL_SOCKET, SO_REUSEADDR, (void*)&iReuseAddr, sizeof(iReuseAddr)) < 0) {
+    if (setsockopt(iSockFd, SOL_SOCKET, SO_REUSEADDR, (void*)&iReuseAddr, sizeof(iReuseAddr)) < 0) {
         fprintf(stderr, "setsockopt(SO_REUSEADDR) failed: %s\n", strerror(errno));
         return -1;
     }
 
     /* 논블로킹 */
-    if (evutil_make_socket_nonblocking(iFd) < 0) {
+    if (evutil_make_socket_nonblocking(iSockFd) < 0) {
         fprintf(stderr, "evutil_make_socket_nonblocking() failed\n");
         return -1;
     }
 
-    if (bind(iFd, (struct sockaddr*)&stSocketIn, (socklen_t)sizeof(stSocketIn)) < 0) {
+    if (bind(iSockFd, (struct sockaddr*)&stSocketIn, (socklen_t)sizeof(stSocketIn)) < 0) {
         fprintf(stderr, "bind() failed: %s\n", strerror(errno));
         return -1;
     }
 
     if(eSockType == SOCK_TYPE_TCP) {
         /* evconnlistener_new()는 전달된 fd에 대해 listen을 호출하지 않으므로 직접 호출 필요 */
-        if (listen(iFd, SOMAXCONN) < 0) {
+        if (listen(iSockFd, SOMAXCONN) < 0) {
             fprintf(stderr, "listen() failed: %s\n", strerror(errno));
             return -1;
         }
     }   
-    return iFd;
+    return iSockFd;
 }
 
 int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType)
 {
-    int iSockFd = socket(AF_INET, SOCK_STREAM, 0);
+    int iSockFd;
+    if(eSockType == SOCK_TYPE_TCP) {
+        iSockFd = socket(AF_INET, SOCK_STREAM, 0);
+    }else{
+        iSockFd = socket(AF_INET, SOCK_DGRAM, 0);
+    }
     if (iSockFd < 0) {
         perror("socket");
         return -1;
     }
 
-    /* TCP 주소 준비 */
+    /* 논블로킹 */
+    if (evutil_make_socket_nonblocking(iSockFd) < 0) {
+        fprintf(stderr, "evutil_make_socket_nonblocking() failed\n");
+        return -1;
+    }
+    if(eSockType == SOCK_TYPE_UDP) {
+        struct sockaddr_in stClientSocket;
+        memset(&stClientSocket,0,sizeof(stClientSocket));
+        stClientSocket.sin_family = AF_INET;
+        stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
+        if (inet_pton(AF_INET, "127.0.0.1", &stClientSocket.sin_addr) != 1) {
+            fprintf(stderr,"Bad host\n");
+            close(iSockFd);
+            return -1;
+        }
+        if (bind(iSockFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket)) < 0) {
+            perror("bind client"); 
+            close(iSockFd); 
+            return -1;
+        }
+    }
+
+
+    /* 주소 준비 */
     struct sockaddr_in stSocketIn;
     memset(&stSocketIn,0,sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
@@ -226,7 +258,8 @@ int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSoc
         fprintf(stderr,"Bad host\n");     
         return -1;
     }
-    if (connect(iSockFd, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn)) < 0) {
+    int iConnectRetVal = connect(iSockFd, (struct sockaddr*)&stSocketIn, sizeof(stSocketIn));
+    if (iConnectRetVal < 0 && errno != EINPROGRESS) {
         perror("connect");
         close(iSockFd);
         return -1;

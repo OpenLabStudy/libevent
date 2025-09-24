@@ -12,6 +12,10 @@
 #include <event2/util.h>
 
 #define DEFAULT_PORT            9995
+
+#define UDP_SERVER_PORT         9991
+#define UDP_CLIENT_PORT         9992
+
 #define READ_HIGH_WM            (1u * 1024u * 1024u)   /* 1MB */
 #define MAX_PAYLOAD             (4u * 1024u * 1024u)   /* 4MB */
 #define MAX_RETRY               1

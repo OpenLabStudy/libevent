@@ -27,58 +27,85 @@ int run(void)
     EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
 
     signal(SIGPIPE, SIG_IGN);
-
-    stEventCtx.pstSockCtx     = NULL;
     stEventCtx.pstEventBase   = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
 
-    /* --- TCP -> UDP: 리슨/accept 대신 바로 UDP 소켓 생성 --- */
-    stEventCtx.iListenFd = createUdsServerSocket("127.0.0.1", DEFAULT_PORT, SOCK_TYPE_UDP);
+    /* 수신 포트를 명확히 하기위해 bind까지 진행 */
+    stEventCtx.iListenFd = createTcpUdpServerSocket("127.0.0.1", UDP_SERVER_PORT, SOCK_TYPE_UDP);
     if (stEventCtx.iListenFd < 0) {
         fprintf(stderr, "Error Create UDP socket!\n");
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
+    /* UDP 클라이언트 주소 준비 */
+    struct sockaddr_in stClientSocket;
+    memset(&stClientSocket,0,sizeof(stClientSocket));
+    stClientSocket.sin_family = AF_INET;
+    stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
+    if (inet_pton(AF_INET, "127.0.0.1", &stClientSocket.sin_addr) != 1) {
+        fprintf(stderr,"Bad host\n");
+        close(stEventCtx.iListenFd);
+        event_base_free(stEventCtx.pstEventBase);
+        return -1;
+    }
+    int iConnectRetVal = connect(stEventCtx.iListenFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket));
+    if (iConnectRetVal < 0 && errno != EINPROGRESS) {
+        perror("connect");
+        close(stEventCtx.iListenFd);
+        event_base_free(stEventCtx.pstEventBase);
+        return -1;
+    }    
+    stEventCtx.uchMyId       = UDS1_SERVER_ID;   /* 필요 시 식별자 재사용 */
+    stEventCtx.iClientCount  = 0;                /* UDP는 연결 개념 없지만 통계용으로 사용해도 됨 */
+    
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if (!stEventCtx.pstSockCtx) {
+        event_base_free(stEventCtx.pstEventBase);
+        close(stEventCtx.iListenFd); 
+        return -1; 
+    }
+    stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
 
-
-
-
-    /* READ 이벤트 달기 (UDP는 EV_READ 하나면 충분) */
-    stEventCtx.pstAcceptEvent = event_new(stEventCtx.pstEventBase,
-                                          stEventCtx.iListenFd,
-                                          EV_READ | EV_PERSIST,
-                                          udpReadCb, &stEventCtx);
-    if (!stEventCtx.pstAcceptEvent || event_add(stEventCtx.pstAcceptEvent, NULL) < 0) {
-        fprintf(stderr, "Could not create/add UDP read event!\n");
-        evutil_closesocket(stEventCtx.iListenFd);
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iListenFd, BEV_OPT_CLOSE_ON_FREE);
+    if (!stEventCtx.pstSockCtx->pstBufferEvent) { 
+        fprintf(stderr, "bufferevent_socket_new failed\n");
+        free(stEventCtx.pstSockCtx);
+        close(stEventCtx.iListenFd);          // ★ 추가: fd 닫기
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-
-    stEventCtx.uchMyId       = UDS1_SERVER_ID;   /* 필요 시 식별자 재사용 */
-    stEventCtx.iClientCount  = 0;                /* UDP는 연결 개념 없지만 통계용으로 사용해도 됨 */
+    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
+    bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);  
 
     /* SIGINT 핸들러 */
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");
-        event_free(stEventCtx.pstAcceptEvent);
-        evutil_closesocket(stEventCtx.iListenFd);
+        bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
+        free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
 
-    fprintf(stderr, "UDP Server Start 127.0.0.1:%d\n", DEFAULT_PORT);
+    fprintf(stderr, "UDP Server Start 127.0.0.1:%d\n", UDP_SERVER_PORT);
 
     event_base_dispatch(stEventCtx.pstEventBase);
 
     /* 정리 */
-    if (stEventCtx.pstAcceptEvent) event_free(stEventCtx.pstAcceptEvent);
-    if (stEventCtx.pstEvent)       event_free(stEventCtx.pstEvent);
-    if (stEventCtx.iListenFd >= 0) evutil_closesocket(stEventCtx.iListenFd);
+    if (stEventCtx.pstEvent)
+        event_free(stEventCtx.pstEvent);    
+
+    if (stEventCtx.pstSockCtx){
+        if(stEventCtx.pstSockCtx->pstBufferEvent)
+            bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
+        free(stEventCtx.pstSockCtx);
+        stEventCtx.pstSockCtx = NULL;
+    }
+
     event_base_free(stEventCtx.pstEventBase);
     printf("done\n");
     return 0;
