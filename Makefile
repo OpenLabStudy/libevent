@@ -14,7 +14,7 @@ FRAME_OBJS = frame-io.o sockSession.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln multicastSender multicastReceiver
+all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln multicastSender multicastReceiver mCastReceiver
 
 # === Regular apps ===
 udsSvr: udsSvr.o $(FRAME_OBJS)
@@ -61,14 +61,20 @@ tcpCln.o: tcpCln.c $(HDRS)
 multicastSender: multicastSender.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
+multicastSender.o: multicastSender.c
+	$(CC) $(CFLAGS) -c -o $@ $<	
+
 multicastReceiver: multicastReceiver.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-multicastSender.o: multicastSender.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
 multicastReceiver.o: multicastReceiver.c
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+mCastReceiver: mCastReceiver.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+mCastReceiver.o: mCastReceiver.c
+	$(CC) $(CFLAGS) -c -o $@ $<	
 
 
 # === Common objects ===

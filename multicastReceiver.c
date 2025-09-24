@@ -136,7 +136,6 @@ static void maybeGrowRcvbuf(int fd, int bytes)
 }
 
 /* ====== 메인 ====== */
-
 static volatile sig_atomic_t g_stop = 0;
 static void on_sigint(int sig) { 
     (void)sig;   // sig 변수를 쓰지 않으면 경고 억제
