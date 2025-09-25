@@ -6,8 +6,6 @@
 #include <errno.h>
 #include <signal.h>
 
-#include <unistd.h>
-
 #include "frame.h"
 #include "sockSession.h"
 

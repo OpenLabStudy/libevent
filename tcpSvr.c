@@ -5,8 +5,6 @@
 #include <errno.h>
 #include <signal.h>
 
-#include <unistd.h>
-
 #include "frame.h"
 #include "sockSession.h"
 
@@ -20,7 +18,7 @@ void tcpSvrStop(void)
     }
 }
 
-/* (선택) 서버가 돌고 있는지 확인용 */
+/* 서버가 돌고 있는지 확인용 */
 int tcpSvrIsRunning(void)
 {
     return g_pRunningCtx != NULL;
@@ -38,42 +36,49 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 
 int run(void)
 {
-    EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    signal(SIGPIPE, SIG_IGN);
-    stEventCtx.pstSockCtx = NULL;
+    EVENT_CONTEXT stEventCtx;    
+    initEventContext(&stEventCtx, ROLE_SERVER, TCP_TRACKING_CTRL_ID);
+
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if(stEventCtx.pstSockCtx == NULL){
+        fprintf(stderr, "SOCK_CONTEXT memory allocation fail.\n");
+        return -1;
+    }
+    initSocketContext(stEventCtx.pstSockCtx, TCP_SERVER_ADDR, TCP_SERVER_PORT, RESPONSE_ENABLED);
+    
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
     }
-    stEventCtx.iListenFd = createTcpUdpServerSocket("127.0.0.1", DEFAULT_PORT, SOCK_TYPE_TCP);
-    if(stEventCtx.iListenFd == -1){
+
+    stEventCtx.iSockFd = createTcpUdpServerSocket(stEventCtx.pstSockCtx, SOCK_TYPE_TCP);
+    if(stEventCtx.iSockFd == -1){
         fprintf(stderr,"Error Create Listen socket!\n");
+        free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
 
-    evutil_make_socket_nonblocking(stEventCtx.iListenFd);
-    evutil_make_socket_closeonexec(stEventCtx.iListenFd);
-
     stEventCtx.pstAcceptEvent = event_new(stEventCtx.pstEventBase,
-                                          stEventCtx.iListenFd,
+                                          stEventCtx.iSockFd,
                                           EV_READ | EV_PERSIST,
                                           acceptCb, &stEventCtx);
     if (!stEventCtx.pstAcceptEvent || event_add(stEventCtx.pstAcceptEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add accept event!\n");
-        evutil_closesocket(stEventCtx.iListenFd);
+        free(stEventCtx.pstSockCtx);
+        evutil_closesocket(stEventCtx.iSockFd);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    stEventCtx.uchMyId = UDS1_SERVER_ID;
-    stEventCtx.iClientCount = 0;                                                    
+    
     /* SIGINT(CTRL+C) 처리 */
+    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");
         event_free(stEventCtx.pstAcceptEvent);
-        evutil_closesocket(stEventCtx.iListenFd);
+        evutil_closesocket(stEventCtx.iSockFd);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }    
@@ -90,8 +95,8 @@ int run(void)
         event_free(stEventCtx.pstAcceptEvent);
     if (stEventCtx.pstEvent)
         event_free(stEventCtx.pstEvent);
-    if (stEventCtx.iListenFd >= 0)
-        evutil_closesocket(stEventCtx.iListenFd);
+    if (stEventCtx.iSockFd >= 0)
+        evutil_closesocket(stEventCtx.iSockFd);
     event_base_free(stEventCtx.pstEventBase);
     printf("done\n");
     return 0;

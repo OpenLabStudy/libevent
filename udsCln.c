@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <signal.h>
 
-#include <unistd.h>
 #include <stddef.h>     /* offsetof */
 
 #include "frame.h"

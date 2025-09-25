@@ -5,8 +5,6 @@
 #include <errno.h>
 #include <signal.h>
 
-#include <unistd.h>
-
 #include "frame.h"
 #include "sockSession.h"
 #include "icdCommand.h"
@@ -42,42 +40,43 @@
  /* === main === */
  int main(int argc, char** argv)
  {
-    EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    stEventCtx.eRole = ROLE_CLIENT;
-    stEventCtx.iClientCount = 0;
+    EVENT_CONTEXT stEventCtx;    
+    initEventContext(&stEventCtx, ROLE_CLIENT, TCP_OPERATOR_PC_ID);
+
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if(stEventCtx.pstSockCtx == NULL){
+        fprintf(stderr, "SOCK_CONTEXT memory allocation fail.\n");
+        return -1;
+    }
+
+    initSocketContext(stEventCtx.pstSockCtx, TCP_SERVER_ADDR, TCP_SERVER_PORT, RESPONSE_DISABLED);
+    stEventCtx.pstSockCtx->pstEventCtx     = &stEventCtx;
+    stEventCtx.pstSockCtx->uchSrcId        = stEventCtx.uchMyId;
+
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
         return 1;
-    }
+    }    
     
-    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if (!stEventCtx.pstSockCtx) { 
-        event_base_free(stEventCtx.pstEventBase);
-        return; 
+    stEventCtx.iSockFd = createTcpUdpClientSocket(stEventCtx.pstSockCtx, SOCK_TYPE_TCP);
+    if(stEventCtx.iSockFd == -1){
+        fprintf(stderr,"Create Socket fail...\n");
+        return 1;
     }
-    stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
-    stEventCtx.pstSockCtx->pstNextSockCtx = NULL;
-    stEventCtx.pstSockCtx->uchDstId = UDS1_SERVER_ID;
-    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
-    stEventCtx.pstSockCtx->unPort = (unsigned short)DEFAULT_PORT;
-    memset(stEventCtx.pstSockCtx->achSockAddr, 0x0, sizeof(stEventCtx.pstSockCtx->achSockAddr));
-    strcpy(stEventCtx.pstSockCtx->achSockAddr, "127.0.0.1");
 
-    signal(SIGPIPE, SIG_IGN);
-    int iSockFd = createTcpUdpClientSocket("127.0.0.1", DEFAULT_PORT, SOCK_TYPE_TCP);    
-    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iSockFd, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
-    }
-    
+    }    
     bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
     bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
+    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
 
     /* STDIN Event 처리 */
+    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");
@@ -86,6 +85,7 @@
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
+
     fprintf(stderr,"client: connecting to %s:%u ...\n", stEventCtx.pstSockCtx->achSockAddr, stEventCtx.pstSockCtx->unPort);
     event_base_dispatch(stEventCtx.pstEventBase);
 

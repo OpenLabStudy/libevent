@@ -22,7 +22,8 @@
 /* SIGINT 처리 */
 static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 {
-    (void)sig; (void)ev;
+    (void)sig;
+    (void)ev;
     EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
     event_base_loopexit(pstEventCtx->pstEventBase, NULL);
 }

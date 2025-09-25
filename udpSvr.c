@@ -4,8 +4,6 @@
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
-
-#include <unistd.h>
 #include <fcntl.h>
 
 #include <event2/event.h>
@@ -17,16 +15,24 @@
 /* SIGINT 처리 */
 static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 {
-    (void)sig; (void)ev;
+    (void)sig;
+    (void)ev;
     EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
     event_base_loopexit(pstEventCtx->pstEventBase, NULL);
 }
 
 int run(void)
 {
-    EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
+    EVENT_CONTEXT stEventCtx;
+    nitEventContext(&stEventCtx, ROLE_SERVER, TCP_TRACKING_CTRL_ID);
 
-    signal(SIGPIPE, SIG_IGN);
+    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
+    if(stEventCtx.pstSockCtx == NULL){
+        fprintf(stderr, "SOCK_CONTEXT memory allocation fail.\n");
+        return -1;
+    }
+    initSocketContext(stEventCtx.pstSockCtx, UDP_SERVER_ADDR, UDP_SERVER_PORT, RESPONSE_ENABLED);
+       
     stEventCtx.pstEventBase   = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
@@ -34,8 +40,8 @@ int run(void)
     }
 
     /* 수신 포트를 명확히 하기위해 bind까지 진행 */
-    stEventCtx.iListenFd = createTcpUdpServerSocket("127.0.0.1", UDP_SERVER_PORT, SOCK_TYPE_UDP);
-    if (stEventCtx.iListenFd < 0) {
+    stEventCtx.iSockFd = createTcpUdpServerSocket(stEventCtx.pstSockCtx, SOCK_TYPE_UDP);
+    if (stEventCtx.iSockFd <= 0) {
         fprintf(stderr, "Error Create UDP socket!\n");
         event_base_free(stEventCtx.pstEventBase);
         return 1;
@@ -47,14 +53,14 @@ int run(void)
     stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
     if (inet_pton(AF_INET, "127.0.0.1", &stClientSocket.sin_addr) != 1) {
         fprintf(stderr,"Bad host\n");
-        close(stEventCtx.iListenFd);
+        close(stEventCtx.iSockFd);
         event_base_free(stEventCtx.pstEventBase);
         return -1;
     }
-    int iConnectRetVal = connect(stEventCtx.iListenFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket));
+    int iConnectRetVal = connect(stEventCtx.iSockFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket));
     if (iConnectRetVal < 0 && errno != EINPROGRESS) {
         perror("connect");
-        close(stEventCtx.iListenFd);
+        close(stEventCtx.iSockFd);
         event_base_free(stEventCtx.pstEventBase);
         return -1;
     }    
@@ -64,7 +70,7 @@ int run(void)
     stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) {
         event_base_free(stEventCtx.pstEventBase);
-        close(stEventCtx.iListenFd); 
+        close(stEventCtx.iSockFd); 
         return -1; 
     }
     stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
@@ -73,7 +79,7 @@ int run(void)
     if (!stEventCtx.pstSockCtx->pstBufferEvent) { 
         fprintf(stderr, "bufferevent_socket_new failed\n");
         free(stEventCtx.pstSockCtx);
-        close(stEventCtx.iListenFd);          // ★ 추가: fd 닫기
+        close(stEventCtx.iSockFd);          // ★ 추가: fd 닫기
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
@@ -82,6 +88,7 @@ int run(void)
     bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);  
 
     /* SIGINT 핸들러 */
+    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");

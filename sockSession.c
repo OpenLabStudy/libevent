@@ -51,15 +51,31 @@ static void shutdownApp(EVENT_CONTEXT *pstEventCtx) {
     }
 }
 
-static void closeAllClients(EVENT_CONTEXT *pstEventCtx) {
-    SOCK_CONTEXT *pstSockCtx = pstEventCtx->pstSockCtx;
-    while (pstSockCtx) {
-        SOCK_CONTEXT *pstNextSockCtx = pstSockCtx->pstNextSockCtx;
-        closeClient(pstSockCtx);
-        pstSockCtx = pstNextSockCtx;
-    }
-    pstEventCtx->pstSockCtx = NULL;
-    pstEventCtx->iClientCount = 0;
+
+void initEventContext(EVENT_CONTEXT* pstEventCtx, APP_ROLE eAppRole, unsigned char uchMyId)
+{
+    pstEventCtx->eRole          = eAppRole;
+    pstEventCtx->iSockFd        = -1;
+    pstEventCtx->pstEventBase   = NULL;
+    pstEventCtx->pstEvent       = NULL;
+    pstEventCtx->pstAcceptEvent = NULL;
+    pstEventCtx->pstSockCtx     = NULL;
+    pstEventCtx->iClientCount   = 0;
+    pstEventCtx->uchMyId        = uchMyId;
+}
+
+void initSocketContext(SOCK_CONTEXT* pstSockCtx, char* pchSockAddr, unsigned short unPort, unsigned char uchIsResponse)
+{
+    pstSockCtx->pstBufferEvent  = NULL;
+    pstSockCtx->pstEventCtx     = NULL;    
+    pstSockCtx->unCmd           = 0;
+    pstSockCtx->iDataLength     = 0;
+    pstSockCtx->uchSrcId        = 0;
+    pstSockCtx->uchDstId        = 0;
+    pstSockCtx->uchIsResponse   = uchIsResponse;
+    pstSockCtx->unPort          = unPort;
+    pstSockCtx->pstNextSockCtx  = NULL;
+    memcpy(pstSockCtx->achSockAddr, pchSockAddr, strlen(pchSockAddr));
 }
 
 /* === Accept 콜백 === */
@@ -67,25 +83,25 @@ void acceptCb(int iListenFd, short nKindOfEvent, void* pvData)
 {
     (void)nKindOfEvent;
     EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-
     for (;;) {
         //모든 주소 체계를 안전하게 담기 위한 "큰 통" 같은 역할
-        struct sockaddr_storage ss;
-        socklen_t slen = sizeof(ss);
-        int iClientSock = accept(iListenFd, (struct sockaddr*)&ss, &slen);
+        struct sockaddr_storage stSockStorage;
+        socklen_t unSockStorageLen = sizeof(stSockStorage);
+        int iClientSock = accept(iListenFd, (struct sockaddr*)&stSockStorage, &unSockStorageLen);
         if (iClientSock < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            //non-blocking 소켓에서 지금 당장은 새 클라이언트 연결이 없음
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
             perror("accept");
             break;
         }
-
+        //todo iClientSock
         evutil_make_socket_nonblocking(iClientSock);
         evutil_make_socket_closeonexec(iClientSock);
 
-        EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
         struct event_base *pstEventBase = pstEventCtx->pstEventBase;
         struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iClientSock, BEV_OPT_CLOSE_ON_FREE);        
-        if (!pstBufferEvent) 
+        if (pstBufferEvent == NULL) 
             return;
 
         SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
@@ -97,9 +113,6 @@ void acceptCb(int iListenFd, short nKindOfEvent, void* pvData)
         pstSockCtx->pstBufferEvent  = (void*)pstBufferEvent;
         pstSockCtx->pstEventCtx     = pstEventCtx;
         pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
-        pstSockCtx->uchDstId        = 0x00;
-        pstSockCtx->uchIsRespone    = 0x01;
-        pstEventCtx->eRole          = ROLE_SERVER;
 
         addClient(pstSockCtx, pstEventCtx);
         pstEventCtx->iClientCount++;
@@ -123,7 +136,7 @@ void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
     fprintf(stderr,"MY ID : %d, Dest ID : %d\n",pstSockCtx->uchSrcId, pstSockCtx->uchDstId);
     //TODO 접속한 클라이언트의 ID 저장이 필요
     for (;;) {
-        int iRetVal = responseFrame(pstEvBuffer, pstSockCtx->pstBufferEvent, &stMsgId, pstSockCtx->uchIsRespone);
+        int iRetVal = responseFrame(pstEvBuffer, pstSockCtx->pstBufferEvent, &stMsgId, pstSockCtx->uchIsResponse);
         if(iRetVal == 1){
             break;
         }
@@ -162,16 +175,15 @@ void closeAndFree(void *pvData)
     }
 }
 
-int createTcpUdpServerSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType)
+int createTcpUdpServerSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
 {
     struct sockaddr_in stSocketIn;
     int iSockFd;
     int iReuseAddr = 1;
     memset(&stSocketIn, 0, sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons(unPort);
-    stSocketIn.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (inet_pton(AF_INET, chAddr, &stSocketIn.sin_addr) != 1) {
+    stSocketIn.sin_port   = pstSockCtx->unPort;
+    if (inet_pton(AF_INET, pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
         perror("inet_pton failed");
         return -1;
     }
@@ -213,7 +225,7 @@ int createTcpUdpServerSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSoc
     return iSockFd;
 }
 
-int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSockType)
+int createTcpUdpClientSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
 {
     int iSockFd;
     if(eSockType == SOCK_TYPE_TCP) {
@@ -236,11 +248,7 @@ int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSoc
         memset(&stClientSocket,0,sizeof(stClientSocket));
         stClientSocket.sin_family = AF_INET;
         stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
-        if (inet_pton(AF_INET, "127.0.0.1", &stClientSocket.sin_addr) != 1) {
-            fprintf(stderr,"Bad host\n");
-            close(iSockFd);
-            return -1;
-        }
+        stClientSocket.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(iSockFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket)) < 0) {
             perror("bind client"); 
             close(iSockFd); 
@@ -248,13 +256,12 @@ int createTcpUdpClientSocket(char* chAddr, unsigned short unPort, SOCK_TYPE eSoc
         }
     }
 
-
     /* 주소 준비 */
     struct sockaddr_in stSocketIn;
     memset(&stSocketIn,0,sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons(unPort);
-    if (inet_pton(AF_INET, chAddr, &stSocketIn.sin_addr) != 1) {
+    stSocketIn.sin_port   = pstSockCtx->unPort;
+    if (inet_pton(AF_INET, pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
         fprintf(stderr,"Bad host\n");     
         return -1;
     }
@@ -330,8 +337,6 @@ int createUdsClientSocket(char* chAddr)
     memset(&stSocketUn, 0, sizeof(stSocketUn));
     stSocketUn.sun_family = AF_UNIX;
     strcpy(stSocketUn.sun_path, UDS1_PATH);
-    size_t ulSize = strlen(UDS1_PATH);
-    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
 
     if (connect(iSockFd, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
         perror("connect");

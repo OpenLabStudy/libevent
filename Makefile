@@ -14,7 +14,7 @@ FRAME_OBJS = frame-io.o sockSession.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln multicastSender multicastReceiver mCastReceiver
+all: tcpSvr tcpCln udpSvr udpCln#udsSvr udsCln  multicastSender multicastReceiver mCastReceiver
 
 # === Regular apps ===
 udsSvr: udsSvr.o $(FRAME_OBJS)

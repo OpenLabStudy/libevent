@@ -2,6 +2,7 @@
 #include "icdCommand.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <arpa/inet.h>
 #include <event2/buffer.h>
 
@@ -36,14 +37,14 @@ int writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
         return -1;//FRAME_ERR_MEMORY_ALLOC_FAIL
     }    
 
-    unsigned char* p = puchPacket;
-    memcpy(p, &stFrameHeader, sizeof(FRAME_HEADER)); 
-    p += sizeof(FRAME_HEADER);
+    unsigned char* uchPayload = puchPacket;
+    memcpy((void*)uchPayload, &stFrameHeader, sizeof(FRAME_HEADER)); 
+    uchPayload += sizeof(FRAME_HEADER);
     if (iDataLength > 0 && pvPayload) {
-        memcpy(p, pvPayload, iDataLength);
-        p += iDataLength;
+        memcpy((void*)uchPayload, pvPayload, iDataLength);
+        uchPayload += iDataLength;
     }
-    memcpy(p, &stFrameTail, sizeof(FRAME_TAIL));
+    memcpy((void*)uchPayload, &stFrameTail, sizeof(FRAME_TAIL));
     if (bufferevent_write(pstBufferEvent, puchPacket, iTotalSize) < 0) {
         fprintf(stderr, "bufferevent_write() failed in writeFrame\n");
         return -1;//FRAME_ERR_MEMORY_ALLOC_FAIL
@@ -59,7 +60,7 @@ int writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
 int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, char chReply) {
     FRAME_HEADER stFrameHeader;
     int iLength = evbuffer_get_length(pstEvBuffer);
-    fprintf(stderr,"### %s():%d Recv Data Length is %d[%d]\n", __func__, __LINE__, iLength, sizeof(FRAME_HEADER)+sizeof(FRAME_TAIL)+sizeof(REQ_KEEP_ALIVE));
+    fprintf(stderr,"### %s():%d Recv Data Length is %d[%ld]\n", __func__, __LINE__, iLength, sizeof(FRAME_HEADER)+sizeof(FRAME_TAIL)+sizeof(REQ_KEEP_ALIVE));
     
     if (iLength < sizeof(FRAME_HEADER)){
         return 0;//FRAME_ERR_PACKET_TOO_SHORT
@@ -72,9 +73,6 @@ int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEv
     unsigned short  unStx   = ntohs(stFrameHeader.unStx);
     int iDataLength = ntohl(stFrameHeader.iDataLength);
     unsigned short  unCmd  = ntohs(stFrameHeader.unCmd);
-    MSG_ID stMsgId;
-    stMsgId.uchSrcId = pstMsgId->uchSrcId;
-    stMsgId.uchDstId = stFrameHeader.stMsgId.uchSrcId;
 
     if (unStx != STX_CONST || iDataLength < 0)
         return -1;////FRAME_ERR_STX_NOT_MATCH

@@ -1,9 +1,7 @@
 // test_uds_server_run.cc
 #include <gtest/gtest.h>
 #include <pthread.h>
-#include <sys/socket.h>
 #include <sys/un.h>
-#include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
