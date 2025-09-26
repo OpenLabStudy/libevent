@@ -14,9 +14,13 @@
 #include <event2/util.h>
 
 #define TCP_SERVER_ADDR         "127.0.0.1"
-#define TCP_SERVER_PORT         9990
+#define TCP_CLIENT_ADDR         "127.0.0.1"
+#define TCP_PORT                9990
+
 #define UDP_SERVER_ADDR         "127.0.0.1"
 #define UDP_SERVER_PORT         9991
+
+#define UDP_CLIENT_ADDR         "127.0.0.1"
 #define UDP_CLIENT_PORT         9992
 
 #define RESPONSE_ENABLED        0x01
@@ -28,6 +32,9 @@
 
 #define TCP_TRACKING_CTRL_ID    0xB1
 #define TCP_OPERATOR_PC_ID      0x10
+
+#define UDP_SERVER_ID           0x21
+#define UDP_CLIENT_ID           0x20
 
 #define UDS1_PATH               "/tmp/uds1Command.sock"
 #define UDS1_SERVER_ID          0x10
@@ -75,10 +82,7 @@ struct sock_context{
 
     unsigned char       uchSrcId;
     unsigned char       uchDstId;
-    unsigned char       uchIsResponse;
-
-    unsigned short      unPort;
-    char                achSockAddr[INET6_ADDRSTRLEN];
+    unsigned char       uchIsResponse;    
     
     SOCK_CONTEXT        *pstNextSockCtx;
 } ;
@@ -96,13 +100,13 @@ struct event_context{
 };
 
 void initEventContext(EVENT_CONTEXT* pstEventCtx, APP_ROLE eAppRole, unsigned char uchMyId);
-void initSocketContext(SOCK_CONTEXT* pstSockCtx, char* pchSockAddr, unsigned short unPort, unsigned char uchIsResponse);
+void initSocketContext(SOCK_CONTEXT* pstSockCtx, unsigned char uchIsResponse);
 void acceptCb(int iListenFd, short nKindOfEvent, void* pvData);
 void readCallback(struct bufferevent*, void*);
 void eventCallback(struct bufferevent*, short, void*);
 void closeAndFree(void *pvData);
-int createTcpUdpServerSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType);
-int createTcpUdpClientSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType);
+int createTcpUdpServerSocket(unsigned short unPort, SOCK_TYPE eSockType);
+int createTcpUdpClientSocket(unsigned short unMyPort, SOCK_TYPE eSockType);
 int createUdsServerSocket(char* chAddr);
 int createUdsClientSocket(char* chAddr);
 #endif

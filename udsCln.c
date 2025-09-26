@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <signal.h>
 
+#include <unistd.h>
 #include <stddef.h>     /* offsetof */
 
 #include "frame.h"
@@ -43,41 +44,42 @@
  /* === main === */
  int main(int argc, char** argv)
  {    
-    int iClientId;
-    EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    stEventCtx.iClientCount = 0;    
+    int iMyId, iDstId;
+    EVENT_CONTEXT stEventCtx;     
     if(argc != 2){        
         fprintf(stderr,"### %s():%d Error argument ###\n",__func__,__LINE__);
         return 0;
     }
-    iClientId = atoi(argv[1]);
+
+    switch(atoi(argv[1])){
+        case 1:
+            iMyId = UDS1_CLIENT1_ID;
+            iDstId = UDS1_SERVER_ID;
+        break;
+        case 2:
+            iMyId = UDS1_CLIENT2_ID;
+            iDstId = UDS1_SERVER_ID;
+        break;
+        case 3:
+            iMyId = UDS1_CLIENT3_ID;
+            iDstId = UDS1_SERVER_ID;
+        break;
+        default:
+            fprintf(stderr,"### %s():%d Error Client ID ###\n",__func__,__LINE__);
+            return 0;
+        break;
+    }
+    initEventContext(&stEventCtx, ROLE_CLIENT, iMyId);
+
     stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) { 
         event_base_free(stEventCtx.pstEventBase);
-        return; 
+        return 0; 
     }
+    initSocketContext(stEventCtx.pstSockCtx, RESPONSE_DISABLED);
     stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
-    stEventCtx.pstSockCtx->pstNextSockCtx = NULL;
     stEventCtx.pstSockCtx->uchDstId = UDS1_SERVER_ID;
-    if(iClientId == 1){
-        stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT1_ID;
-        stEventCtx.uchMyId = UDS1_CLIENT1_ID;
-    }else if(iClientId == 2){
-        stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT2_ID;
-        stEventCtx.uchMyId = UDS1_CLIENT2_ID;
-    }else if(iClientId == 3){
-        stEventCtx.pstSockCtx->uchSrcId = UDS1_CLIENT3_ID;
-        stEventCtx.uchMyId = UDS1_CLIENT3_ID;
-    }else{
-        fprintf(stderr,"### %s():%d Error Client ID ###\n",__func__,__LINE__);
-        return 0;
-    }
 
-    stEventCtx.pstSockCtx->uchIsRespone = 0x00;
-    stEventCtx.pstSockCtx->unPort = 0;
-    stEventCtx.eRole = ROLE_CLIENT;
-
-    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
         fprintf(stderr, "Could not initialize libevent!\n");
@@ -85,6 +87,8 @@
     }
 
     int iSockFd = createUdsClientSocket(UDS1_PATH);
+    //todo iSockFd가 실패한 경우
+    
     stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, iSockFd, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
@@ -97,6 +101,7 @@
     bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
 
     /* STDIN Event 처리 */
+    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");

@@ -37,14 +37,7 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx;    
-    initEventContext(&stEventCtx, ROLE_SERVER, TCP_TRACKING_CTRL_ID);
-
-    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if(stEventCtx.pstSockCtx == NULL){
-        fprintf(stderr, "SOCK_CONTEXT memory allocation fail.\n");
-        return -1;
-    }
-    initSocketContext(stEventCtx.pstSockCtx, TCP_SERVER_ADDR, TCP_SERVER_PORT, RESPONSE_ENABLED);
+    initEventContext(&stEventCtx, ROLE_SERVER, TCP_TRACKING_CTRL_ID);    
     
     stEventCtx.pstEventBase = event_base_new();
     if (!stEventCtx.pstEventBase) {
@@ -52,10 +45,9 @@ int run(void)
         return 1;
     }
 
-    stEventCtx.iSockFd = createTcpUdpServerSocket(stEventCtx.pstSockCtx, SOCK_TYPE_TCP);
+    stEventCtx.iSockFd = createTcpUdpServerSocket(TCP_PORT, SOCK_TYPE_TCP);
     if(stEventCtx.iSockFd == -1){
         fprintf(stderr,"Error Create Listen socket!\n");
-        free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
@@ -66,7 +58,6 @@ int run(void)
                                           acceptCb, &stEventCtx);
     if (!stEventCtx.pstAcceptEvent || event_add(stEventCtx.pstAcceptEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add accept event!\n");
-        free(stEventCtx.pstSockCtx);
         evutil_closesocket(stEventCtx.iSockFd);
         event_base_free(stEventCtx.pstEventBase);
         return 1;

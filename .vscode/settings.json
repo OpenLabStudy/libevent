@@ -16,6 +16,7 @@
         "ranges": "cpp",
         "util.h": "c",
         "chrono": "cpp",
-        "fcntl.h": "c"
+        "fcntl.h": "c",
+        "inet.h": "c"
     }
 }

@@ -48,8 +48,7 @@
         fprintf(stderr, "SOCK_CONTEXT memory allocation fail.\n");
         return -1;
     }
-
-    initSocketContext(stEventCtx.pstSockCtx, TCP_SERVER_ADDR, TCP_SERVER_PORT, RESPONSE_DISABLED);
+    initSocketContext(stEventCtx.pstSockCtx, RESPONSE_DISABLED);
     stEventCtx.pstSockCtx->pstEventCtx     = &stEventCtx;
     stEventCtx.pstSockCtx->uchSrcId        = stEventCtx.uchMyId;
 
@@ -59,7 +58,7 @@
         return 1;
     }    
     
-    stEventCtx.iSockFd = createTcpUdpClientSocket(stEventCtx.pstSockCtx, SOCK_TYPE_TCP);
+    stEventCtx.iSockFd = createTcpUdpClientSocket(TCP_PORT, SOCK_TYPE_TCP);
     if(stEventCtx.iSockFd == -1){
         fprintf(stderr,"Create Socket fail...\n");
         return 1;
@@ -86,7 +85,7 @@
         return 1;
     }
 
-    fprintf(stderr,"client: connecting to %s:%u ...\n", stEventCtx.pstSockCtx->achSockAddr, stEventCtx.pstSockCtx->unPort);
+    fprintf(stderr,"client: connecting to %s:%u ...\n", TCP_CLIENT_ADDR, TCP_PORT);
     event_base_dispatch(stEventCtx.pstEventBase);
 
     if (stEventCtx.pstEvent) 

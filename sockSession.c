@@ -64,7 +64,7 @@ void initEventContext(EVENT_CONTEXT* pstEventCtx, APP_ROLE eAppRole, unsigned ch
     pstEventCtx->uchMyId        = uchMyId;
 }
 
-void initSocketContext(SOCK_CONTEXT* pstSockCtx, char* pchSockAddr, unsigned short unPort, unsigned char uchIsResponse)
+void initSocketContext(SOCK_CONTEXT* pstSockCtx, unsigned char uchIsResponse)
 {
     pstSockCtx->pstBufferEvent  = NULL;
     pstSockCtx->pstEventCtx     = NULL;    
@@ -73,9 +73,7 @@ void initSocketContext(SOCK_CONTEXT* pstSockCtx, char* pchSockAddr, unsigned sho
     pstSockCtx->uchSrcId        = 0;
     pstSockCtx->uchDstId        = 0;
     pstSockCtx->uchIsResponse   = uchIsResponse;
-    pstSockCtx->unPort          = unPort;
     pstSockCtx->pstNextSockCtx  = NULL;
-    memcpy(pstSockCtx->achSockAddr, pchSockAddr, strlen(pchSockAddr));
 }
 
 /* === Accept 콜백 === */
@@ -103,13 +101,13 @@ void acceptCb(int iListenFd, short nKindOfEvent, void* pvData)
         struct bufferevent *pstBufferEvent = bufferevent_socket_new(pstEventBase, iClientSock, BEV_OPT_CLOSE_ON_FREE);        
         if (pstBufferEvent == NULL) 
             return;
-
+        
         SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
         if (!pstSockCtx) { 
             bufferevent_free(pstBufferEvent);
             return; 
         }
-        
+        initSocketContext(pstSockCtx, RESPONSE_ENABLED);        
         pstSockCtx->pstBufferEvent  = (void*)pstBufferEvent;
         pstSockCtx->pstEventCtx     = pstEventCtx;
         pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
@@ -175,18 +173,14 @@ void closeAndFree(void *pvData)
     }
 }
 
-int createTcpUdpServerSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
+int createTcpUdpServerSocket(unsigned short unPort, SOCK_TYPE eSockType)
 {
     struct sockaddr_in stSocketIn;
-    int iSockFd;
-    int iReuseAddr = 1;
+    int iSockFd;    
     memset(&stSocketIn, 0, sizeof(stSocketIn));
-    stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = pstSockCtx->unPort;
-    if (inet_pton(AF_INET, pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
-        perror("inet_pton failed");
-        return -1;
-    }
+    stSocketIn.sin_family       = AF_INET;
+    stSocketIn.sin_port         = htons(unPort);
+    stSocketIn.sin_addr.s_addr  = htonl(INADDR_ANY); 
 
     if(eSockType == SOCK_TYPE_TCP) {
         iSockFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -199,6 +193,7 @@ int createTcpUdpServerSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
     }
 
     /* 재시작 시 바인드 오류 방지 */
+    int iReuseAddr = 1;
     if (setsockopt(iSockFd, SOL_SOCKET, SO_REUSEADDR, (void*)&iReuseAddr, sizeof(iReuseAddr)) < 0) {
         fprintf(stderr, "setsockopt(SO_REUSEADDR) failed: %s\n", strerror(errno));
         return -1;
@@ -221,20 +216,52 @@ int createTcpUdpServerSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
             fprintf(stderr, "listen() failed: %s\n", strerror(errno));
             return -1;
         }
-    }   
+    } else if(eSockType == SOCK_TYPE_UDP){
+        /* UDP 클라이언트 주소 준비 */
+        struct sockaddr_in stClientSocket;
+        memset(&stClientSocket,0,sizeof(stClientSocket));
+        stClientSocket.sin_family = AF_INET;
+        stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
+        if (inet_pton(AF_INET, UDP_CLIENT_ADDR, &stClientSocket.sin_addr) != 1) {
+            fprintf(stderr,"Bad host\n");
+            close(iSockFd);
+            return -1;
+        }
+        int iConnectRetVal = connect(iSockFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket));
+        if (iConnectRetVal < 0 && errno != EINPROGRESS) {
+            perror("connect");
+            close(iSockFd);
+            return -1;
+        }    
+    }
     return iSockFd;
 }
 
-int createTcpUdpClientSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
+int createTcpUdpClientSocket(unsigned short unMyPort, SOCK_TYPE eSockType)
 {
+    char achServerAddr[INET6_ADDRSTRLEN];
+    unsigned short unPort;
     int iSockFd;
+
+    memset(achServerAddr, 0x0, sizeof(achServerAddr));
     if(eSockType == SOCK_TYPE_TCP) {
         iSockFd = socket(AF_INET, SOCK_STREAM, 0);
+        strcpy(achServerAddr, TCP_SERVER_ADDR);
+        unPort = htons(unMyPort);
     }else{
         iSockFd = socket(AF_INET, SOCK_DGRAM, 0);
+        strcpy(achServerAddr, UDP_SERVER_ADDR);
+        unPort = htons(UDP_SERVER_PORT);
     }
     if (iSockFd < 0) {
         perror("socket");
+        return -1;
+    }
+
+    /* 재시작 시 바인드 오류 방지 */
+    int iReuseAddr = 1;
+    if (setsockopt(iSockFd, SOL_SOCKET, SO_REUSEADDR, (void*)&iReuseAddr, sizeof(iReuseAddr)) < 0) {
+        fprintf(stderr, "setsockopt(SO_REUSEADDR) failed: %s\n", strerror(errno));
         return -1;
     }
 
@@ -243,12 +270,15 @@ int createTcpUdpClientSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
         fprintf(stderr, "evutil_make_socket_nonblocking() failed\n");
         return -1;
     }
+    evutil_make_socket_closeonexec(iSockFd);
+    
     if(eSockType == SOCK_TYPE_UDP) {
-        struct sockaddr_in stClientSocket;
+        struct sockaddr_in stClientSocket;        
         memset(&stClientSocket,0,sizeof(stClientSocket));
         stClientSocket.sin_family = AF_INET;
-        stClientSocket.sin_port   = htons(UDP_CLIENT_PORT);
+        stClientSocket.sin_port   = htons(unMyPort);
         stClientSocket.sin_addr.s_addr = htonl(INADDR_ANY);
+        fprintf(stderr,"UDP Client Binding port is %d\n", unMyPort);
         if (bind(iSockFd, (struct sockaddr*)&stClientSocket, sizeof(stClientSocket)) < 0) {
             perror("bind client"); 
             close(iSockFd); 
@@ -256,12 +286,12 @@ int createTcpUdpClientSocket(SOCK_CONTEXT* pstSockCtx, SOCK_TYPE eSockType)
         }
     }
 
-    /* 주소 준비 */
+    /* 서버 주소 준비 */
     struct sockaddr_in stSocketIn;
     memset(&stSocketIn,0,sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = pstSockCtx->unPort;
-    if (inet_pton(AF_INET, pstSockCtx->achSockAddr, &stSocketIn.sin_addr) != 1) {
+    stSocketIn.sin_port   = unPort;
+    if (inet_pton(AF_INET, achServerAddr, &stSocketIn.sin_addr) != 1) {
         fprintf(stderr,"Bad host\n");     
         return -1;
     }

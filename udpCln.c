@@ -40,26 +40,31 @@
  /* === main === */
  int main(int argc, char** argv)
  {
-    EVENT_CONTEXT stEventCtx = (EVENT_CONTEXT){0};
-    stEventCtx.eRole = ROLE_CLIENT;
-    stEventCtx.iClientCount = 0;
-    
-    stEventCtx.pstEventBase = event_base_new();
-    if (!stEventCtx.pstEventBase) {
-        fprintf(stderr, "Could not initialize libevent!\n");
-        return 1;
-    }
-
+    EVENT_CONTEXT stEventCtx;
+    initEventContext(&stEventCtx, ROLE_CLIENT, UDP_CLIENT_ID);
     stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) { 
         event_base_free(stEventCtx.pstEventBase);
         return 1;  
     }
+    initSocketContext(stEventCtx.pstSockCtx, RESPONSE_DISABLED);
     stEventCtx.pstSockCtx->pstEventCtx = &stEventCtx;
-    signal(SIGPIPE, SIG_IGN);    
+    stEventCtx.pstSockCtx->uchSrcId = stEventCtx.uchMyId;
+    
+    stEventCtx.pstEventBase = event_base_new();
+    if (!stEventCtx.pstEventBase) {
+        fprintf(stderr, "Could not initialize libevent!\n");
+        return 1;
+    }    
+    
     // Todo iListenFd 변수 이름 재정의 필요
-    stEventCtx.iListenFd = createTcpUdpClientSocket("127.0.0.1", UDP_SERVER_PORT, SOCK_TYPE_UDP);    
-    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iListenFd, BEV_OPT_CLOSE_ON_FREE);
+    stEventCtx.iSockFd = createTcpUdpClientSocket(UDP_CLIENT_PORT, SOCK_TYPE_UDP);    
+    if(stEventCtx.iSockFd == -1){
+        fprintf(stderr,"Create Socket fail...\n");
+        return 1;
+    }
+
+    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iSockFd, BEV_OPT_CLOSE_ON_FREE);
     if (!stEventCtx.pstSockCtx->pstBufferEvent){
         free(stEventCtx.pstSockCtx);
         event_base_free(stEventCtx.pstEventBase);
@@ -71,6 +76,7 @@
     bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);    
 
     /* STDIN Event 처리 */
+    signal(SIGPIPE, SIG_IGN);
     stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);
     if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");
@@ -79,7 +85,7 @@
         event_base_free(stEventCtx.pstEventBase);
         return 1;
     }
-    fprintf(stderr,"client: connecting to %s:%u ...\n", stEventCtx.pstSockCtx->achSockAddr, stEventCtx.pstSockCtx->unPort);
+    fprintf(stderr,"client: connecting to %s:%u ...\n", UDP_SERVER_ADDR, UDP_SERVER_PORT);
     event_base_dispatch(stEventCtx.pstEventBase);
 
     if (stEventCtx.pstEvent) 
