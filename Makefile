@@ -14,7 +14,7 @@ FRAME_OBJS = frame-io.o sockSession.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln udpSvr udpCln udsSvr udsCln  multicastSender multicastReceiver mCastReceiver
+all: tcpSvr tcpCln udpSvr udpCln udsSvr udsCln  multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 udsSvr: udsSvr.o $(FRAME_OBJS)
@@ -76,6 +76,19 @@ mCastReceiver: mCastReceiver.o $(FRAME_OBJS)
 mCastReceiver.o: mCastReceiver.c $(HDRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# === Uart apps (standalone) ===
+uartRx: uartRx.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+
+uartRx.o: uartRx.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+uartTxTest: uartTxTest.o 
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+
+uartTxTest.o: uartTxTest.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 
 # === Common objects ===
 frame-io.o: frame-io.c $(HDRS)
@@ -128,4 +141,4 @@ trackingCtrlApp: trackingCtrlApp.c protocol.h
 
 # === Clean ===
 clean:
-	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest udpSvr udpCln multicastSender multicastReceiver mCastReceiver
+	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
