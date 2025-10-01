@@ -17,6 +17,7 @@
         "util.h": "c",
         "chrono": "cpp",
         "fcntl.h": "c",
-        "inet.h": "c"
+        "inet.h": "c",
+        "random": "c"
     }
 }
