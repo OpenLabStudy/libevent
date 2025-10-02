@@ -8,10 +8,8 @@
 #include <sys/un.h>
 #include <arpa/inet.h>
 
-#include <event2/bufferevent.h>  
-#include <event2/listener.h>
+#include <event2/bufferevent.h>
 #include <event2/buffer.h>
-#include <event2/util.h>
 
 #define TCP_SERVER_ADDR         "127.0.0.1"
 #define TCP_CLIENT_ADDR         "127.0.0.1"

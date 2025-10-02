@@ -11,7 +11,6 @@
 
 #include <event2/event.h>
 #include <event2/buffer.h>
-#include <event2/util.h>
 #include <event2/bufferevent.h>
 
 typedef struct {
@@ -118,8 +117,7 @@ static void bev_event_cb(struct bufferevent *bev, short events, void *ctx) {
     UART_CTX* pstUartCtx = (UART_CTX*)ctx;
 
     if (events & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[WARN] bufferevent error: %s\n",
-                evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()));
+        fprintf(stderr, "[WARN] bufferevent error: %s\n", strerror(errno));
     }
     if (events & BEV_EVENT_EOF) {
         fprintf(stderr, "[INFO] EOF detected. scheduling reopen...\n");

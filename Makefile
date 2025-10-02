@@ -107,7 +107,7 @@ GTEST_LIB_DIR      	= $(GTEST_DIR)/build/lib
 GTEST_CXXFLAGS 		= -I$(GTEST_INCLUDE_DIR)
 GTEST_LDFLAGS 		= -L$(GTEST_LIB_DIR) -lgtest -lgtest_main -pthread -Wl,-rpath,$(GTEST_LIB_DIR)
 
-gtest: udsSvrGtest tcpSvrGtest
+gtest: mutexQueueGtest #udsSvrGtest tcpSvrGtest mutexQueueGtest
 # === GoogleTest target (NO -DUDS_SVR_STANDALONE) ===
 
 # 테스트 소스는 udsSvrGtest.cpp로 가정
@@ -133,12 +133,24 @@ tcpSvrNostandalone.o: tcpSvr.c $(HDRS)
 	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
 
 
+# === MutexQueue common object ===
+mutexQueue.o: mutexQueue.c mutexQueue.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-# (필요 시) 다른 실행 파일
-trackingCtrlApp: trackingCtrlApp.c protocol.h
-	$(CC) $(CFLAGS) -o $@ trackingCtrlApp.c $(LIBS_COMMON) $(LDFLAGS)
+# === MutexQueue GoogleTest ===
+mutexQueueGtest: gtest/mutexQueueGtest.o mutexQueue.o
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(GTEST_LDFLAGS) $(LDFLAGS)
+
+mutexQueueGtest.o: ./gtest/mutexQueueGtest.cc mutexQueue.h
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+
+
+	
 
 
 # === Clean ===
 clean:
-	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
+		udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest \
+		uartRx mutexQueueGtest

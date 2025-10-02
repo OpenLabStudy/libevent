@@ -105,157 +105,6 @@ static uint64_t now_ns(void) {
     clock_gettime(CLOCK_REALTIME, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec;
 }
-
-/*
- * crc8_xor (데모용)
- *  - 아주 단순한 XOR 기반 "유사 CRC"
- *  - 실제 제품에서는 CRC-16/32 등 표준 체크섬으로 교체 필요
- */
-static uint8_t crc8_xor(const uint8_t* p, size_t n) {
-    uint8_t c = 0; for (size_t i=0;i<n;++i) c ^= p[i]; return c;
-}
-
-// --------------------------- 뮤텍스 큐 ------------------------------
-/*
- * MQ: Mutex-based fixed-size ring queue (멀티스레드 안전)
- *  - pthread_mutex + pthread_cond 기반
- *  - 생산자/소비자 스레드 간 안전한 포인터 전달
- *
- * 필드:
- *  - m:         큐 보호용 뮤텍스
- *  - not_empty: 큐에 데이터가 생겼음을 알리는 조건변수 (소비자 대기용)
- *  - not_full:  큐에 공간이 생겼음을 알리는 조건변수 (생산자 대기용)
- *  - buf:       void* 슬롯 배열(포인터 전달)
- *  - cap:       용량
- *  - head:      다음에 pop할 위치
- *  - tail:      다음에 push할 위치
- *  - cnt:       현재 저장된 요소 수
- *
- * 정책:
- *  - 메인→워커(in_queue): 메인은 절대 블록되면 안 됨 → push_nowait
- *  - 워커→메인(out_queue): 워커는 공간 날 때까지 대기 허용 → push_wait
- */
-typedef struct {
-    pthread_mutex_t uniMutex;
-    pthread_cond_t  uniNotEmpty;
-    pthread_cond_t  uniNotFull;
-    void **ppvBuffer;
-    size_t ulCap, ulHead, ulTail, ulCnt;
-} MUTEX_QUEUE;
-
-/*
- * newMutexQueue
- *  - 고정 크기 원형 큐 할당 및 초기화
- *  - 반환: MUTEX_QUEUE* (실패 시 NULL)
- */
-static MUTEX_QUEUE* newMutexQueue(size_t ulCap) {
-    MUTEX_QUEUE* pstMutexQueue = (MUTEX_QUEUE*)calloc(1, sizeof(MUTEX_QUEUE));
-    if (!pstMutexQueue) 
-        return NULL;
-
-    pstMutexQueue->ppvBuffer = (void**)calloc(ulCap, sizeof(void*));
-    if (!pstMutexQueue->ppvBuffer) { 
-        free(pstMutexQueue); 
-        return NULL; 
-    }
-
-    pstMutexQueue->ulCap = ulCap;
-    pthread_mutex_init(&pstMutexQueue->uniMutex, NULL);
-    pthread_cond_init(&pstMutexQueue->uniNotEmpty, NULL);
-    pthread_cond_init(&pstMutexQueue->uniNotFull, NULL);
-    return pstMutexQueue;
-}
-
-/*
- * freeMutexQueue
- *  - 큐의 내부 리소스 해제
- *  - 주의: 큐 안에 남아있는 포인터 자체의 free는 호출자 책임
- */
-static void freeMutexQueue(MUTEX_QUEUE* pstMutexQueue) {
-    if (!pstMutexQueue) 
-        return;
-
-    pthread_mutex_destroy(&pstMutexQueue->uniMutex);
-    pthread_cond_destroy(&pstMutexQueue->uniNotEmpty);
-    pthread_cond_destroy(&pstMutexQueue->uniNotFull);
-    free(pstMutexQueue->ppvBuffer);
-    free(pstMutexQueue);
-}
-
-/*
- * pushMutexQueueNoWait
- *  - Non-blocking push (메인 루프 전용)
- *  - 가득 차 있으면 false 반환(드롭 정책 적용)
- */
-static char pushMutexQueueNoWait(MUTEX_QUEUE* pstMutexQueue, void* pvData) {
-    bool ok = true;
-    pthread_mutex_lock(&pstMutexQueue->uniMutex);
-    if (pstMutexQueue->ulCnt == pstMutexQueue->ulCap) { // full
-        ok = false;
-    } else {
-        pstMutexQueue->ppvBuffer[pstMutexQueue->ulTail] = pvData;
-        pstMutexQueue->ulTail = (pstMutexQueue->ulTail + 1) % pstMutexQueue->ulCap;
-        pstMutexQueue->ulCnt++;
-        pthread_cond_signal(&pstMutexQueue->uniNotEmpty);
-    }
-    pthread_mutex_unlock(&pstMutexQueue->uniMutex);
-    return ok;
-}
-
-/*
- * mq_push_wait
- *  - Blocking push (워커 전용)
- *  - 공간이 생길 때까지 not_full 조건변수 대기
- *  - 역압(backpressure) 전달 목적: 메인이 느리면 워커가 자연스럽게 대기
- */
-static void mq_push_wait(MUTEX_QUEUE* pstMutexQueue, void* pvData) {
-    pthread_mutex_lock(&pstMutexQueue->uniMutex);
-
-    while (pstMutexQueue->ulCnt == pstMutexQueue->ulCap) 
-        pthread_cond_wait(&pstMutexQueue->uniNotFull, &pstMutexQueue->uniMutex);
-
-    pstMutexQueue->ppvBuffer[pstMutexQueue->ulTail] = pvData;
-    pstMutexQueue->ulTail = ((pstMutexQueue->ulTail + 1) % pstMutexQueue->ulCap);
-    pstMutexQueue->ulCnt++;
-    pthread_cond_signal(&pstMutexQueue->uniNotEmpty);
-    pthread_mutex_unlock(&pstMutexQueue->uniMutex);
-}
-
-/*
- * mq_pop_wait_timeout
- *  - Timeout 지원 pop (워커가 in_queue에서 사용)
- *  - timeout_ms: -1(무한대기), 0(즉시 반환), N(ms)
- *  - 반환: 요소 포인터(없으면 NULL)
- */
-static void* mq_pop_wait_timeout(MUTEX_QUEUE* pstMutexQueue, int timeout_ms) {
-    void* ptr = NULL;
-    pthread_mutex_lock(&pstMutexQueue->m);
-
-    if (timeout_ms < 0) {
-        while (pstMutexQueue->cnt == 0) 
-            pthread_cond_wait(&pstMutexQueue->not_empty, &pstMutexQueue->m);
-    } else if (timeout_ms > 0) {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec  += timeout_ms / 1000;
-        ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
-        if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
-        while (pstMutexQueue->cnt == 0) {
-            int rc = pthread_cond_timedwait(&pstMutexQueue->not_empty, &pstMutexQueue->m, &ts);
-            if (rc == ETIMEDOUT) break;
-        }
-    } // else 0ms: fall-through (즉시 확인)
-
-    if (pstMutexQueue->cnt > 0) {
-        ptr = pstMutexQueue->buf[pstMutexQueue->head];
-        pstMutexQueue->head = (q->head + 1) % q->cap;
-        q->cnt--;
-        pthread_cond_signal(&q->not_full);
-    }
-    pthread_mutex_unlock(&q->m);
-    return ptr;
-}
-
 // --------------------------- 앱 컨텍스트 ----------------------------
 /*
  * AppCtx
@@ -677,10 +526,14 @@ int main(int argc, char** argv) {
     app.worker_stop = true;
     pthread_join(app.worker_tid, NULL);
 
-    if (app.bev_uds) bufferevent_free(app.bev_uds);
-    if (app.ev_reconnect_timer) event_free(app.ev_reconnect_timer);
-    if (app.ev_uart_read) event_free(app.ev_uart_read);
-    if (app.rxbuf) evbuffer_free(app.rxbuf);
+    if (app.bev_uds) 
+        bufferevent_free(app.bev_uds);
+    if (app.ev_reconnect_timer) 
+        event_free(app.ev_reconnect_timer);
+    if (app.ev_uart_read) 
+        event_free(app.ev_uart_read);
+    if (app.rxbuf) 
+        evbuffer_free(app.rxbuf);
     if (app.ev_worker_notify) event_free(app.ev_worker_notify);
     if (app.efd_worker_notify >= 0) close(app.efd_worker_notify);
     if (app.uart_fd >= 0) close(app.uart_fd);
