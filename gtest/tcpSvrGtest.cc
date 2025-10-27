@@ -144,7 +144,7 @@ protected:
 
     void SetUp() override {
         ASSERT_EQ(0, pthread_create(&tid_, nullptr, serverThread, nullptr));
-        ASSERT_TRUE(waitForPortOpen("127.0.0.1", DEFAULT_PORT, 2000)) << "TCP not ready";
+        ASSERT_TRUE(waitForPortOpen("127.0.0.1", TCP_PORT, 2000)) << "TCP not ready";
         EXPECT_TRUE(tcpSvrIsRunning());
     }
 
@@ -158,12 +158,12 @@ protected:
 
 /* 1) 접속/해지 */
 TEST_F(TcpSvrRunTest, ConnectDisconnect) {
-    int fd1 = connectTcp("127.0.0.1", DEFAULT_PORT);
+    int fd1 = connectTcp("127.0.0.1", TCP_PORT);
     ASSERT_GE(fd1, 0) << strerror(errno);
     ::close(fd1);
 
     // 재접속 가능해야 함
-    int fd2 = connectTcp("127.0.0.1", DEFAULT_PORT);
+    int fd2 = connectTcp("127.0.0.1", TCP_PORT);
     ASSERT_GE(fd2, 0) << "reconnect failed";
     ::close(fd2);
 }
@@ -174,7 +174,7 @@ TEST_F(TcpSvrRunTest, KeepAliveCommandTest) {
     struct sockaddr_in stSocketIn;
     memset(&stSocketIn,0,sizeof(stSocketIn));
     stSocketIn.sin_family = AF_INET;
-    stSocketIn.sin_port   = htons((uint16_t)DEFAULT_PORT);
+    stSocketIn.sin_port   = htons((uint16_t)TCP_PORT);
     ASSERT_EQ(1, inet_pton(AF_INET, "127.0.0.1", &stSocketIn.sin_addr));
 
     // 기존 코드를 최대한 재사용하기 위해 bufferevent를 래핑해 requestFrame() 호출
@@ -219,7 +219,7 @@ TEST_F(TcpSvrRunTest, KeepAliveCommandTest) {
 
 /* 3) quit 동등 시나리오(클라이언트 종료) */
 TEST_F(TcpSvrRunTest, QuitLikeClose) {
-    int iFd = connectTcp("127.0.0.1", DEFAULT_PORT);
+    int iFd = connectTcp("127.0.0.1", TCP_PORT);
     ASSERT_GE(iFd, 0);
     ::close(iFd);  // quit과 동일한 효과
 
