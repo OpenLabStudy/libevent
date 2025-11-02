@@ -30,13 +30,13 @@ void sessionRemove(SESSION_CTX* pstSessionCtx)
     }
 }
 
-void sessionInitCore(CORE_CTX* pstCoreCtx, struct event_base* pstEventBase, unsigned char uchMyId)
+void sessionInitCore(CORE_CTX* pstCoreCtx, struct event_base* pstEventBase)
 {
     pstCoreCtx->pstEventBase = pstEventBase;
     pstCoreCtx->pstAcceptEvent = NULL;
-    pstCoreCtx->iListenSock = -1;
     pstCoreCtx->iClientCount = 0;
-    pstCoreCtx->uchMyId = uchMyId;
+    pstCoreCtx->iClientSock = -1;
+    pstCoreCtx->pstSignalEvent = NULL;
     pstCoreCtx->pstSockCtxHead = NULL;
 }
 
@@ -46,7 +46,7 @@ void sessionCloseAndFree(void* pvData)
     if (!pSessionCtx)
         return;
 
-    session_remove(pSessionCtx);
+    sessionRemove(pSessionCtx);
     if (pSessionCtx->pstBufferEvent) 
         bufferevent_free(pSessionCtx->pstBufferEvent);
 
@@ -63,10 +63,14 @@ void sessionReadCallback(struct bufferevent* pstBufferEvent, void* pvData)
 
     for (;;) {
         int r = responseFrame(pstEventBuffer, pstBufferEvent, &id, pSessionCtx->uchIsResponse);
-        if (r == 1) break;     /* 더 읽을 게 없음 */
-        if (r == 0) break;     /* 한 프레임 처리 완료 */
+        if (r == 1) 
+            break;     /* 더 읽을 게 없음 */
+
+        if (r == 0) 
+            break;     /* 한 프레임 처리 완료 */
+            
         if (r < 0) {           /* 에러: 연결 종료 */
-            session_close_and_free(pvData);
+            sessionCloseAndFree(pvData);
             return;
         }
     }
@@ -76,6 +80,7 @@ void sessionEventCallback(struct bufferevent* pstBufferEvent, short nEvents, voi
 {
     (void)pstBufferEvent;
     if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        session_close_and_free(pvData);
+        sessionCloseAndFree(pvData);
     }
 }
+

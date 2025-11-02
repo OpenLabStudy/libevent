@@ -4,10 +4,14 @@
 #include "netContext.h"
 #include "commonSession.h"
 
-void tcpInit(NET_CTX* pstTcpCtx, struct event_base* pstBase, unsigned char uchMyId, NET_MODE eMode);
-int  tcpServerStart(NET_CTX* pstTcpCtx, unsigned short unPort);
-int  tcpClientConnect(NET_CTX* pstTcpCtx, const char* pchIp, unsigned short unPort);
-void tcpClientAttachStdin(NET_CTX* pstTcpCtx);
-void tcpStop(NET_CTX* pstTcpCtx);
+void tcpSvrInit(TCP_SERVER_CTX* pstTcpCtx, struct event_base* pstEventBase,
+        unsigned char uchMyId, NET_MODE eMode);
+int  tcpServerStart(TCP_SERVER_CTX* pstTcpCtx, unsigned short unPort);
+void tcpSvrStop(TCP_SERVER_CTX *pstTcpCtx);
+
+void tcpClnInit(TCP_CLIENT_CTX* pstTcpCtx, struct event_base* pstEventBase,
+    unsigned char uchMyId, NET_MODE eMode);
+int  tcpClientConnect(TCP_CLIENT_CTX* pstTcpCtx, const char* pchIp, unsigned short unPort);
+void tcpClnStop(TCP_CLIENT_CTX *pstTcpCtx);
 
 #endif

@@ -1,106 +1,48 @@
-// udsSvr.c
+#include "netModule/protocols/uds.h"
+#include <event2/event.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <errno.h>
-#include <signal.h>
 
-#include "frame.h"
-#include "sockSession.h"
-
-/* === 내부에서 루프 중인 컨텍스트에 접근하기 위한 정지 훅 === */
-#ifdef GOOGLE_TEST
-static EVENT_CONTEXT* g_pRunningCtx = NULL;
-/* 외부(테스트)에서 호출: 이벤트 루프 중단 */
-void udsSvrStop(void)
+static void signalCallBack(evutil_socket_t sig, short ev, void *pvData)
 {
-    if (g_pRunningCtx && g_pRunningCtx->pstEventBase) {
-        event_base_loopbreak(g_pRunningCtx->pstEventBase);
-    }
+    (void)sig; (void)ev;
+    UDS_SERVER_CTX *pstUdsCtx = (UDS_SERVER_CTX *)pvData;
+    printf("\n[UDS SERVER] SIGINT caught. Exiting...\n");
+    event_base_loopbreak(pstUdsCtx->stNetBase.stCoreCtx.pstEventBase);
 }
 
-/* (선택) 서버가 돌고 있는지 확인용 */
-int udsSvrIsRunning(void)
+int main(int argc, char *argv[])
 {
-    return g_pRunningCtx != NULL;
-}
-#endif
+    const char *pchPath = (argc > 1) ? argv[1] : "/tmp/uds_server.sock";
+    struct event_base *pstEventBase = event_base_new();
 
-/* === SIGINT: 루프 종료 및 소켓 파일 제거 === */
-static void signalCb(evutil_socket_t sig, short ev, void* pvData)
-{
-    (void)sig;
-    (void)ev;
-    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-    event_base_loopexit(pstEventCtx->pstEventBase, NULL);
-}
+    UDS_SERVER_CTX stUdsCtx;
+    udsSvrInit(&stUdsCtx, pstEventBase, 30, UDS_SERVER);
 
-int run(void)   /* ← 반환형을 int로 명확화 */
-{
-    EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_SERVER, UDS1_SERVER_ID);
-    unlink(UDS1_PATH);
-
-    stEventCtx.pstEventBase = event_base_new();
-    if (!stEventCtx.pstEventBase) {
-        fprintf(stderr, "Could not initialize libevent!\n");
-        return 1;
-    }
-
-    stEventCtx.iSockFd = createUdsServerSocket(UDS1_PATH);
-    if (stEventCtx.iSockFd == -1) {
-        event_base_free(stEventCtx.pstEventBase);
-        return 1;
-    }
-
-    stEventCtx.pstAcceptEvent = event_new(stEventCtx.pstEventBase,
-                                          stEventCtx.iSockFd,
-                                          EV_READ | EV_PERSIST,
-                                          acceptCb, &stEventCtx);
-    if (!stEventCtx.pstAcceptEvent || event_add(stEventCtx.pstAcceptEvent, NULL) < 0) {
-        fprintf(stderr, "Could not create/add accept event!\n");
-        evutil_closesocket(stEventCtx.iSockFd);
-        event_base_free(stEventCtx.pstEventBase);
+    if (udsServerStart(&stUdsCtx, pchPath) < 0) {
+        fprintf(stderr, "Failed to start UDS server\n");
         return 1;
     }
 
     /* SIGINT(CTRL+C) 처리 */
-    signal(SIGPIPE, SIG_IGN);
-    stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
-    if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
+    signal(SIGPIPE, SIG_IGN);    
+    stUdsCtx.stNetBase.stCoreCtx.pstSignalEvent = evsignal_new(
+        stUdsCtx.stNetBase.stCoreCtx.pstEventBase, 
+        SIGINT, 
+        signalCallBack, 
+        &stUdsCtx);
+    if (!stUdsCtx.stNetBase.stCoreCtx.pstSignalEvent || 
+            event_add(stUdsCtx.stNetBase.stCoreCtx.pstSignalEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");
-        event_free(stEventCtx.pstAcceptEvent);
-        evutil_closesocket(stEventCtx.iSockFd);
-        event_base_free(stEventCtx.pstEventBase);
+        udsSvrStop(&stUdsCtx);
         return 1;
-    }
-    fprintf(stderr, "UDS Server Start\n");
-#ifdef GOOGLE_TEST
-    g_pRunningCtx = &stEventCtx;
-#endif 
-    event_base_dispatch(stEventCtx.pstEventBase);
-#ifdef GOOGLE_TEST
-    g_pRunningCtx = NULL;
-#endif
-    /* 정리 */
-    if (stEventCtx.pstAcceptEvent)
-        event_free(stEventCtx.pstAcceptEvent);
-    if (stEventCtx.pstEvent)
-        event_free(stEventCtx.pstEvent);
-    if (stEventCtx.iSockFd >= 0)
-        evutil_closesocket(stEventCtx.iSockFd);
-    event_base_free(stEventCtx.pstEventBase);
-    printf("done\n");
+    }   
+
+    printf("[UDS SERVER] Listening on %s\n", pchPath);
+    event_base_dispatch(pstEventBase);
+
+    event_free(stUdsCtx.stNetBase.stCoreCtx.pstSignalEvent);
+    udsSvrStop(&stUdsCtx);
     return 0;
 }
-
-/* === main ===
- * 프로덕션 바이너리 빌드에서만 포함되도록 가드
- */
-#ifndef GOOGLE_TEST
-int main(int argc, char** argv)
-{
-    return run();
-}
-#endif

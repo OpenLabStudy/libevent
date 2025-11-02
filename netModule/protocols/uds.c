@@ -1,72 +1,163 @@
 #include "uds.h"
 #include "../core/frame.h"
 #include "../core/icdCommand.h"
+#include "../core/netUtil.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
 
-static void udsRecvCb(evutil_socket_t fd, short ev, void* arg);
-static void udsStdinCb(evutil_socket_t fd, short ev, void* arg);
-
-void udsInit(UDS_CTX* C, struct event_base* base, unsigned char id, NET_MODE mode)
+void udsSvrInit(UDS_SERVER_CTX* pstUdsSrvCtx, struct event_base* pstEventBase,
+    unsigned char uchMyId, NET_MODE eMode)
 {
-    memset(C, 0, sizeof(*C));
-    sessionInitCore(&C->stCoreCtx, base, id);
-    C->eMode = mode;
-    signal(SIGPIPE, SIG_IGN);
+    netBaseInit(&pstUdsSrvCtx->stNetBase, pstEventBase, uchMyId, eMode);
+    pstUdsSrvCtx->pstClnConnectEvent = NULL;
 }
 
-int udsServerStart(UDS_CTX* C, const char* path)
+/* ================================================================
+ * 클라이언트 접속 수락 콜백 (accept)
+ * ================================================================ */
+static void udsAcceptCb(evutil_socket_t fd, short ev, void* pvData)
 {
-    unlink(path);
-    C->iSockFd = createUdsServer(path);
-    if (C->iSockFd < 0) return -1;
+    (void)ev;
+    UDS_SERVER_CTX* pstUdsSrvCtx = (UDS_SERVER_CTX*)pvData;
 
-    C->pstRecvEvent = event_new(C->stCoreCtx.pstEventBase, C->iSockFd, EV_READ|EV_PERSIST, udsRecvCb, C);
-    event_add(C->pstRecvEvent, NULL);
-    printf("[UDS SERVER] Listening on %s\n", path);
-    return 0;
-}
-
-int udsClientStart(UDS_CTX* C, const char* path)
-{
-    C->iSockFd = createUdsClient(path);
-    if (C->iSockFd < 0) return -1;
-
-    C->pstRecvEvent = event_new(C->stCoreCtx.pstEventBase, C->iSockFd, EV_READ|EV_PERSIST, udsRecvCb, C);
-    event_add(C->pstRecvEvent, NULL);
-
-    C->pstStdinEvent = event_new(C->stCoreCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, udsStdinCb, C);
-    event_add(C->pstStdinEvent, NULL);
-    return 0;
-}
-
-static void udsRecvCb(evutil_socket_t fd, short ev, void* arg)
-{
-    UDS_CTX* C = (UDS_CTX*)arg;
-    char buf[1024];
-    ssize_t n = read(fd, buf, sizeof(buf)-1);
-    if (n > 0) {
-        buf[n] = 0;
-        printf("[UDS RECV] %s\n", buf);
+    struct sockaddr_un client_addr;
+    socklen_t len = sizeof(client_addr);
+    int client_fd = accept(fd, (struct sockaddr*)&client_addr, &len);
+    if (client_fd < 0) {
+        perror("[UDS SERVER] accept failed");
+        return;
     }
+
+    SESSION_CTX* pstSession = calloc(1, sizeof(*pstSession));
+    pstSession->pstCoreCtx = &pstUdsSrvCtx->stNetBase.stCoreCtx;
+    pstSession->pstBufferEvent = bufferevent_socket_new(
+        pstUdsSrvCtx->stNetBase.stCoreCtx.pstEventBase, 
+        client_fd, 
+        BEV_OPT_CLOSE_ON_FREE);
+
+    bufferevent_setcb(pstSession->pstBufferEvent, 
+        sessionReadCallback, NULL, sessionEventCallback, pstSession);
+    bufferevent_enable(pstSession->pstBufferEvent, EV_READ | EV_WRITE);
+
+    sessionAdd(pstSession, &pstUdsSrvCtx->stNetBase.stCoreCtx);
+    pstUdsSrvCtx->stNetBase.stCoreCtx.iClientSock = client_fd;
+
+    printf("[UDS SERVER] Client connected (fd=%d, total=%d)\n",
+           client_fd, pstUdsSrvCtx->stNetBase.stCoreCtx.iClientCount);
 }
 
-static void udsStdinCb(evutil_socket_t fd, short ev, void* arg)
+/* ================================================================
+ * 서버 시작 (여러 클라이언트 수락 가능)
+ * ================================================================ */
+int udsServerStart(UDS_SERVER_CTX *pstUdsSrvCtx, const char *pchPath)
 {
-    (void)fd; (void)ev;
-    UDS_CTX* C = (UDS_CTX*)arg;
-    char line[256];
-    if (!fgets(line, sizeof(line), stdin)) return;
-    line[strcspn(line, "\n")] = 0;
-    write(C->iSockFd, line, strlen(line));
+    unlink(pchPath);
+    pstUdsSrvCtx->stNetBase.iSockFd = createUdsServer(pchPath);
+    if (pstUdsSrvCtx->stNetBase.iSockFd < 0) {
+        perror("[UDS SERVER] createUdsServer failed");
+        return -1;
+    }
+
+    // 클라이언트 접속 대기용 이벤트 등록
+    pstUdsSrvCtx->pstClnConnectEvent = event_new(
+        pstUdsSrvCtx->stNetBase.stCoreCtx.pstEventBase,
+        pstUdsSrvCtx->stNetBase.iSockFd,
+        EV_READ | EV_PERSIST,
+        udsAcceptCb,
+        pstUdsSrvCtx);
+
+    event_add(pstUdsSrvCtx->pstClnConnectEvent, NULL);
+
+    printf("[UDS SERVER] Listening on %s\n", pchPath);
+    return 0;
 }
 
-void udsStop(UDS_CTX* C)
+/* ================================================================
+ * 서버 종료 및 정리
+ * ================================================================ */
+void udsSvrStop(UDS_SERVER_CTX *pstUdsSrvCtx)
 {
-    if (C->pstRecvEvent) event_free(C->pstRecvEvent);
-    if (C->pstStdinEvent) event_free(C->pstStdinEvent);
-    if (C->iSockFd >= 0) close(C->iSockFd);
+    CORE_CTX* pstCoreCtx = &pstUdsSrvCtx->stNetBase.stCoreCtx;
+
+    // 세션 정리
+    SESSION_CTX* pstSessionCtx = pstCoreCtx->pstSockCtxHead;
+    while (pstSessionCtx) {
+        SESSION_CTX* pstNextSessionCtx = pstSessionCtx->pstSockCtxNext;
+        if (pstSessionCtx->pstBufferEvent) {
+            bufferevent_free(pstSessionCtx->pstBufferEvent);
+        }
+        free(pstSessionCtx);
+        pstSessionCtx = pstNextSessionCtx;
+    }
+
+    pstCoreCtx->pstSockCtxHead = NULL;
+    pstCoreCtx->iClientCount = 0;
+
+    // 이벤트 해제
+    if (pstUdsSrvCtx->pstClnConnectEvent) {
+        event_free(pstUdsSrvCtx->pstClnConnectEvent);
+        pstUdsSrvCtx->pstClnConnectEvent = NULL;
+    }
+
+    if (pstUdsSrvCtx->stNetBase.iSockFd >= 0) {
+        close(pstUdsSrvCtx->stNetBase.iSockFd);
+        pstUdsSrvCtx->stNetBase.iSockFd = -1;
+    }
+
+    printf("[UDS SERVER] Stopped and cleaned up.\n");
+}
+
+
+
+void udsClnInit(UDS_CLIENT_CTX *pstUdsClnCtx, struct event_base *pstEventBase,
+    unsigned char uchMyId, NET_MODE eMode)
+{
+    netBaseInit(&pstUdsClnCtx->stNetBase, pstEventBase, uchMyId, eMode);
+    pstUdsClnCtx->pstBufferEvent = NULL;
+}
+
+int udsClientStart(UDS_CLIENT_CTX *pstUdsClnCtx, const char *pchPath)
+{
+    pstUdsClnCtx->stNetBase.iSockFd = createUdsClient(pchPath);
+    if (pstUdsClnCtx->stNetBase.iSockFd < 0)
+        return -1;
+
+    pstUdsClnCtx->pstBufferEvent = bufferevent_socket_new(
+        pstUdsClnCtx->stNetBase.stCoreCtx.pstEventBase, 
+        pstUdsClnCtx->stNetBase.iSockFd, 
+        BEV_OPT_CLOSE_ON_FREE);
+    if (!pstUdsClnCtx->pstBufferEvent) {
+        fprintf(stderr, "[TCP CLIENT] bufferevent_socket_new failed\n");
+        close(pstUdsClnCtx->stNetBase.iSockFd);
+        return -1;
+    }
+
+    bufferevent_setcb(pstUdsClnCtx->pstBufferEvent, 
+        sessionReadCallback, NULL, sessionEventCallback, NULL);
+    bufferevent_enable(pstUdsClnCtx->pstBufferEvent, EV_READ | EV_WRITE);
+    return 0;
+}
+
+
+void udsClnStop(UDS_CLIENT_CTX *pstUdsClnCtx)
+{
+    // 1. 클라이언트 bufferevent 해제
+    if (pstUdsClnCtx->pstBufferEvent) {
+        bufferevent_disable(pstUdsClnCtx->pstBufferEvent, EV_READ | EV_WRITE);
+        bufferevent_free(pstUdsClnCtx->pstBufferEvent);   // fd 자동 close
+        pstUdsClnCtx->pstBufferEvent = NULL;
+    }
+
+    // 2. event_base 해제
+    if (pstUdsClnCtx->stNetBase.stCoreCtx.pstEventBase) {
+        event_base_loopbreak(pstUdsClnCtx->stNetBase.stCoreCtx.pstEventBase);
+        event_base_free(pstUdsClnCtx->stNetBase.stCoreCtx.pstEventBase);
+        pstUdsClnCtx->stNetBase.stCoreCtx.pstEventBase = NULL;
+    }
+
+    pstUdsClnCtx->stNetBase.iSockFd = -1;
+    printf("[UDS CLIENT] Stopped and cleaned up.\n");
 }

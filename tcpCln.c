@@ -1,100 +1,105 @@
+#include "netModule/protocols/tcp.h"
+#include "netModule/core/frame.h"
+#include "netModule/core/icdCommand.h"
+#include <event2/event.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
-#include <errno.h>
-#include <signal.h>
 
-#include "frame.h"
-#include "sockSession.h"
-#include "icdCommand.h"
- 
- static void stdInCb(evutil_socket_t sig, short nEvents, void* pvData)
- {
+#if 0
+static void signalCallBack(evutil_socket_t sig, short ev, void *pvData)
+{
+    (void)sig; (void)ev;
+    TCP_CLIENT_CTX *pstTcpCtx = (TCP_CLIENT_CTX *)pvData;
+    printf("\n[TCP CLIENT] SIGINT caught. Exiting...\n");
+    event_base_loopbreak(pstTcpCtx->stNetBase.stCoreCtx.pstEventBase);
+}
+#endif
+
+static void stdInCallBack(evutil_socket_t sig, short nEvents, void* pvData)
+{
     (void)sig;
     (void)nEvents;
-    SOCK_CONTEXT *pstSockCtx = (SOCK_CONTEXT *)pvData;
-    EVENT_CONTEXT* pstEventCtx = pstSockCtx->pstEventCtx;
+    TCP_CLIENT_CTX *pstTcpCtx = (TCP_CLIENT_CTX *)pvData;
     MSG_ID stMsgId;
     char achStdInData[1024];
     if (!fgets(achStdInData, sizeof(achStdInData), stdin)) {
-        event_base_loopexit(pstEventCtx->pstEventBase, NULL);
+        event_base_loopexit(pstTcpCtx->stNetBase.stCoreCtx.pstEventBase, NULL);
         return;
     }
-    stMsgId.uchSrcId = pstEventCtx->pstSockCtx->uchSrcId;
-    stMsgId.uchDstId = pstEventCtx->pstSockCtx->uchDstId;
+    stMsgId.uchSrcId = pstTcpCtx->stNetBase.uchMyId;
+    stMsgId.uchDstId = 1;
     achStdInData[strcspn(achStdInData, "\n")] = '\0';
     if (strcmp(achStdInData, "keepalive") == 0) {
-        printf("client: sent KEEP_ALIVE\n");
-        requestFrame(pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);        
+        printf("client: sent KEEP_ALIVE\n");       
+        requestFrame(pstTcpCtx->pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE);        
     } else if (strcmp(achStdInData, "ibit") == 0) {        
         printf("client: sent IBIT\n");
-        requestFrame(pstEventCtx->pstSockCtx->pstBufferEvent, &stMsgId, CMD_IBIT);        
+        requestFrame(pstTcpCtx->pstBufferEvent, &stMsgId, CMD_IBIT);        
     } else if (!strcmp(achStdInData, "quit") || !strcmp(achStdInData, "exit")) {
-        event_base_loopexit(pstEventCtx->pstEventBase, NULL);
+        event_base_loopexit(pstTcpCtx->stNetBase.stCoreCtx.pstEventBase, NULL);
     } else {
         printf("usage:\n  echo <text>\n  keepalive\n  ibit <n>\n  quit\n");
     }
- }
- 
- /* === main === */
- int main(int argc, char** argv)
- {
-    EVENT_CONTEXT stEventCtx;    
-    initEventContext(&stEventCtx, ROLE_CLIENT, TCP_OPERATOR_PC_ID);
+}
 
-    stEventCtx.pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if(stEventCtx.pstSockCtx == NULL){
-        fprintf(stderr, "SOCK_CONTEXT memory allocation fail.\n");
-        return -1;
-    }
-    initSocketContext(stEventCtx.pstSockCtx, RESPONSE_DISABLED);
-    stEventCtx.pstSockCtx->pstEventCtx     = &stEventCtx;
-    stEventCtx.pstSockCtx->uchSrcId        = stEventCtx.uchMyId;
-
-    stEventCtx.pstEventBase = event_base_new();
-    if (!stEventCtx.pstEventBase) {
-        fprintf(stderr, "Could not initialize libevent!\n");
-        return 1;
-    }    
-    
-    stEventCtx.iSockFd = createTcpUdpClientSocket(TCP_PORT, SOCK_TYPE_TCP);
-    if(stEventCtx.iSockFd == -1){
-        fprintf(stderr,"Create Socket fail...\n");
+int main(int argc, char *argv[])
+{
+    if (argc < 3) {
+        printf("Usage: %s <ip> <port>\n", argv[0]);
         return 1;
     }
 
-    stEventCtx.pstSockCtx->pstBufferEvent = bufferevent_socket_new(stEventCtx.pstEventBase, stEventCtx.iSockFd, BEV_OPT_CLOSE_ON_FREE);
-    if (!stEventCtx.pstSockCtx->pstBufferEvent){
-        free(stEventCtx.pstSockCtx);
-        event_base_free(stEventCtx.pstEventBase);
-        return 1;
-    }    
-    bufferevent_setcb(stEventCtx.pstSockCtx->pstBufferEvent, readCallback, NULL, eventCallback, stEventCtx.pstSockCtx);
-    bufferevent_enable(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(stEventCtx.pstSockCtx->pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
+    const char *pchIp = argv[1];
+    unsigned short unPort = atoi(argv[2]);
 
+    struct event_base *pstEventBase = event_base_new();
+    TCP_CLIENT_CTX stTcpCtx;
+    tcpClnInit(&stTcpCtx, pstEventBase, 2, TCP_CLIENT);
+
+    if (tcpClientConnect(&stTcpCtx, pchIp, unPort) < 0) {
+        fprintf(stderr, "Failed to connect TCP server\n");
+        return 1;
+    }
+#if 0
+    /* SIGINT(CTRL+C) 처리 */
+    signal(SIGPIPE, SIG_IGN);    
+    stTcpCtx.stNetBase.stCoreCtx.pstSigIntEvent = evsignal_new(
+        stTcpCtx.stNetBase.stCoreCtx.pstEventBase, 
+        SIGINT, 
+        signalCallBack, 
+        &stTcpCtx);
+    if (!stTcpCtx.stNetBase.stCoreCtx.pstSigIntEvent || 
+            event_add(stTcpCtx.stNetBase.stCoreCtx.pstSigIntEvent, NULL) < 0) {
+        fprintf(stderr, "Could not create/add SIGINT event!\n");
+        tcpClnStop(&stTcpCtx);
+        return 1;
+    }
+#endif
     /* STDIN Event 처리 */
     signal(SIGPIPE, SIG_IGN);
-    stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, stdInCb, stEventCtx.pstSockCtx);
-    if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
+    stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent = event_new(
+        stTcpCtx.stNetBase.stCoreCtx.pstEventBase, 
+        fileno(stdin), 
+        EV_READ|EV_PERSIST, 
+        stdInCallBack, 
+        &stTcpCtx);
+    if (!stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent || 
+            event_add(stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent, NULL) < 0) {
         fprintf(stderr, "Could not add StdIn event\n");
-        if (stEventCtx.pstSockCtx->pstBufferEvent) 
-            bufferevent_free(stEventCtx.pstSockCtx->pstBufferEvent);
-        event_base_free(stEventCtx.pstEventBase);
+        if (stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent) 
+            event_free(stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent);
+        
+        tcpClnStop(&stTcpCtx);
         return 1;
     }
 
-    fprintf(stderr,"client: connecting to %s:%u ...\n", TCP_CLIENT_ADDR, TCP_PORT);
-    event_base_dispatch(stEventCtx.pstEventBase);
+    printf("[TCP CLIENT] Connected to %s:%d\n", pchIp, unPort);
+    printf("[TCP CLIENT] Type message and press Enter.\n");
 
-    if (stEventCtx.pstEvent) 
-        event_free(stEventCtx.pstEvent);
+    event_base_dispatch(pstEventBase);
 
-    if (stEventCtx.pstEventBase) 
-        event_base_free(stEventCtx.pstEventBase);
-
-    printf("done\n");
+    tcpClnStop(&stTcpCtx);
     return 0;
- }
- 
+}

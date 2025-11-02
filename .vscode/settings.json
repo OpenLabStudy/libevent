@@ -71,6 +71,10 @@
         "thread": "cpp",
         "cinttypes": "cpp",
         "typeinfo": "cpp",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "netcontext.h": "c",
+        "internet": "c",
+        "netfwd": "c",
+        "string.h": "c"
     }
 }

@@ -1,102 +1,52 @@
+#include "netModule/protocols/tcp.h"
+#include <event2/event.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
-#include <errno.h>
-#include <signal.h>
 
-#include "frame.h"
-#include "sockSession.h"
-
-#ifdef GOOGLE_TEST
-static EVENT_CONTEXT* g_pRunningCtx = NULL;
-/* 외부(테스트)에서 호출: 이벤트 루프 중단 */
-void tcpSvrStop(void)
+static void signalCallBack(evutil_socket_t sig, short ev, void *pvData)
 {
-    if (g_pRunningCtx && g_pRunningCtx->pstEventBase) {
-        event_base_loopbreak(g_pRunningCtx->pstEventBase);
-    }
+    (void)sig; (void)ev;
+    TCP_SERVER_CTX *pstTcpCtx = (TCP_SERVER_CTX *)pvData;
+    printf("\n[TCP SERVER] SIGINT caught. Exiting...\n");
+    event_base_loopbreak(pstTcpCtx->stNetBase.stCoreCtx.pstEventBase);
 }
 
-/* 서버가 돌고 있는지 확인용 */
-int tcpSvrIsRunning(void)
+int main(int argc, char *argv[])
 {
-    return g_pRunningCtx != NULL;
-}
-#endif
-
-/* === SIGINT: 루프 종료 및 소켓 파일 제거 === */
-static void signalCb(evutil_socket_t sig, short ev, void* pvData)
-{
-    (void)sig;
-    (void)ev;
-    EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-    event_base_loopexit(pstEventCtx->pstEventBase, NULL);
-}
-
-int run(void)
-{
-    EVENT_CONTEXT stEventCtx;    
-    initEventContext(&stEventCtx, ROLE_SERVER, TCP_TRACKING_CTRL_ID);    
-    
-    stEventCtx.pstEventBase = event_base_new();
-    if (!stEventCtx.pstEventBase) {
-        fprintf(stderr, "Could not initialize libevent!\n");
+    unsigned short unPort = (argc > 1) ? atoi(argv[1]) : 9000;
+    struct event_base *pstEventBase = event_base_new();
+    if (!pstEventBase) {
+        fprintf(stderr, "[ERROR] Failed to create event_base: %s\n", strerror(errno));
+        return -1;
+    }
+    TCP_SERVER_CTX stTcpCtx;
+    tcpSvrInit(&stTcpCtx, pstEventBase, 1, TCP_SERVER);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    if (tcpServerStart(&stTcpCtx, unPort) < 0) {
+        fprintf(stderr, "Failed to start TCP server\n");
         return 1;
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
-    stEventCtx.iSockFd = createTcpUdpServerSocket(TCP_PORT, SOCK_TYPE_TCP);
-    if(stEventCtx.iSockFd == -1){
-        fprintf(stderr,"Error Create Listen socket!\n");
-        event_base_free(stEventCtx.pstEventBase);
-        return 1;
-    }
-
-    stEventCtx.pstAcceptEvent = event_new(stEventCtx.pstEventBase,
-                                          stEventCtx.iSockFd,
-                                          EV_READ | EV_PERSIST,
-                                          acceptCb, &stEventCtx);
-    if (!stEventCtx.pstAcceptEvent || event_add(stEventCtx.pstAcceptEvent, NULL) < 0) {
-        fprintf(stderr, "Could not create/add accept event!\n");
-        evutil_closesocket(stEventCtx.iSockFd);
-        event_base_free(stEventCtx.pstEventBase);
-        return 1;
-    }
-    
     /* SIGINT(CTRL+C) 처리 */
-    signal(SIGPIPE, SIG_IGN);
-    stEventCtx.pstEvent = evsignal_new(stEventCtx.pstEventBase, SIGINT, signalCb, &stEventCtx);
-    if (!stEventCtx.pstEvent || event_add(stEventCtx.pstEvent, NULL) < 0) {
+    signal(SIGPIPE, SIG_IGN);    
+    stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent = evsignal_new(
+        stTcpCtx.stNetBase.stCoreCtx.pstEventBase, 
+        SIGINT, 
+        signalCallBack, 
+        &stTcpCtx);
+    if (!stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent || 
+            event_add(stTcpCtx.stNetBase.stCoreCtx.pstSignalEvent, NULL) < 0) {
         fprintf(stderr, "Could not create/add SIGINT event!\n");
-        event_free(stEventCtx.pstAcceptEvent);
-        evutil_closesocket(stEventCtx.iSockFd);
-        event_base_free(stEventCtx.pstEventBase);
+        tcpSvrStop(&stTcpCtx);
         return 1;
-    }    
-    fprintf(stderr,"TCP Server Start\n");
-#ifdef GOOGLE_TEST
-    g_pRunningCtx = &stEventCtx;
-#endif 
-    event_base_dispatch(stEventCtx.pstEventBase);
-#ifdef GOOGLE_TEST
-    g_pRunningCtx = NULL;
-#endif
-    /* 정리 */
-    if (stEventCtx.pstAcceptEvent)
-        event_free(stEventCtx.pstAcceptEvent);
-    if (stEventCtx.pstEvent)
-        event_free(stEventCtx.pstEvent);
-    if (stEventCtx.iSockFd >= 0)
-        evutil_closesocket(stEventCtx.iSockFd);
-    event_base_free(stEventCtx.pstEventBase);
-    printf("done\n");
+    }   
+
+    printf("[TCP SERVER] Running on port %d\n", unPort);
+    event_base_dispatch(pstEventBase);
+
+    tcpSvrStop(&stTcpCtx);
     return 0;
 }
-
-/* === main === */
-#ifndef GOOGLE_TEST
-int main(int argc, char** argv)
-{
-    return run();
-}
-#endif

@@ -1,29 +1,63 @@
 #ifndef NET_CONTEXT_H
 #define NET_CONTEXT_H
 
-#include "../core/netCore.h"
+
 #include "commonSession.h"
 #include <event2/listener.h>
+#include <string.h>
 
 typedef enum {
-    NET_MODE_SERVER,
-    NET_MODE_CLIENT
+    TCP_SERVER,
+    TCP_CLIENT,
+    UDP_MODE,
+    UDS_SERVER,
+    UDS_CLIENT
 } NET_MODE;
 
-/**
- * @brief 공통 네트워크 컨텍스트 구조체
- * 
- * TCP / UDP / UDS 모듈이 공통으로 사용
- */
 typedef struct {
-    CORE_CTX stCoreCtx;             // 공용 이벤트 기반 구조체
-    NET_MODE eMode;                 // 서버/클라이언트 구분
+    CORE_CTX        stCoreCtx;
+    NET_MODE        eMode;
+    int             iSockFd;
+    unsigned char   uchMyId;
+} NET_BASE;
 
-    int iSockFd;                    // 소켓 FD (TCP/UDP/UDS 공용)
-    struct evconnlistener* pstListener; // TCP 서버용
-    struct bufferevent*    pstBev;      // TCP 클라이언트용
-    struct event*          pstRecvEvent; // UDP/UDS 수신용
-    struct event*          pstStdinEvent; // 클라이언트 표준입력용
-} NET_CTX;
+typedef struct {
+    NET_BASE                stNetBase;
+    struct evconnlistener   *pstListener;
+} TCP_SERVER_CTX;
+
+typedef struct {
+    NET_BASE            stNetBase;
+    struct bufferevent  *pstBufferEvent;
+} TCP_CLIENT_CTX;
+
+typedef struct {
+    NET_BASE        stNetBase;
+    struct event    *pstRecvEvent;
+} UDP_CTX;
+
+typedef struct {
+    NET_BASE        stNetBase;
+    struct event    *pstClnConnectEvent;
+} UDS_SERVER_CTX;
+
+typedef struct {
+    NET_BASE            stNetBase;
+    struct bufferevent  *pstBufferEvent;
+} UDS_CLIENT_CTX;
+
+/* ============================================================
+ * 공용 초기화 함수
+ * ============================================================ */
+static inline void netBaseInit(NET_BASE* pstNetBase,
+    struct event_base* pstEventBase,
+    unsigned char uchMyId,
+    NET_MODE eMode)
+{
+    memset(pstNetBase, 0, sizeof(*pstNetBase));
+    sessionInitCore(&pstNetBase->stCoreCtx, pstEventBase);
+    pstNetBase->eMode = eMode;
+    pstNetBase->uchMyId = uchMyId;
+}
 
 #endif

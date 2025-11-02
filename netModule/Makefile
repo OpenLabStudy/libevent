@@ -1,25 +1,25 @@
-# ============================
-# netModule/Makefile
-# ============================
+# ============================================================
+# === netModule/Makefile
+# ============================================================
 
-include core/Makefile
-include protocols/Makefile
+# 현재 이 Makefile이 위치한 디렉토리 절대경로 계산
+NETMODULE_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 
-# core / protocols 개별 오브젝트 통합
-obj-y += $(addprefix core/, $(core-y))
-obj-y += $(addprefix protocols/, $(protocols-y))
+# 하위 모듈 포함 (절대경로 방식)
+include $(NETMODULE_DIR)/core/Makefile
+include $(NETMODULE_DIR)/protocols/Makefile
+# core / protocols 오브젝트 병합
+obj-netModule-y += $(addprefix core/, $(core-y))
+obj-netModule-y += $(addprefix protocols/, $(protocols-y))
 
-# ----------------------------
-# 기본 빌드 규칙 (gcc 컴파일)
-# ----------------------------
-# 1) 기본 타겟 정의
-all: $(obj-y)
+# 모듈 전용 빌드 타겟
+all-net: $(obj-netModule-y)
 	@echo "[netModule] Build complete."
 
-# 2) .c -> .o 규칙 (자동)
+# .c → .o 규칙
 %.o: %.c
-	$(CC) $(CFLAGS) -I. -c -o $@ $<
+	$(CC) $(CFLAGS) -I. -Icore -Iprotocols -c -o $@ $<
 
-# 3) 클린 규칙
-clean-obj:
-	rm -f $(obj-y)
+# clean
+clean-net:
+	rm -f $(obj-netModule-y)

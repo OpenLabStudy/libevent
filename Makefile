@@ -9,123 +9,100 @@ LDFLAGS 	?=
 LIBS_COMMON = -levent
 
 # ============================================================
+# === Include Paths
+# ============================================================
+INCLUDES = -I. -IuartModule -InetModule -InetModule/core -InetModule/protocols -Igtest
+CFLAGS  += $(INCLUDES)
+CXXFLAGS += $(INCLUDES)
+
+# ============================================================
 # === uartModule (Kbuild 스타일 포함)
 # ============================================================
 UART_MODULE_DIR := uartModule
 include $(UART_MODULE_DIR)/Makefile
-UART_OBJS := $(addprefix $(UART_MODULE_DIR)/, $(obj-y))
+UART_OBJS := $(addprefix $(UART_MODULE_DIR)/, $(obj-uartModule-y))
 
 # ============================================================
-# === netModule (Kbuild 스타일 포함) ★ NEW
+# === netModule (Kbuild 스타일 포함)
 # ============================================================
 NET_MODULE_DIR := netModule
 include $(NET_MODULE_DIR)/Makefile
-NET_OBJS := $(addprefix $(NET_MODULE_DIR)/, $(obj-y))
+NET_OBJS := $(addprefix $(NET_MODULE_DIR)/, $(obj-netModule-y))
 
 # ============================================================
-# === Files ===
+# === GoogleTest 설정
 # ============================================================
-HDRS       = frame.h icdCommand.h sockSession.h
-FRAME_OBJS = frame-io.o sockSession.o
+GTEST_DIR          = /home/pcw1029/googletest
+GTEST_INCLUDE_DIR  = $(GTEST_DIR)/googletest/include
+GTEST_LIB_DIR      = $(GTEST_DIR)/build/lib
+GTEST_CXXFLAGS     = -I$(GTEST_INCLUDE_DIR)
+GTEST_LDFLAGS      = -L$(GTEST_LIB_DIR) -lgtest -lgtest_main -pthread -Wl,-rpath,$(GTEST_LIB_DIR)
 
 # ============================================================
 # === Phony targets ===
 # ============================================================
-.PHONY: all clean gtest
+.PHONY: all clean all-uart all-net gtest clean-gtest
 
-# 기본 빌드: udsSvr, udsCln
-# ★ MOD: netModule 추가됨
-all: tcpSvr tcpCln udpSvr udpCln udsSvr udsCln multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+# 기본 빌드
+all: tcpSvr tcpCln udsSvr udsCln # udpSvr udpCln
 
 # ============================================================
 # === Regular apps (netModule 통합)
 # ============================================================
-udsSvr: udsSvr.o $(FRAME_OBJS) $(NET_OBJS)
-	$(CC) $(CFLAGS) -I$(NET_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+tcpSvr: tcpSvr.o $(NET_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON)
 
-udsCln: udsCln.o $(FRAME_OBJS) $(NET_OBJS)
-	$(CC) $(CFLAGS) -I$(NET_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+tcpCln: tcpCln.o $(NET_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON)
 
-udpSvr: udpSvr.o $(FRAME_OBJS) $(NET_OBJS)
-	$(CC) $(CFLAGS) -I$(NET_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+udpSvr: udpSvr.o $(NET_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON)
 
-udpCln: udpCln.o $(FRAME_OBJS) $(NET_OBJS)
-	$(CC) $(CFLAGS) -I$(NET_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+udpCln: udpCln.o $(NET_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON)
 
-tcpSvr: tcpSvr.o $(FRAME_OBJS) $(NET_OBJS)
-	$(CC) $(CFLAGS) -I$(NET_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+udsSvr: udsSvr.o $(NET_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON)
 
-tcpCln: tcpCln.o $(FRAME_OBJS) $(NET_OBJS)
-	$(CC) $(CFLAGS) -I$(NET_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
-
-udsSvr.o: udsSvr.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-udsCln.o: udsCln.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-udpSvr.o: udpSvr.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-udpCln.o: udpCln.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-tcpSvr.o: tcpSvr.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-tcpCln.o: tcpCln.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
+udsCln: udsCln.o $(NET_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON)
 
 # ============================================================
-# === Multicast apps (standalone)
+# === GoogleTest (개별 빌드: TCP / UDP / UDS)
 # ============================================================
-multicastSender: multicastSender.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+GTEST_SRCS = gtest/tcpSvrGtest.cc
+GTEST_OBJS = $(GTEST_SRCS:.cpp=.o)
 
-multicastSender.o: multicastSender.c
-	$(CC) $(CFLAGS) -c -o $@ $<	
+gtest: tcpSvrGtest udpSvrGtest udsSvrGtest
 
-multicastReceiver: multicastReceiver.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+tcpSvrGtest: gtest/tcpSvrGtest.o $(NET_OBJS)
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -o $@ $^ \
+		$(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
 
-multicastReceiver.o: multicastReceiver.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+udpSvrGtest: gtest/udpSvrGtest.o $(NET_OBJS)
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -o $@ $^ \
+		$(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
 
-mCastReceiver: mCastReceiver.o $(FRAME_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+udsSvrGtest: gtest/udsSvrGtest.o $(NET_OBJS)
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -o $@ $^ \
+		$(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
 
-mCastReceiver.o: mCastReceiver.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-# ============================================================
-# === Uart apps (uartModule 통합 적용)
-# ============================================================
-uartRx: uartRx.o $(UART_OBJS)
-	$(CC) $(CFLAGS) -I$(UART_MODULE_DIR) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
-
-uartRx.o: uartRx.c
-	$(CC) $(CFLAGS) -I$(UART_MODULE_DIR) -c -o $@ $<
-
-# ============================================================
-# === Common objects
-# ============================================================
-frame-io.o: frame-io.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-sockSession.o: sockSession.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-# ============================================================
-# === GoogleTest (생략: 기존 그대로 유지)
-# ============================================================
-# ...
+# 개별 오브젝트 빌드 규칙
+gtest/%.o: gtest/%.cpp
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -I$(NET_MODULE_DIR) -DGOOGLE_TEST -c -o $@ $<
 
 # ============================================================
 # === Clean ===
 # ============================================================
 clean:
-	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
-		udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest \
-		uartRx mutexQueueGtest
-	$(MAKE) -C $(UART_MODULE_DIR) clean-obj
-	$(MAKE) -C $(NET_MODULE_DIR) clean-obj
+	@echo "[CLEAN] Removing top-level targets..."
+	rm -f *.o udsSvr udsCln tcpSvr tcpCln udpSvr udpCln \
+	      tcpSvrGtest udpSvrGtest udsSvrGtest \
+	      multicastSender multicastReceiver mCastReceiver \
+	      uartTxTest uartRx mutexQueueGtest
+	@$(MAKE) -s -C $(UART_MODULE_DIR) clean-uart
+	@$(MAKE) -s -C $(NET_MODULE_DIR) clean-net
+
+clean-gtest:
+	@echo "[CLEAN] Removing GTest objects..."
+	rm -f gtest/*.o tcpSvrGtest udpSvrGtest udsSvrGtest

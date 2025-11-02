@@ -1,9 +1,17 @@
-# uartModule/Makefile
-# =======================
-# Kbuild-style 구조 (단순히 object 목록 정의)
+# ============================================================
+# === uartModule/Makefile
+# ============================================================
 
-obj-y += uartEvent.o uartManager.o
+obj-uartModule-y += uartEvent.o uartManager.o
 
-# 별도 clean 규칙 추가
-clean-obj:
-	rm -f $(obj-y)
+# 모듈 전용 빌드 타겟 (중복 방지)
+all-uart: $(obj-uartModule-y)
+	@echo "[uartModule] Build complete."
+
+# .c → .o 규칙
+%.o: %.c
+	$(CC) $(CFLAGS) -I. -c -o $@ $<
+
+# clean
+clean-uart:
+	rm -f $(obj-uartModule-y)

@@ -1,50 +1,58 @@
 #include "udp.h"
 #include "../core/frame.h"
 #include "../core/icdCommand.h"
+#include "../core/netUtil.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <unistd.h>
+
 
 static void udpRecvCb(evutil_socket_t fd, short ev, void* arg);
 static void udpStdinCb(evutil_socket_t fd, short ev, void* arg);
 
-void udpInit(UDP_CTX* C, struct event_base* base, unsigned char id, NET_MODE mode)
+void udpInit(UDP_CTX* pstUdpCtx, struct event_base* pstEventBase, unsigned char uchMyId, NET_MODE eMode)
 {
-    memset(C, 0, sizeof(*C));
-    sessionInitCore(&C->stCoreCtx, base, id);
-    C->eMode = mode;
+    memset(pstUdpCtx, 0, sizeof(*pstUdpCtx));
+    sessionInitCore(&pstUdpCtx->stCoreCtx, pstEventBase, uchMyId);
+    pstUdpCtx->eMode = eMode;
     signal(SIGPIPE, SIG_IGN);
 }
 
-int udpServerStart(UDP_CTX* C, unsigned short port)
+int udpServerStart(UDP_CTX* pstUdpCtx, unsigned short unPort)
 {
-    C->iSockFd = createUdpServer(port);
-    if (C->iSockFd < 0) return -1;
+    pstUdpCtx->stNetBase.iSockFd = createUdpServer(unPort);
+    if (pstUdpCtx->stNetBase.iSockFd < 0) {
+        return -1;
+    }
 
-    C->pstRecvEvent = event_new(C->stCoreCtx.pstEventBase, C->iSockFd, EV_READ|EV_PERSIST, udpRecvCb, C);
-    event_add(C->pstRecvEvent, NULL);
-    printf("[UDP SERVER] Listening on port %d\n", port);
+    pstUdpCtx->pstRecvEvent = event_new(pstUdpCtx->stCoreCtx.pstEventBase, pstUdpCtx->iSockFd, EV_READ|EV_PERSIST, udpRecvCb, pstUdpCtx);
+    event_add(pstUdpCtx->pstRecvEvent, NULL);
+    printf("[UDP SERVER] Listening on port %d\n", unPort);
     return 0;
 }
 
-int udpClientStart(UDP_CTX* C, const char* ip, unsigned short srvPort, unsigned short myPort)
+int udpClientStart(UDP_CTX* pstUdpCtx, const char* pchIpAddr, unsigned short unSvrPort, unsigned short unMyPort)
 {
-    C->iSockFd = createUdpClient(ip, srvPort, myPort);
-    if (C->iSockFd < 0) return -1;
+    pstUdpCtx->iSockFd = createUdpClient(pchIpAddr, unSvrPort, unMyPort);
+    if (pstUdpCtx->iSockFd < 0)
+        return -1;
 
-    C->pstRecvEvent = event_new(C->stCoreCtx.pstEventBase, C->iSockFd, EV_READ|EV_PERSIST, udpRecvCb, C);
-    event_add(C->pstRecvEvent, NULL);
-    udpStdinCb(0, 0, C);  // 초기화
+    pstUdpCtx->pstRecvEvent = event_new(pstUdpCtx->stCoreCtx.pstEventBase, \
+        pstUdpCtx->iSockFd, EV_READ|EV_PERSIST, udpRecvCb, pstUdpCtx);
+    event_add(pstUdpCtx->pstRecvEvent, NULL);
+    udpStdinCb(0, 0, pstUdpCtx);  // 초기화
 
-    C->pstStdinEvent = event_new(C->stCoreCtx.pstEventBase, fileno(stdin), EV_READ|EV_PERSIST, udpStdinCb, C);
-    event_add(C->pstStdinEvent, NULL);
+    pstUdpCtx->pstStdinEvent = event_new(pstUdpCtx->stCoreCtx.pstEventBase, \
+        fileno(stdin), EV_READ|EV_PERSIST, udpStdinCb, pstUdpCtx);
+    event_add(pstUdpCtx->pstStdinEvent, NULL);
     return 0;
 }
 
-static void udpRecvCb(evutil_socket_t fd, short ev, void* arg)
+static void udpRecvCb(evutil_socket_t fd, short nEvent, void* pvData)
 {
-    UDP_CTX* C = (UDP_CTX*)arg;
+    UDP_CTX* pstUdpCtx = (UDP_CTX*)pvData;
     char buf[1024];
     struct sockaddr_in src;
     socklen_t len = sizeof(src);
@@ -55,19 +63,27 @@ static void udpRecvCb(evutil_socket_t fd, short ev, void* arg)
     }
 }
 
-static void udpStdinCb(evutil_socket_t fd, short ev, void* arg)
+static void udpStdinCb(evutil_socket_t fd, short nEvent, void* pvData)
 {
-    (void)fd; (void)ev;
-    UDP_CTX* C = (UDP_CTX*)arg;
+    (void)fd; 
+    (void)nEvent;
+    UDP_CTX* pstUdpCtx = (UDP_CTX*)pvData;
     char line[256];
-    if (!fgets(line, sizeof(line), stdin)) return;
+    if (!fgets(line, sizeof(line), stdin))
+        return;
+
     line[strcspn(line, "\n")] = 0;
-    sendto(C->iSockFd, line, strlen(line), 0, (struct sockaddr*)&C->stSrvAddr, sizeof(C->stSrvAddr));
+    sendto(pstUdpCtx->iSockFd, line, strlen(line), 0, (struct sockaddr*)&pstUdpCtx->stSrvAddr, sizeof(pstUdpCtx->stSrvAddr));
 }
 
-void udpStop(UDP_CTX* C)
+void udpStop(UDP_CTX* pstUdpCtx)
 {
-    if (C->pstRecvEvent) event_free(C->pstRecvEvent);
-    if (C->pstStdinEvent) event_free(C->pstStdinEvent);
-    if (C->iSockFd >= 0) close(C->iSockFd);
+    if (pstUdpCtx->pstRecvEvent)
+        event_free(pstUdpCtx->pstRecvEvent);
+
+    if (pstUdpCtx->pstStdinEvent)
+        event_free(pstUdpCtx->pstStdinEvent);
+
+    if (pstUdpCtx->iSockFd >= 0)
+        close(pstUdpCtx->iSockFd);
 }
