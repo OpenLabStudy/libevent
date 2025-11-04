@@ -19,6 +19,7 @@ typedef struct {
     NET_MODE        eMode;
     int             iSockFd;
     unsigned char   uchMyId;
+    unsigned char   uchDstId;
 } NET_BASE;
 
 typedef struct {
@@ -32,13 +33,13 @@ typedef struct {
 } TCP_CLIENT_CTX;
 
 typedef struct {
-    NET_BASE        stNetBase;
-    struct event    *pstRecvEvent;
+    NET_BASE            stNetBase;
+    struct bufferevent  *pstBufferEvent;
 } UDP_CTX;
 
 typedef struct {
-    NET_BASE        stNetBase;
-    struct event    *pstClnConnectEvent;
+    NET_BASE            stNetBase;
+    struct event        *pstClnConnectEvent;
 } UDS_SERVER_CTX;
 
 typedef struct {

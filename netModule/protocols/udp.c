@@ -2,88 +2,159 @@
 #include "../core/frame.h"
 #include "../core/icdCommand.h"
 #include "../core/netUtil.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
 
-
-static void udpRecvCb(evutil_socket_t fd, short ev, void* arg);
-static void udpStdinCb(evutil_socket_t fd, short ev, void* arg);
-
-void udpInit(UDP_CTX* pstUdpCtx, struct event_base* pstEventBase, unsigned char uchMyId, NET_MODE eMode)
+/* ================================================================
+ * 공통 초기화 함수
+ * ================================================================ */
+void udpInit(UDP_CTX *pstUdpCtx, struct event_base *pstEventBase,
+             unsigned char uchMyId, NET_MODE eMode)
 {
-    memset(pstUdpCtx, 0, sizeof(*pstUdpCtx));
-    sessionInitCore(&pstUdpCtx->stCoreCtx, pstEventBase, uchMyId);
-    pstUdpCtx->eMode = eMode;
-    signal(SIGPIPE, SIG_IGN);
+    netBaseInit(&pstUdpCtx->stNetBase, pstEventBase, uchMyId, eMode);
+    pstUdpCtx->pstRecvEvent = NULL;
 }
 
-int udpServerStart(UDP_CTX* pstUdpCtx, unsigned short unPort)
+
+/* === Libevent callbacks === */
+void readCallback(struct bufferevent *pstBufferEvent, void *pvData)
+{
+    UDP_CTX *pstUdpCtx    = (UDP_CTX *)pvData;
+    struct evbuffer *pstEvBuffer = bufferevent_get_input(pstBufferEvent);
+    MSG_ID stMsgId;
+    stMsgId.uchSrcId = pstUdpCtx->stNetBase.uchMyId;
+    stMsgId.uchDstId = pstUdpCtx->stNetBase.uchDstId;
+    fprintf(stderr,"MY ID : %d, Dest ID : %d\n", 
+        pstUdpCtx->stNetBase.uchMyId, pstUdpCtx->stNetBase.uchDstId);
+    //TODO 접속한 클라이언트의 ID 저장이 필요
+    for (;;) {
+        int iRetVal = responseFrame(pstEvBuffer, 
+            pstUdpCtx->pstBufferEvent, &stMsgId, pstUdpCtx->stNetBase);
+        if(iRetVal == 1){
+            break;
+        }
+        if (iRetVal == 0) 
+            break;
+        if (iRetVal < 0) { 
+            closeAndFree(pvData);
+            return; 
+        }        
+    }
+}
+
+void eventCallback(struct bufferevent *pstBufferEvent, short nEvents, void *pvData) 
+{    
+    (void)pvData;
+    (void)pstBufferEvent;
+    if (nEvents & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
+        closeAndFree(pvData);
+    }
+}
+
+
+/* ================================================================
+ * UDP 서버 시작
+ * ================================================================ */
+int udpServerStart(UDP_CTX *pstUdpCtx, uint16_t unPort)
 {
     pstUdpCtx->stNetBase.iSockFd = createUdpServer(unPort);
     if (pstUdpCtx->stNetBase.iSockFd < 0) {
+        perror("[UDP SERVER] createUdpServer failed");
         return -1;
     }
+    
+    pstUdpCtx->pstBufferEvent = bufferevent_socket_new(
+        pstUdpCtx->stNetBase.stCoreCtx.pstEventBase, 
+        pstUdpCtx->stNetBase.iSockFd, 
+        BEV_OPT_CLOSE_ON_FREE);
+    if (!pstUdpCtx->pstBufferEvent) { 
+        fprintf(stderr, "bufferevent_socket_new failed\n");
+        return 1;
+    }
+    bufferevent_setcb(pstUdpCtx->pstBufferEvent, 
+        readCallback, 
+        NULL, 
+        eventCallback, 
+        pstUdpCtx);
+    bufferevent_enable(pstUdpCtx->pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(pstUdpCtx->pstBufferEvent, 
+        EV_READ, 
+        sizeof(FRAME_HEADER), 
+        READ_HIGH_WM);  
 
-    pstUdpCtx->pstRecvEvent = event_new(pstUdpCtx->stCoreCtx.pstEventBase, pstUdpCtx->iSockFd, EV_READ|EV_PERSIST, udpRecvCb, pstUdpCtx);
-    event_add(pstUdpCtx->pstRecvEvent, NULL);
     printf("[UDP SERVER] Listening on port %d\n", unPort);
     return 0;
 }
 
-int udpClientStart(UDP_CTX* pstUdpCtx, const char* pchIpAddr, unsigned short unSvrPort, unsigned short unMyPort)
+/* ================================================================
+ * UDP 서버 정리
+ * ================================================================ */
+void udpServerStop(UDP_CTX *pstUdpCtx)
 {
-    pstUdpCtx->iSockFd = createUdpClient(pchIpAddr, unSvrPort, unMyPort);
-    if (pstUdpCtx->iSockFd < 0)
+    if (pstUdpCtx->pstBufferEvent) {
+        event_free(pstUdpCtx->pstBufferEvent);
+        pstUdpCtx->pstBufferEvent = NULL;
+    }
+
+    if (pstUdpCtx->stNetBase.iSockFd >= 0) {
+        close(pstUdpCtx->stNetBase.iSockFd);
+        pstUdpCtx->stNetBase.iSockFd = -1;
+    }
+
+    printf("[UDP SERVER] Stopped.\n");
+}
+
+/* ================================================================
+ * UDP 클라이언트 시작
+ * ================================================================ */
+int udpClientStart(UDP_CTX *pstUdpCtx, uint16_t unBindPort)
+{
+    pstUdpCtx->stNetBase.iSockFd = createUdpClient(unBindPort);
+    if (pstUdpCtx->stNetBase.iSockFd < 0) {
+        perror("[UDP CLIENT] createUdpClient failed");
         return -1;
+    }
 
-    pstUdpCtx->pstRecvEvent = event_new(pstUdpCtx->stCoreCtx.pstEventBase, \
-        pstUdpCtx->iSockFd, EV_READ|EV_PERSIST, udpRecvCb, pstUdpCtx);
-    event_add(pstUdpCtx->pstRecvEvent, NULL);
-    udpStdinCb(0, 0, pstUdpCtx);  // 초기화
-
-    pstUdpCtx->pstStdinEvent = event_new(pstUdpCtx->stCoreCtx.pstEventBase, \
-        fileno(stdin), EV_READ|EV_PERSIST, udpStdinCb, pstUdpCtx);
-    event_add(pstUdpCtx->pstStdinEvent, NULL);
+    pstUdpCtx->pstBufferEvent = bufferevent_socket_new(
+        pstUdpCtx->stNetBase.stCoreCtx.pstEventBase, 
+        pstUdpCtx->stNetBase.iSockFd, 
+        BEV_OPT_CLOSE_ON_FREE);
+    if (!pstUdpCtx->pstBufferEvent) { 
+        fprintf(stderr, "bufferevent_socket_new failed\n");
+        return 1;
+    }
+    bufferevent_setcb(pstUdpCtx->pstBufferEvent, 
+        readCallback, 
+        NULL, 
+        eventCallback, 
+        pstUdpCtx);
+    bufferevent_enable(pstUdpCtx->pstBufferEvent, EV_READ|EV_WRITE);
+    bufferevent_setwatermark(pstUdpCtx->pstBufferEvent, 
+        EV_READ, 
+        sizeof(FRAME_HEADER), 
+        READ_HIGH_WM);  
+    printf("[UDP CLIENT] Started (bind port=%d)\n", unBindPort);
     return 0;
 }
 
-static void udpRecvCb(evutil_socket_t fd, short nEvent, void* pvData)
+/* ================================================================
+ * UDP 클라이언트 종료
+ * ================================================================ */
+void udpClientStop(UDP_CTX *pstUdpCtx)
 {
-    UDP_CTX* pstUdpCtx = (UDP_CTX*)pvData;
-    char buf[1024];
-    struct sockaddr_in src;
-    socklen_t len = sizeof(src);
-    ssize_t n = recvfrom(fd, buf, sizeof(buf)-1, 0, (struct sockaddr*)&src, &len);
-    if (n > 0) {
-        buf[n] = 0;
-        printf("[UDP RECV] %s\n", buf);
+    if (pstUdpCtx->pstBufferEvent) {
+        event_free(pstUdpCtx->pstBufferEvent);
+        pstUdpCtx->pstBufferEvent = NULL;
     }
-}
 
-static void udpStdinCb(evutil_socket_t fd, short nEvent, void* pvData)
-{
-    (void)fd; 
-    (void)nEvent;
-    UDP_CTX* pstUdpCtx = (UDP_CTX*)pvData;
-    char line[256];
-    if (!fgets(line, sizeof(line), stdin))
-        return;
+    if (pstUdpCtx->stNetBase.iSockFd >= 0) {
+        close(pstUdpCtx->stNetBase.iSockFd);
+        pstUdpCtx->stNetBase.iSockFd = -1;
+    }
 
-    line[strcspn(line, "\n")] = 0;
-    sendto(pstUdpCtx->iSockFd, line, strlen(line), 0, (struct sockaddr*)&pstUdpCtx->stSrvAddr, sizeof(pstUdpCtx->stSrvAddr));
-}
-
-void udpStop(UDP_CTX* pstUdpCtx)
-{
-    if (pstUdpCtx->pstRecvEvent)
-        event_free(pstUdpCtx->pstRecvEvent);
-
-    if (pstUdpCtx->pstStdinEvent)
-        event_free(pstUdpCtx->pstStdinEvent);
-
-    if (pstUdpCtx->iSockFd >= 0)
-        close(pstUdpCtx->iSockFd);
+    printf("[UDP CLIENT] Stopped.\n");
 }

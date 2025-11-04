@@ -34,7 +34,7 @@ static void tcpAcceptCb(struct evconnlistener* listener, evutil_socket_t fd,
     char client_ip[INET_ADDRSTRLEN];
     struct sockaddr_in* client_addr = (struct sockaddr_in*)addr;
     inet_ntop(AF_INET, &client_addr->sin_addr, client_ip, sizeof(client_ip));
-    int client_port = ntohs(client_addr->sin_port);
+    int iClientPort = ntohs(client_addr->sin_port);
     // ===============================
 
     SESSION_CTX* pstSession = calloc(1, sizeof(*pstSession));
@@ -51,7 +51,7 @@ static void tcpAcceptCb(struct evconnlistener* listener, evutil_socket_t fd,
     pstTcpCtx->stNetBase.stCoreCtx.iClientSock = fd;
 
     printf("[TCP SERVER] Client connected: fd=%d, ip=%s, port=%d (total=%d)\n",
-    fd, client_ip, client_port, pstTcpCtx->stNetBase.stCoreCtx.iClientCount);
+    fd, client_ip, iClientPort, pstTcpCtx->stNetBase.stCoreCtx.iClientCount);
 }
 
 /**
@@ -183,8 +183,6 @@ int tcpClientConnect(TCP_CLIENT_CTX* pstTcpCtx, const char* pchIp, unsigned shor
         pstTcpCtx->pstBufferEvent = NULL;
         return -1;
     }
-
-    printf("[TCP CLIENT] Connected to %s:%d\n", pchIp, unPort);
     return 0;
 }
 

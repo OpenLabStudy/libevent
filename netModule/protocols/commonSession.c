@@ -62,7 +62,8 @@ void sessionReadCallback(struct bufferevent* pstBufferEvent, void* pvData)
     id.uchDstId = pSessionCtx->uchDstId;
 
     for (;;) {
-        int r = responseFrame(pstEventBuffer, pstBufferEvent, &id, pSessionCtx->uchIsResponse);
+        int r = responseFrame(pstEventBuffer, pstBufferEvent, &id, 
+            pSessionCtx->uchIsResponse);
         if (r == 1) 
             break;     /* 더 읽을 게 없음 */
 

@@ -57,10 +57,14 @@ int writeFrame(struct bufferevent* pstBufferEvent, unsigned short unCmd,
 /* === 프레임 하나 파싱 & 응답 처리 ===
  * return: 1 consumed, 0 need more, -1 fatal
  */
-int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEvent, MSG_ID* pstMsgId, char chReply) {
+int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEvent, 
+    MSG_ID* pstMsgId, char chReply) 
+{
     FRAME_HEADER stFrameHeader;
     int iLength = evbuffer_get_length(pstEvBuffer);
-    fprintf(stderr,"### %s():%d Recv Data Length is %d[%ld]\n", __func__, __LINE__, iLength, sizeof(FRAME_HEADER)+sizeof(FRAME_TAIL)+sizeof(REQ_KEEP_ALIVE));
+    fprintf(stderr,"### %s():%d Recv Data Length is %d[%ld]\n", 
+        __func__, __LINE__, iLength, 
+        sizeof(FRAME_HEADER)+sizeof(FRAME_TAIL)+sizeof(REQ_KEEP_ALIVE));
     
     if (iLength < sizeof(FRAME_HEADER)){
         return 0;//FRAME_ERR_PACKET_TOO_SHORT
@@ -131,6 +135,7 @@ int responseFrame(struct evbuffer* pstEvBuffer, struct bufferevent  *pstBufferEv
             stResKeepAlive.chResult = 0x01;
             fprintf(stderr, "RES_KEEP_ALIVE : result=%d, len:%d\n", stResKeepAlive.chResult, iDataLength);
             if(chReply){
+                fprintf(stderr,"SEND Keep alive response\n");
                 writeFrame(pstBufferEvent, CMD_KEEP_ALIVE, pstMsgId, 0, &stResKeepAlive, sizeof(RES_KEEP_ALIVE));
             }
             break;
