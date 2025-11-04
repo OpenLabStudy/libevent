@@ -28,7 +28,8 @@ static void schedule_reopen(UART_CTX* pstUartCtx);
 /* --------- UART 설정 유틸 --------- */
 static int make_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) return -1;
+    if (flags < 0) 
+        return -1;
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
@@ -92,7 +93,8 @@ static void bev_read_cb(struct bufferevent *bev, void *ctx) {
     for (;;) {
         size_t n_read = 0;
         char* line = evbuffer_readln(in, &n_read, EVBUFFER_EOL_LF);
-        if (!line) break;
+        if (!line) 
+            break;
         printf("Received: %s\n", line);
         fflush(stdout);
         free(line);
@@ -172,7 +174,8 @@ static void reopen_cb(evutil_socket_t fd, short ev, void* pvData) {
         attach_new_bev(pstUartCtx);
         pstUartCtx->iBackoffMsec = 200; // 성공 → 백오프 리셋
     } else {
-        if (pstUartCtx->iBackoffMsec < 2000) pstUartCtx->iBackoffMsec *= 2;
+        if (pstUartCtx->iBackoffMsec < 2000) 
+            pstUartCtx->iBackoffMsec *= 2;
         struct timeval tv = { pstUartCtx->iBackoffMsec / 1000, (pstUartCtx->iBackoffMsec % 1000) * 1000 };
         fprintf(stderr, "[INFO] reopen failed (%s). retry in %d ms\n",
                 strerror(errno), pstUartCtx->iBackoffMsec);
@@ -200,7 +203,8 @@ static void schedule_reopen(UART_CTX* pstUartCtx)
 /* --------- 자원 정리 --------- */
 static void cleanup(UART_CTX* pstUartCtx)
 {
-    if (!pstUartCtx) return;
+    if (!pstUartCtx) 
+        return;
 
     if (pstUartCtx->pstBev) {
         bufferevent_free(pstUartCtx->pstBev); // FD도 함께 닫힘
