@@ -77,7 +77,7 @@ mCastReceiver.o: mCastReceiver.c $(HDRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # === Uart apps (standalone) ===
-uartRx: uartRx.o
+uartRx: uartRx.o r632Gps.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
 uartRx.o: uartRx.c
@@ -107,7 +107,7 @@ GTEST_LIB_DIR      	= $(GTEST_DIR)/build/lib
 GTEST_CXXFLAGS 		= -I$(GTEST_INCLUDE_DIR)
 GTEST_LDFLAGS 		= -L$(GTEST_LIB_DIR) -lgtest -lgtest_main -pthread -Wl,-rpath,$(GTEST_LIB_DIR)
 
-gtest: mutexQueueGtest #udsSvrGtest tcpSvrGtest mutexQueueGtest
+gtest: gpsUartRxGtest #mutexQueueGtest udsSvrGtest tcpSvrGtest mutexQueueGtest
 # === GoogleTest target (NO -DUDS_SVR_STANDALONE) ===
 
 # 테스트 소스는 udsSvrGtest.cpp로 가정
@@ -144,6 +144,16 @@ mutexQueueGtest: gtest/mutexQueueGtest.o mutexQueue.o
 mutexQueueGtest.o: ./gtest/mutexQueueGtest.cc mutexQueue.h
 	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
 
+# === GPS Uart common object ===
+r632Gps.o: r632Gps.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# === MutexQueue GoogleTest ===
+gpsUartRxGtest: gtest/gpsUartRxGtest.o r632Gps.o
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(GTEST_LDFLAGS) $(LDFLAGS)
+
+gpsUartRxGtest.o: ./gtest/gpsUartRxGtest.cc r632Gps.c
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
 
 
 	
