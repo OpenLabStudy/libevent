@@ -1,446 +1,406 @@
 /**
- * @file uart_event_reopen.c
- * @brief libevent 기반 UART 자동 재연결 + Hemisphere R632 GNSS 이진 프레임 파서
+ * @file uartRx.c
+ * @brief libevent 기반 UART 자동 재연결 + Hemisphere R632 GNSS ($BIN) 파서
  *
- * 본 프로그램은 UART 포트를 비동기(non-blocking)로 읽으며,
- * Hemisphere R632 GNSS 수신기로부터 들어오는 $BIN 이진 데이터를 파싱한다.
- * 장치가 끊기면 자동으로 재연결을 수행하며, CRC 검증 및 GPS 시간 변환까지 포함한다.
+ * 기능 요약:
+ * - UART를 비동기로 읽어 GPS Binary 프레임을 수신
+ * - evbuffer로 수신한 데이터에서 GNSS Frame 파싱 (R632Feed)
+ * - UART 연결이 끊어지면 자동 재연결 (exponential backoff)
+ * - SIGINT 시 안전 종료
  *
- * 빌드:
- * @code
- * gcc -O2 -Wall -Wextra -o uart_event_reopen uart_event_reopen.c -levent -lm
- * @endcode
+ * 빌드예:
+ * gcc -O2 -Wall -Wextra -o uartRx uartRx.c -levent -lm
+ *
+ * @author 
  */
 
- #define _GNU_SOURCE
+#define _GNU_SOURCE
 
- /* ===================== System / C headers ===================== */
- #include <stdio.h>
- #include <stdlib.h>
- #include <string.h>
- #include <errno.h>
- #include <fcntl.h>
- #include <signal.h>
- #include <unistd.h>
- #include <termios.h>
- #include <math.h>
- #include <time.h>
- #include <stdint.h>
- 
- /* ===================== libevent headers ===================== */
- #include <event2/event.h>
- #include <event2/buffer.h>
- #include <event2/bufferevent.h>
- 
+/* ========================================================================== */
+/* System includes                                                           */
+/* ========================================================================== */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
+#include <termios.h>
+#include <stdint.h>
 
-  #include "r632Gps.h"
- 
- 
+/* ========================================================================== */
+/* Libevent includes                                                          */
+/* ========================================================================== */
+#include <event2/event.h>
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
 
-/* ================================================================
- * 3) UART 및 libevent 컨텍스트/유틸
- * ================================================================ */
+/* ========================================================================== */
+/* Project includes                                                           */
+/* ========================================================================== */
+#include "r632Gps.h"
+
+
+/* ========================================================================== */
+/* UART + Event Context Structure                                             */
+/* ========================================================================== */
 
 /**
  * @struct SUartCtx
- * @brief UART 장치 및 이벤트 기반 입출력 컨텍스트
+ * @brief UART 디바이스 및 libevent 실행 컨텍스트
  */
-typedef struct
+typedef struct SUartCtx
 {
-    const char*             m_pchDevPath;        /**< 장치 경로 (/dev/ttyUSB0 등) */
-    int                     m_iFd;               /**< UART 파일 디스크립터 */
-    struct event_base*      m_pstEventBase;      /**< libevent 이벤트 루프 */
-    struct event*           m_pstEventSigint;    /**< SIGINT 핸들러 이벤트 */
-    struct event*           m_pstEventReopen;    /**< 재연결 타이머 이벤트 */
-    struct bufferevent*     m_pstBev;            /**< UART 버퍼 이벤트 */
-    int                     m_iBackoffMsec;      /**< 재시도 간격 (백오프, ms) */
-    SGpsDataInfo            m_stGpsDataInfo;     /**< GNSS 파서 상태 */
+    const char*             pchDevPath;          /**< /dev/ttyUSB? */
+    int                     iFd;                 /**< UART File descriptor */
+
+    struct event_base*      pstEventBase;        /**< Event loop */
+    struct bufferevent*     pstBev;              /**< UART bufferevent */
+
+    struct event*           pstEventSigInt;      /**< SIGINT event */
+    struct event*           pstEventReconnect;   /**< Reopen retry timer */
+
+    int                     iBackoffMsec;        /**< Retry interval (exp backoff) */
+
+    SGpsDataInfo            stGpsInfo;           /**< GPS 파서 상태 */
 } SUartCtx;
 
+
+/* ========================================================================== */
+/* Static Forward Declarations (Hungarian Prefix 적용)                        */
+/* ========================================================================== */
+static int  openUartDevice(SUartCtx* pstCtx);
+static int  setUartConfigRaw115200(int iFd);
+static int  setNonBlocking(int iFd);
+
+static void uartReadCallback(struct bufferevent* pstBev, void* pvCtx);
+static void uartEventCallback(struct bufferevent* pstBev, short shEvents, void* pvCtx);
+static void sigintCallback(evutil_socket_t iSig, short shEvent, void* pvCtx);
+static void reconnectTimerCallback(evutil_socket_t iFd, short shEvent, void* pvCtx);
+
+static void cleanupContext(SUartCtx* pstCtx);
+
+
+/* ========================================================================== */
+/* UART Configuration                                                         */
+/* ========================================================================== */
+
+
 /**
- * @brief 파일 디스크립터를 논블록 모드로 설정
+ * @brief UART를 Non-blocking 모드로 전환한다
  *
- * @param iFd  대상 FD
- * @return     0: 성공, -1: 실패
+ * @param iFd  UART file descriptor
+ * @return 0 성공 / -1 실패
  */
-static int MakeNonBlocking(int iFd)
+static int setNonBlocking(int iFd)
 {
     int iFlags = fcntl(iFd, F_GETFL, 0);
-    if (iFlags < 0) {
-        return -1;
-    }
+    if (iFlags < 0) return -1;
 
-    if (fcntl(iFd, F_SETFL, iFlags | O_NONBLOCK) < 0) {
-        return -1;
-    }
-
-    return 0;
+    return (fcntl(iFd, F_SETFL, iFlags | O_NONBLOCK) < 0) ? -1 : 0;
 }
 
+
 /**
- * @brief UART를 115200 8N1 Raw 모드로 설정
+ * @brief UART를 115200 8N1 RAW 모드로 설정한다
  *
- * @param iFd  UART FD
- * @return     0: 성공, -1: 실패
+ * @param iFd UART FD
+ * @return 0 성공 / -1 실패
  */
-static int SetSerial115200_8N1_Raw(int iFd)
+static int setUartConfigRaw115200(int iFd)
 {
-    struct termios stTermios;
+    struct termios stAttr;
 
-    if (tcgetattr(iFd, &stTermios) < 0) {
-        perror("tcgetattr");
+    if (tcgetattr(iFd, &stAttr) < 0)
         return -1;
-    }
 
-    cfmakeraw(&stTermios);
-    cfsetispeed(&stTermios, B115200);
-    cfsetospeed(&stTermios, B115200);
+    cfmakeraw(&stAttr);
+    cfsetispeed(&stAttr, B115200);
+    cfsetospeed(&stAttr, B115200);
+    stAttr.c_cc[VMIN]  = 1;
+    stAttr.c_cc[VTIME] = 0;
 
-    stTermios.c_cflag |= (CLOCAL | CREAD);
-    stTermios.c_cflag &= ~HUPCL;
-    stTermios.c_cflag &= ~PARENB;
-    stTermios.c_cflag &= ~CSTOPB;
-    stTermios.c_cflag &= ~CSIZE;
-    stTermios.c_cflag |= CS8;
-
-    /* 0-바이트 read 회피: VMIN=1 */
-    stTermios.c_cc[VMIN]  = 1;
-    stTermios.c_cc[VTIME] = 0;
-
-    if (tcsetattr(iFd, TCSANOW, &stTermios) < 0) {
-        perror("tcsetattr");
-        return -1;
-    }
-
-    tcflush(iFd, TCIFLUSH);
-    return 0;
+    return (tcsetattr(iFd, TCSANOW, &stAttr) == 0) ? 0 : -1;
 }
 
-/**
- * @brief UART 장치 열기
- *
- * @param p_pstUartCtx  컨텍스트 (경로 입력)
- * @return              0: 성공, -1: 실패
- */
-static int OpenTty(SUartCtx* p_pstUartCtx)
-{
-    int iFd = open(p_pstUartCtx->m_pchDevPath, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (iFd < 0) {
-        return -1;
-    }
 
-    if (SetSerial115200_8N1_Raw(iFd) < 0 || MakeNonBlocking(iFd) < 0) {
+/**
+ * @brief UART 장치를 오픈하고 설정까지 수행한다
+ *
+ * @param pstCtx 실행 컨텍스트
+ * @return 0 성공 / -1 실패
+ */
+static int openUartDevice(SUartCtx* pstCtx)
+{
+    int iFd = open(pstCtx->pchDevPath, O_RDWR | O_NOCTTY | O_NONBLOCK);
+
+    if (iFd < 0)
+        return -1;
+
+    if (setUartConfigRaw115200(iFd) < 0 ||
+        setNonBlocking(iFd) < 0)
+    {
         close(iFd);
         return -1;
     }
 
-    p_pstUartCtx->m_iFd = iFd;
+    pstCtx->iFd = iFd;
     return 0;
 }
-
-/* ================================================================
- * 4) libevent Callbacks (read/event/signal/reopen)
- * ================================================================ */
-
-/**
- * @brief 재연결 스케줄링 (타이머 추가)
- *
- * @param p_pstUartCtx  컨텍스트
- */
-static void ScheduleReopen(SUartCtx* p_pstUartCtx)
-{
-    if (p_pstUartCtx->m_pstBev != NULL) {
-        bufferevent_free(p_pstUartCtx->m_pstBev);
-        p_pstUartCtx->m_pstBev = NULL;
-    }
-
-    if (p_pstUartCtx->m_iFd >= 0) {
-        close(p_pstUartCtx->m_iFd);
-        p_pstUartCtx->m_iFd = -1;
-    }
-
-    struct timeval stTv;
-    stTv.tv_sec  = p_pstUartCtx->m_iBackoffMsec / 1000;
-    stTv.tv_usec = (p_pstUartCtx->m_iBackoffMsec % 1000) * 1000;
-
-    evtimer_add(p_pstUartCtx->m_pstEventReopen, &stTv);
-}
+ 
+ /* ========================================================================== */
+/* UART Read / Event Callbacks                                                */
+/* ========================================================================== */
 
 /**
- * @brief 새 FD로 bufferevent를 붙이고 읽기 활성화
+ * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
  *
- * @param p_pstUartCtx  컨텍스트
+ * - bufferevent 입력 버퍼(evbuffer)에서 데이터를 가져온다.
+ * - GPS 파서(R632Feed)에 데이터를 전달하여 유효 프레임 검사.
+ * - 파싱 성공 시 시간/좌표 출력.
+ *
+ * @param pstBev    bufferevent 객체
+ * @param pvCtx     사용자 정의 컨텍스트 (SUartCtx*)
  */
-static void AttachNewBev(SUartCtx* p_pstUartCtx)
+static void uartReadCallback(struct bufferevent* pstBev, void* pvCtx)
 {
-    if (p_pstUartCtx->m_pstBev != NULL) {
-        bufferevent_free(p_pstUartCtx->m_pstBev);
-        p_pstUartCtx->m_pstBev = NULL;
-    }
+    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
+    struct evbuffer* pstInput = bufferevent_get_input(pstBev);
 
-    p_pstUartCtx->m_pstBev = bufferevent_socket_new(
-        p_pstUartCtx->m_pstEventBase,
-        p_pstUartCtx->m_iFd,
-        BEV_OPT_CLOSE_ON_FREE | BEV_OPT_DEFER_CALLBACKS
-    );
-
-    if (p_pstUartCtx->m_pstBev == NULL) {
-        fprintf(stderr, "bufferevent_socket_new failed\n");
-        close(p_pstUartCtx->m_iFd);
-        p_pstUartCtx->m_iFd = -1;
-        return;
-    }
-
-    /* 아래 콜백 선언부는 뒤쪽에 있음 */
-    extern void BevReadCb(struct bufferevent*, void*);
-    extern void BevEventCb(struct bufferevent*, short, void*);
-
-    bufferevent_setcb(p_pstUartCtx->m_pstBev, BevReadCb, NULL, BevEventCb, p_pstUartCtx);
-    bufferevent_enable(p_pstUartCtx->m_pstBev, EV_READ);
-}
-
-/**
- * @brief UART 데이터 수신 콜백
- *
- * libevent가 readable 이벤트를 감지하면 호출된다.
- * 내부 evbuffer에서 데이터를 꺼내 파서(R632Feed)에 전달한다.
- *
- * @param p_pstBev  bufferevent
- * @param p_pvCtx   SUartCtx*
- */
-void BevReadCb(struct bufferevent* p_pstBev, void* p_pvCtx)
-{
-    SUartCtx*       p_pstUartCtx = (SUartCtx*)p_pvCtx;
-    struct evbuffer* pstIn       = bufferevent_get_input(p_pstBev);
-    SGpsDataInfo*    p_pstInfo   = &p_pstUartCtx->m_stGpsDataInfo;
-
-    while (1) {
-        size_t stLen = evbuffer_get_length(pstIn);
-        if (stLen == 0) {
+    while (1)
+    {
+        size_t tLen = evbuffer_get_length(pstInput);
+        if (tLen == 0)
             break;
-        }
 
-        unsigned char* p_pchBuf = evbuffer_pullup(pstIn, stLen);
-        if (p_pchBuf == NULL) {
+        unsigned char* puchBuf = evbuffer_pullup(pstInput, tLen);
+        if (!puchBuf)
             break;
+
+        if (R632Feed(puchBuf, (int)tLen, &pstCtx->stGpsInfo))
+        {
+            printf("\n===== R632 GNSS FRAME RECEIVED =====\n");
+            printf("Time  : %s\n", pstCtx->stGpsInfo.m_szTime);
+            printf("Lat   : %.8lf\n", pstCtx->stGpsInfo.m_stMsg3.m_dLatitude);
+            printf("Lon   : %.8lf\n", pstCtx->stGpsInfo.m_stMsg3.m_dLongitude);
+            printf("Alt   : %.3f m\n", pstCtx->stGpsInfo.m_stMsg3.m_fHeight);
+            printf("Sat   : %u\n", pstCtx->stGpsInfo.m_stMsg3.m_wNumSatsUsed);
         }
 
-        if (R632Feed(p_pchBuf, (int)stLen, p_pstInfo)) {
-            printf("\nR632 Frame OK:\n");
-            printf("  Time : %s\n", p_pstInfo->m_szTime);
-            printf("  Lat  : %.8f\n", p_pstInfo->m_stMsg3.m_dLatitude);
-            printf("  Lon  : %.8f\n", p_pstInfo->m_stMsg3.m_dLongitude);
-            printf("  Hgt  : %.3f\n",  p_pstInfo->m_stMsg3.m_fHeight);
-            fflush(stdout);
-        }
-
-        evbuffer_drain(pstIn, stLen);
+        evbuffer_drain(pstInput, tLen);
     }
 }
 
+
 /**
- * @brief bufferevent 이벤트 콜백 (에러/EOF 감지 등)
+ * @brief UART bufferevent 상태 이벤트 콜백
  *
- * @param p_pstBev  bufferevent
- * @param shEvents  이벤트 플래그
- * @param p_pvCtx   SUartCtx*
+ * 역할:
+ * - UART 장치 제거/끊김 감지
+ * - 자동 재연결 스케줄링
+ *
+ * @param pstBev     bufferevent 객체
+ * @param shEvents   libevent 이벤트 플래그
+ * @param pvCtx      사용자 컨텍스트
  */
-void BevEventCb(struct bufferevent* p_pstBev, short shEvents, void* p_pvCtx)
+static void uartEventCallback(struct bufferevent* pstBev, short shEvents, void* pvCtx)
 {
-    (void)p_pstBev;
-    SUartCtx* p_pstUartCtx = (SUartCtx*)p_pvCtx;
+    (void)pstBev;
+    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
 
-    if (shEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[WARN] bufferevent error: %s\n", strerror(errno));
-    }
+    if (shEvents & BEV_EVENT_ERROR)
+        fprintf(stderr, "[WARN] UART error detected: %s\n", strerror(errno));
 
-    if (shEvents & BEV_EVENT_EOF) {
-        fprintf(stderr, "[INFO] EOF detected. scheduling reopen...\n");
-    }
+    if (shEvents & BEV_EVENT_EOF)
+        fprintf(stderr, "[INFO] UART disconnected.\n");
 
-    if (shEvents & (BEV_EVENT_ERROR | BEV_EVENT_EOF)) {
-        ScheduleReopen(p_pstUartCtx);
+    if (shEvents & (BEV_EVENT_ERROR | BEV_EVENT_EOF))
+    {
+        struct timeval stDelay =
+        {
+            .tv_sec  = pstCtx->iBackoffMsec / 1000,
+            .tv_usec = (pstCtx->iBackoffMsec % 1000) * 1000
+        };
+
+        if (pstCtx->iBackoffMsec < 2000)
+            pstCtx->iBackoffMsec *= 2;
+
+        evtimer_add(pstCtx->pstEventReconnect, &stDelay);
+        bufferevent_free(pstCtx->pstBev);
+        pstCtx->pstBev = NULL;
+
+        if (pstCtx->iFd >= 0)
+        {
+            close(pstCtx->iFd);
+            pstCtx->iFd = -1;
+        }
     }
 }
 
+
 /**
- * @brief SIGINT 신호 콜백
+ * @brief SIGINT (Ctrl+C) 처리 함수
  *
- * Ctrl+C 입력 시 이벤트 루프를 종료한다.
- *
- * @param iSig     시그널 번호
- * @param shEvent  이벤트 플래그
- * @param p_pvCtx  SUartCtx*
+ * 이벤트 루프 종료를 호출한다.
  */
-static void SigintCb(evutil_socket_t iSig, short shEvent, void* p_pvCtx)
+static void sigintCallback(evutil_socket_t iSig, short shEvent, void* pvCtx)
 {
     (void)iSig;
     (void)shEvent;
 
-    SUartCtx* p_pstUartCtx = (SUartCtx*)p_pvCtx;
-    fprintf(stderr, "\n[INFO] SIGINT caught. exiting...\n");
-    event_base_loopexit(p_pstUartCtx->m_pstEventBase, NULL);
+    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
+    fprintf(stderr, "\n[INFO] SIGINT received. Stopping event loop...\n");
+    event_base_loopexit(pstCtx->pstEventBase, NULL);
 }
 
+
 /**
- * @brief 재연결 타이머 콜백
+ * @brief 재연결 이벤트 타이머 콜백
  *
- * 장치 열기 재시도 → 성공 시 bev 붙이고, 실패 시 백오프 증가 후 재타이머 설정
+ * UART 장치가 끊어졌을 경우 일정 시간 후 자동 재연결을 수행한다.
  *
- * @param iFd      (unused)
- * @param shEvent  (unused)
- * @param p_pvCtx  SUartCtx*
+ * @param iFd      unused
+ * @param shEvent  unused
+ * @param pvCtx    SUartCtx*
  */
-static void ReopenCb(evutil_socket_t iFd, short shEvent, void* p_pvCtx)
+static void reconnectTimerCallback(evutil_socket_t iFd, short shEvent, void* pvCtx)
 {
     (void)iFd;
     (void)shEvent;
 
-    SUartCtx* p_pstUartCtx = (SUartCtx*)p_pvCtx;
+    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
 
-    if (p_pstUartCtx->m_iFd >= 0 && p_pstUartCtx->m_pstBev != NULL) {
-        /* 이미 열려 있으면 읽기만 보장 */
-        bufferevent_enable(p_pstUartCtx->m_pstBev, EV_READ);
-        p_pstUartCtx->m_iBackoffMsec = 200;
-        return;
+    printf("[INFO] Attempting UART reopen: %s ...\n", pstCtx->pchDevPath);
+
+    if (openUartDevice(pstCtx) == 0)
+    {
+        printf("[OK] UART reconnected.\n");
+        pstCtx->iBackoffMsec = 200;
+
+        pstCtx->pstBev = bufferevent_socket_new(
+            pstCtx->pstEventBase,
+            pstCtx->iFd,
+            BEV_OPT_CLOSE_ON_FREE);
+
+        bufferevent_setcb(pstCtx->pstBev, uartReadCallback, NULL, uartEventCallback, pstCtx);
+        bufferevent_enable(pstCtx->pstBev, EV_READ);
     }
+    else
+    {
+        fprintf(stderr, "[FAIL] Retry in %d ms...\n", pstCtx->iBackoffMsec);
 
-    if (OpenTty(p_pstUartCtx) == 0) {
-        fprintf(stderr, "[INFO] Reopened %s. resuming read.\n", \
-            p_pstUartCtx->m_pchDevPath);
-        AttachNewBev(p_pstUartCtx);
-        p_pstUartCtx->m_iBackoffMsec = 200;
-    } else {
-        if (p_pstUartCtx->m_iBackoffMsec < 2000)
+        struct timeval stDelay =
         {
-            p_pstUartCtx->m_iBackoffMsec *= 2;
-        }
+            .tv_sec  = pstCtx->iBackoffMsec / 1000,
+            .tv_usec = (pstCtx->iBackoffMsec % 1000) * 1000
+        };
 
-        struct timeval stTv;
-        stTv.tv_sec  = p_pstUartCtx->m_iBackoffMsec / 1000;
-        stTv.tv_usec = (p_pstUartCtx->m_iBackoffMsec % 1000) * 1000;
+        if (pstCtx->iBackoffMsec < 2000)
+            pstCtx->iBackoffMsec *= 2;
 
-        fprintf(stderr, "[INFO] reopen failed (%s). retry in %d ms\n",
-                strerror(errno), p_pstUartCtx->m_iBackoffMsec);
-
-        evtimer_add(p_pstUartCtx->m_pstEventReopen, &stTv);
+        evtimer_add(pstCtx->pstEventReconnect, &stDelay);
     }
 }
 
-/* ================================================================
- * 5) 정리(Cleanup) & main()
- * ================================================================ */
+
+/* ========================================================================== */
+/* Cleanup                                                                    */
+/* ========================================================================== */
 
 /**
- * @brief 리소스 정리
- *
- * @param p_pstUartCtx  컨텍스트
+ * @brief UART Context에 연관된 모든 리소스를 정리한다
  */
-static void Cleanup(SUartCtx* p_pstUartCtx)
+static void cleanupContext(SUartCtx* pstCtx)
 {
-    if (p_pstUartCtx == NULL) {
-        return;
-    }
+    if (!pstCtx) return;
 
-    if (p_pstUartCtx->m_pstBev != NULL) {
-        bufferevent_free(p_pstUartCtx->m_pstBev);
-        p_pstUartCtx->m_pstBev = NULL;
-    }
+    if (pstCtx->pstBev)
+        bufferevent_free(pstCtx->pstBev);
 
-    if (p_pstUartCtx->m_pstEventSigint != NULL) {
-        event_free(p_pstUartCtx->m_pstEventSigint);
-        p_pstUartCtx->m_pstEventSigint = NULL;
-    }
+    if (pstCtx->pstEventSigInt)
+        event_free(pstCtx->pstEventSigInt);
 
-    if (p_pstUartCtx->m_pstEventReopen != NULL) {
-        event_free(p_pstUartCtx->m_pstEventReopen);
-        p_pstUartCtx->m_pstEventReopen = NULL;
-    }
+    if (pstCtx->pstEventReconnect)
+        event_free(pstCtx->pstEventReconnect);
 
-    if (p_pstUartCtx->m_iFd >= 0) {
-        close(p_pstUartCtx->m_iFd);
-        p_pstUartCtx->m_iFd = -1;
-    }
+    if (pstCtx->iFd >= 0)
+        close(pstCtx->iFd);
 
-    if (p_pstUartCtx->m_pstEventBase != NULL) {
-        event_base_free(p_pstUartCtx->m_pstEventBase);
-        p_pstUartCtx->m_pstEventBase = NULL;
-    }
+    if (pstCtx->pstEventBase)
+        event_base_free(pstCtx->pstEventBase);
 }
 
+
+/* ========================================================================== */
+/* Main Entry                                                                 */
+/* ========================================================================== */
+
 /**
- * @brief 프로그램 진입점
+ * @brief 프로그램 실행 진입점
  *
- * 사용법:
+ * 사용 예:
  * @code
- *   ./uart_event_reopen /dev/ttyUSB0
- *   ./uart_event_reopen /dev/pts/3
+ *   ./uartRx /dev/ttyUSB0
  * @endcode
  */
-int main(int iArgc, char* pp_szArgv[])
+int main(int iArgc, char* ppszArgv[])
 {
-    if (iArgc < 2) {
-        fprintf(stderr, "Usage: %s /dev/ttyUSB0\n", pp_szArgv[0]);
-        return 1;
+    if (iArgc < 2)
+    {
+        fprintf(stderr, "Usage: %s /dev/ttyUSB0\n", ppszArgv[0]);
+        return EXIT_FAILURE;
     }
 
-    SUartCtx stUartCtx;
-    memset(&stUartCtx, 0, sizeof(stUartCtx));
+    SUartCtx stCtx = {0};
+    stCtx.pchDevPath   = ppszArgv[1];
+    stCtx.iBackoffMsec = 200;
+    stCtx.iFd          = -1;
 
-    stUartCtx.m_pchDevPath   = pp_szArgv[1];
-    stUartCtx.m_iFd          = -1;
-    stUartCtx.m_iBackoffMsec = 200;
-
-    stUartCtx.m_pstEventBase = event_base_new();
-    if (stUartCtx.m_pstEventBase == NULL) {
-        fprintf(stderr, "event_base_new failed\n");
-        return 1;
+    stCtx.pstEventBase = event_base_new();
+    if (!stCtx.pstEventBase)
+    {
+        fprintf(stderr, "ERROR: event_base_new failed.\n");
+        return EXIT_FAILURE;
     }
 
-    /* 최초 오픈 시도 */
-    if (OpenTty(&stUartCtx) == 0) {
-        fprintf(stderr, "[INFO] Listening on %s at 115200 8N1 (raw). Press Ctrl+C to exit.\n",
-                stUartCtx.m_pchDevPath);
+    /* 초기 장치열기 */
+    if (openUartDevice(&stCtx) == 0)
+    {
+        printf("[INFO] UART Connected (%s)\n", stCtx.pchDevPath);
 
-        AttachNewBev(&stUartCtx);
-        if (stUartCtx.m_pstBev == NULL) {
-            Cleanup(&stUartCtx);
-            return 1;
-        }
-    } else {
-        fprintf(stderr, "[WARN] initial open failed (%s). will retry...\n", strerror(errno));
+        stCtx.pstBev = bufferevent_socket_new(
+            stCtx.pstEventBase,
+            stCtx.iFd,
+            BEV_OPT_CLOSE_ON_FREE);
+
+        bufferevent_setcb(stCtx.pstBev, uartReadCallback, NULL, uartEventCallback, &stCtx);
+        bufferevent_enable(stCtx.pstBev, EV_READ);
+    }
+    else
+    {
+        fprintf(stderr, "[WARN] UART open failed, waiting reconnect...\n");
     }
 
-    /* 재연결 타이머 이벤트 생성 */
-    stUartCtx.m_pstEventReopen = evtimer_new(stUartCtx.m_pstEventBase, ReopenCb, &stUartCtx);
-    if (stUartCtx.m_pstEventReopen == NULL) {
-        fprintf(stderr, "failed to create reopen timer\n");
-        Cleanup(&stUartCtx);
-        return 1;
+    /* 재연결 타이머 */
+    stCtx.pstEventReconnect = evtimer_new(stCtx.pstEventBase, reconnectTimerCallback, &stCtx);
+
+    if (stCtx.iFd < 0)
+    {
+        struct timeval stDelay = { .tv_sec = 0, .tv_usec = 200 * 1000 };
+        evtimer_add(stCtx.pstEventReconnect, &stDelay);
     }
 
-    if (stUartCtx.m_iFd < 0) {
-        struct timeval stTv;
-        stTv.tv_sec  = stUartCtx.m_iBackoffMsec / 1000;
-        stTv.tv_usec = (stUartCtx.m_iBackoffMsec % 1000) * 1000;
-        evtimer_add(stUartCtx.m_pstEventReopen, &stTv);
-    }
+    /* SIGINT 처리 이벤트 등록 */
+    stCtx.pstEventSigInt = evsignal_new(stCtx.pstEventBase, SIGINT, sigintCallback, &stCtx);
+    event_add(stCtx.pstEventSigInt, NULL);
 
-    /* SIGINT 핸들러 */
-    stUartCtx.m_pstEventSigint = evsignal_new(stUartCtx.m_pstEventBase, SIGINT, SigintCb, &stUartCtx);
-    if (stUartCtx.m_pstEventSigint == NULL || \
-        event_add(stUartCtx.m_pstEventSigint, NULL) < 0) {
-        fprintf(stderr, "failed to set SIGINT handler\n");
-        Cleanup(&stUartCtx);
-        return 1;
-    }
+    /* 이벤트 루프 실행 */
+    printf("[RUN] Event loop started.\n");
+    event_base_dispatch(stCtx.pstEventBase);
 
-    /* 이벤트 루프 */
-    event_base_dispatch(stUartCtx.m_pstEventBase);
+    printf("[EXIT] Cleaning up...\n");
+    cleanupContext(&stCtx);
 
-    /* 정리 */
-    Cleanup(&stUartCtx);
-    return 0;
+    return EXIT_SUCCESS;
 }
-
- 

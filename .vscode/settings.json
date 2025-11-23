@@ -71,6 +71,10 @@
         "thread": "cpp",
         "cinttypes": "cpp",
         "typeinfo": "cpp",
-        "string.h": "c"
+        "string.h": "c",
+        "icdcommand.h": "c",
+        "stdint.h": "c",
+        "eventsession.h": "c",
+        "event.h": "c"
     }
 }

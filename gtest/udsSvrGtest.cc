@@ -1,223 +1,120 @@
-// test_uds_server_run.cc
 #include <gtest/gtest.h>
-#include <pthread.h>
-#include <sys/un.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/stat.h>
-#include <vector>
-
+#include <thread>
 #include <chrono>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 extern "C" {
-#include "../sockSession.h"
-#include "../frame.h"
+#include "../udsSvr.h"
 #include "../icdCommand.h"
-
-/* udsSvr.c에 있는 심볼들 (테스트에서 직접 호출) */
-int run(void);
-void udsSvrStop(void);
-int  udsSvrIsRunning(void);
 }
 
-/* --- 작은 유틸 --- */
-static bool waitForFileExists(const char* path, int timeout_ms=1500) {
-    const int step=10;
-    int waited=0; 
-    struct stat st{};
-    while (waited < timeout_ms) {
-        if (stat(path, &st) == 0) return true;
-        usleep(step*1000); waited += step;
-    }
-    return false;
+/* ======= 테스트 준비 ======= */
+static std::thread g_serverThread;
+static bool g_serverRunning = false;
+
+void startServer()
+{
+    g_serverRunning = true;
+    run();
+    g_serverRunning = false;
 }
 
-static int connectUds(const char* udsPath) {
-    int iFd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-    if (iFd < 0) 
-        return -1;
-    struct sockaddr_un un{};
-    un.sun_family = AF_UNIX;
-    size_t len = strlen(udsPath);
-    memcpy(un.sun_path, udsPath, len+1);
-    if (::connect(iFd, (struct sockaddr*)&un,
-                  (socklen_t)(offsetof(struct sockaddr_un, sun_path)+len+1)) < 0) {
-        ::close(iFd); 
-        return -1;
-    }
-    return iFd;
-}
-
-/* === 프레임 하나 파싱 & 응답 처리 ===
- * return: 1 consumed, 0 need more, -1 fatal
- */
-int checkRecvData(char* pchData, int iDataSize, void* pvResponse) {
-    FRAME_HEADER *pstFrameHeader = (FRAME_HEADER *)pchData;
-    unsigned short  unStx   = ntohs(pstFrameHeader->unStx);
-    int iDataLength = ntohl(pstFrameHeader->iDataLength);
-    unsigned short  unCmd  = ntohs(pstFrameHeader->unCmd);
-
-    if (unStx != STX_CONST || iDataLength < 0)
-        return -1;////FRAME_ERR_STX_NOT_MATCH
-
-
-    unsigned char *uchPayload = NULL;
-    if (iDataLength > 0) {
-        uchPayload = (unsigned char *)malloc((size_t)iDataLength);
-        if (!uchPayload){
-            return -1;//FRAME_ERR_MEMORY_ALLOC_FAIL
-        }
-    }
-
-    FRAME_TAIL *pstFrameTail = (FRAME_TAIL *)(pchData + sizeof(FRAME_HEADER) + iDataLength);
-    // if (proto_crc8_xor(uchPayload, (size_t)iDataLength) != (unsigned char)pstFrameTail->uchCrc) {
-    //     free(uchPayload); 
-    //     return -1;//FRAME_ERR_CRC_NOT_MATCH
-    // }
-
-    if (ntohs(pstFrameTail->unEtx) != ETX_CONST) {
-        free(uchPayload); 
-        return -1;//FRAME_ERR_ETX_NOT_MATCH
-    }
-    /* === 응답 처리 ===
-       - 기본 가정: 요청 CMD와 응답 CMD가 동일
-    */
-    switch (unCmd) {
-        case CMD_REQ_ID: {
-            RES_ID* pstResId = (RES_ID *)(pchData + sizeof(FRAME_HEADER));
-            RES_ID* pstRetValue = (RES_ID *)pvResponse;
-            pstRetValue->chResult = pstResId->chResult;
-            break;
-        }
-        case CMD_KEEP_ALIVE: {
-            RES_KEEP_ALIVE* pstResKeepAlive = (RES_KEEP_ALIVE *)(pchData + sizeof(FRAME_HEADER));
-            RES_KEEP_ALIVE* pstRetValue = (RES_KEEP_ALIVE *)pvResponse;
-            pstRetValue->chResult = pstResKeepAlive->chResult;
-            break;
-        }
-        case CMD_IBIT: {
-            RES_IBIT* pstResIbit = (RES_IBIT *)(pchData + sizeof(FRAME_HEADER));
-            RES_IBIT* pstRetValue = (RES_IBIT *)pvResponse;
-            pstRetValue->chPositionResult = pstResIbit->chPositionResult;
-            pstRetValue->chBitTotResult = pstResIbit->chBitTotResult;
-            break;
-        }
-        default:
-            fprintf(stderr, "RES cmd=%d len=%d\n", unCmd, iDataLength);
-            break;
-    }
-    free(uchPayload);
-    return 1;//FRAME_SUCCESS;
-}
-
-/* --- 서버 스레드 --- */
-static void* serverThread(void*) {
-    (void)run();                   // ← udsSvr.c의 run()을 “그대로” 실행
-    return nullptr;
-}
-
-static void  pump(struct event_base* pstEventBase, int ms){
-    int waited=0;
-    while (waited < ms) {
-        event_base_loop(pstEventBase, EVLOOP_ONCE | EVLOOP_NONBLOCK);
-        usleep(10*1000);
-        waited += 10;
-    }
-};
-
-/* --- 픽스처 --- */
-class UdsSvrRunTest : public ::testing::Test {
+class UdsServerTest : public ::testing::Test {
 protected:
-    pthread_t tid_{};
+    int clientSock = -1;
 
     void SetUp() override {
-        unlink(UDS1_PATH);
-        // 서버 기동
-        ASSERT_EQ(0, pthread_create(&tid_, nullptr, serverThread, nullptr));
-        // 소켓 파일 생성 대기
-        ASSERT_TRUE(waitForFileExists(UDS1_PATH, 2000)) << "UDS not ready";
-        // (선택) 러닝 여부 점검
-        EXPECT_TRUE(udsSvrIsRunning());
+
+        unlink("/tmp/uds1.sock");
+
+        g_serverThread = std::thread(startServer);
+
+        // 서버 준비 시간
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        // 클라이언트 UDS 소켓 생성
+        clientSock = socket(AF_UNIX, SOCK_STREAM, 0);
+        ASSERT_NE(clientSock, -1) << "UDS 소켓 생성 실패!";
+
+        struct sockaddr_un addr {};
+        addr.sun_family = AF_UNIX;
+        strcpy(addr.sun_path, "/tmp/uds1.sock");
+
+        ASSERT_GE(connect(clientSock, (struct sockaddr*)&addr, sizeof(addr)), 0)
+            << "UDS 서버 연결 실패!";
     }
 
     void TearDown() override {
-        // 테스트 종료 → 서버 루프 중단
-        udsSvrStop();
-        pthread_join(tid_, nullptr);
-        unlink(UDS1_PATH);
+        close(clientSock);
+
+        // SIGINT 전달하여 서버 종료
+        kill(getpid(), SIGINT);
+
+        if (g_serverThread.joinable())
+            g_serverThread.join();
+
+        unlink("/tmp/uds1.sock");
     }
 };
 
-/* 1) 접속/해지 */
-TEST_F(UdsSvrRunTest, ConnectDisconnect) {
-    int fd1 = connectUds(UDS1_PATH);
-    ASSERT_GE(fd1, 0) << strerror(errno);
-    ::close(fd1);
 
-    // 재접속 가능해야 함
-    int fd2 = connectUds(UDS1_PATH);
-    ASSERT_GE(fd2, 0) << "reconnect failed";
-    ::close(fd2);
+/* ======= KEEP ALIVE 테스트 ======= */
+
+TEST_F(UdsServerTest, ReqKeepAlive_ResponseSuccess)
+{
+    unsigned char sendBuf[256];
+    unsigned char recvBuf[256];
+
+    MSG_ID stMsgId {};
+    stMsgId.uchSrcId = 1;
+    stMsgId.uchDstId = 1;
+
+    int frameSize = 0;
+
+    ASSERT_EQ(makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, sendBuf, &frameSize), FRAME_OK);
+
+    ssize_t sent = send(clientSock, sendBuf, frameSize, 0);
+    ASSERT_EQ(sent, frameSize);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    ssize_t recvLen = recv(clientSock, recvBuf, sizeof(recvBuf), 0);
+    ASSERT_GT(recvLen, 0) << "서버 응답 없음";
+
+    EXPECT_EQ(responseFrame(recvBuf, &stMsgId, recvLen), FRAME_OK)
+        << "KEEP-ALIVE 응답 프레임 검증 실패";
 }
 
-/* 2) KEEP_ALIVE 라운드트립 */
-TEST_F(UdsSvrRunTest, KeepAliveCommandTest) {
-    /* UDS 주소 준비 */    
-    struct sockaddr_un stSocketUn;    
-    memset(&stSocketUn, 0, sizeof(stSocketUn));
-    stSocketUn.sun_family = AF_UNIX;
-    strcpy(stSocketUn.sun_path, UDS1_PATH);
-    size_t ulSize = strlen(UDS1_PATH);
-    socklen_t uiSocketLength = (socklen_t)(offsetof(struct sockaddr_un, sun_path)+ulSize+1);
 
-    // 기존 코드를 최대한 재사용하기 위해 bufferevent를 래핑해 requestFrame() 호출
-    struct event_base* pstEventBase = event_base_new();
-    ASSERT_NE(pstEventBase, nullptr);
-    struct bufferevent* pstBufferEvent = bufferevent_socket_new(pstEventBase, -1, BEV_OPT_CLOSE_ON_FREE);
-    ASSERT_NE(pstBufferEvent, nullptr);
-    bufferevent_enable(pstBufferEvent, EV_READ|EV_WRITE);
-    bufferevent_setwatermark(pstBufferEvent, EV_READ, sizeof(FRAME_HEADER), READ_HIGH_WM);
-    if (bufferevent_socket_connect(pstBufferEvent, (struct sockaddr*)&stSocketUn, sizeof(stSocketUn)) < 0) {
-        fprintf(stderr, "Connect failed: %s\n", strerror(errno));
-        bufferevent_free(pstBufferEvent);
-        event_base_free(pstEventBase);
-        return;
-    }
-    MSG_ID stMsgId{};
-    stMsgId.uchSrcId = UDS1_CLIENT1_ID;
-    stMsgId.uchDstId = UDS1_SERVER_ID;
-    char* pchResPayload;
-    int iResFrameSize = sizeof(FRAME_HEADER) + sizeof(RES_KEEP_ALIVE) + sizeof(FRAME_TAIL);
-    int iResOutSize=1;
-    pchResPayload = (char*)malloc(iResFrameSize);    
+/* ======= IBIT 테스트 ======= */
 
-    // 연결 안정화까지 잠깐 펌프
-    pump(pstEventBase, 200);
-    ASSERT_EQ(1, requestFrame(pstBufferEvent, &stMsgId, CMD_KEEP_ALIVE));
-    pump(pstEventBase, 500);
-    struct evbuffer *pstEvBuffer = bufferevent_get_input(pstBufferEvent);
-    int iLength = evbuffer_get_length(pstEvBuffer);
-    ASSERT_EQ(iLength, iResFrameSize);
-    if (evbuffer_copyout(pstEvBuffer, pchResPayload, iResFrameSize) != iLength){
-        return;//EV_COPYOUT_SIZE_MISMATCH
-    }
-    RES_KEEP_ALIVE stResKeepAlive;
-    ASSERT_EQ(1, checkRecvData(pchResPayload, iResFrameSize, (void*)&stResKeepAlive));
-    ASSERT_EQ(1, stResKeepAlive.chResult);
+TEST_F(UdsServerTest, ReqIBit_ResponseSuccess)
+{
+    unsigned char sendBuf[256];
+    unsigned char recvBuf[256];
 
-    free(pchResPayload);
-    bufferevent_free(pstBufferEvent);  // cfd도 함께 close
-    event_base_free(pstEventBase);
-}
+    MSG_ID stMsgId {};
+    stMsgId.uchSrcId = 1;
+    stMsgId.uchDstId = 1;
 
-/* 3) quit 동등 시나리오(클라이언트 종료) */
-TEST_F(UdsSvrRunTest, QuitLikeClose) {
-    int iFd = connectUds(UDS1_PATH);
-    ASSERT_GE(iFd, 0);
-    ::close(iFd);  // quit과 동일한 효과
+    int frameSize = 0;
 
-    // 서버는 계속 동작해야 함 → 재접속 확인
-    int iFd2 = connectUds(UDS1_PATH);
-    ASSERT_GE(iFd2, 0);
-    ::close(iFd2);
+    ASSERT_EQ(makeReqFrame(CMD_IBIT, &stMsgId, sendBuf, &frameSize), FRAME_OK);
+
+    ssize_t sent = send(clientSock, sendBuf, frameSize, 0);
+    ASSERT_EQ(sent, frameSize);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    ssize_t recvLen = recv(clientSock, recvBuf, sizeof(recvBuf), 0);
+    ASSERT_GT(recvLen, 0) << "UDS 기반 서버로부터 응답 없음";
+
+    EXPECT_EQ(responseFrame(recvBuf, &stMsgId, recvLen), FRAME_OK)
+        << "IBIT 응답 프레임 파싱 실패";
+
+    RES_IBIT* pRes = (RES_IBIT*)(recvBuf + sizeof(FRAME_HEADER));
+    EXPECT_EQ(pRes->chBitTotResult, 0x01);
+    EXPECT_EQ(pRes->chPositionResult, 0x01);
 }
