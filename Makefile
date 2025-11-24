@@ -12,14 +12,25 @@ LIBS_COMMON = -levent
 
 HDRS1       = frame.h icdCommand.h eventSession.h netCore.h netTcp.h netUds.h netUdp.h
 FRAME1_OBJS = frame.o icdCommand.o eventSession.o netCore.o netTcp.o netUds.o netUdp.o
+HDRS2       = requestContext.h udsClientTable.h bridgeRouter.h
+FRAME2_OBJS = requestContext.o udsClientTable.o bridgeRouter.o
 
 # === Phony targets ===
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln uartRx # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
+tcpUdsSvr: tcpUdsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+
+tcpUdsSvr.o: tcpUdsSvr.c $(HDRS1) $(HDRS2)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+
+
+
 udsSvr: udsSvr.o $(FRAME1_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
@@ -122,10 +133,8 @@ GTEST_LIB_DIR      	= $(GTEST_DIR)/build/lib
 GTEST_CXXFLAGS 		= -I$(GTEST_INCLUDE_DIR)
 GTEST_LDFLAGS 		= -L$(GTEST_LIB_DIR) -lgtest -lgtest_main -pthread -Wl,-rpath,$(GTEST_LIB_DIR)
 
-gtest: gpsUartRxGtest tcpSvrGtest udsSvrGtest udpSvrGtest #mutexQueueGtest tcpSvrGtest mutexQueueGtest
+gtest: gpsUartRxGtest tcpSvrGtest udsSvrGtest udpSvrGtest  #mutexQueueGtest tcpSvrGtest mutexQueueGtest
 # === GoogleTest target (NO -DUDS_SVR_STANDALONE) ===
-
-# 테스트 소스는 udsSvrGtest.cpp로 가정
 udsSvrGtest: udsSvrGtest.o $(FRAME1_OBJS) udsSvrNostandalone.o
 	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
 

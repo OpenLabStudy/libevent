@@ -75,6 +75,8 @@
         "icdcommand.h": "c",
         "stdint.h": "c",
         "eventsession.h": "c",
-        "event.h": "c"
+        "event.h": "c",
+        "requestcontext.h": "c",
+        "udsclienttable.h": "c"
     }
 }
