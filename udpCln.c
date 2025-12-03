@@ -170,7 +170,7 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_CLIENT, 2);
+    initEventContext(&stEventCtx, ROLE_UDP_CLIENT, 2);
 
     SOCK_CONTEXT* pstSockCtx = calloc(1, sizeof(SOCK_CONTEXT));
     if (!pstSockCtx) {

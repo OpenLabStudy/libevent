@@ -9,6 +9,15 @@
 #include "icdCommand.h"
 #include <stdio.h>
 
+
+int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+{
+	RES_ID *pstResId = (RES_ID *)(puchRecvData);
+
+	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+	return sizeof(RES_ID);
+}
+
 /**
  * @brief Keep-Alive 명령 처리 (통신 활성 여부 확인)
  *

@@ -114,6 +114,7 @@ void initEventContext(EVENT_CONTEXT* pstEventCtx,
     pstEventCtx->pstSignalEvent = NULL;
     pstEventCtx->pstAcceptEvent = NULL;
     pstEventCtx->pstSockCtx     = NULL;
+    pstEventCtx->pvUserCtx      = NULL;
     pstEventCtx->iClientCount   = 0;
     pstEventCtx->uchMyId        = uchMyId;
 
@@ -128,14 +129,16 @@ void initSocketContext(SOCK_CONTEXT* pstSockCtx,
     if (!pstSockCtx)
         return;
 
-    pstSockCtx->pstBufferEvent = NULL;
-    pstSockCtx->pstEventCtx    = pstEventCtx;
-    pstSockCtx->unCmd          = 0;
-    pstSockCtx->iDataLength    = 0;
-    pstSockCtx->uchSrcId       = pstEventCtx->uchMyId;
-    pstSockCtx->uchDstId       = 0;
-    pstSockCtx->uchIsResponse  = uchIsResponse;
-    pstSockCtx->pstNextSockCtx = NULL;
+    pstSockCtx->pstBufferEvent  = NULL;
+    pstSockCtx->pstEventCtx     = pstEventCtx;
+    pstSockCtx->unCmd           = 0;
+    pstSockCtx->iDataLength     = 0;
+    pstSockCtx->uchSrcId        = pstEventCtx->uchMyId;
+    pstSockCtx->uchDstId        = 0;
+    pstSockCtx->uchIsResponse   = uchIsResponse;
+    pstSockCtx->pstNextSockCtx  = NULL;
+    pstSockCtx->pvUserCtx       = pstEventCtx->pvUserCtx;
+    fprintf(stderr,"event addr %u, sockCtx addr %u, ID:%02x\n", pstEventCtx, pstSockCtx, pstSockCtx->uchSrcId);
 }
 
 
@@ -147,7 +150,7 @@ void shutdownApp(EVENT_CONTEXT* pstEventCtx)
     if (!pstEventCtx)
         return;
 
-    if (pstEventCtx->eRole == ROLE_CLIENT) {
+    if (pstEventCtx->eRole & ROLE_CLIENT == ROLE_CLIENT) {
 
         if (pstEventCtx->pstEvent) {
             event_del(pstEventCtx->pstEvent);
@@ -205,7 +208,7 @@ void closeAndFree(SOCK_CONTEXT* pstSockCtx)
     if (!pstEventCtx)
         return;
 
-    if (pstEventCtx->eRole == ROLE_SERVER) {
+    if (pstEventCtx->eRole & ROLE_SERVER == ROLE_SERVER) {
         removeClient(pstSockCtx, pstEventCtx);
         pstEventCtx->iClientCount--;
     } else {
@@ -249,12 +252,10 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvData
 {
     (void)nKindOfEvent;
     EVENT_CONTEXT* pstEventCtx = (EVENT_CONTEXT*)pvData;
-
     if (!pstEventCtx)
         return;
 
     for (;;) {
-
         struct sockaddr_storage stAddr;
         socklen_t tLen = sizeof(stAddr);
 
@@ -297,7 +298,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvData
 
         bufferevent_enable(pstBufferEvent, EV_READ | EV_WRITE);
 
-        printf("[INFO] Client accepted (fd=%d)\n", iClientSock);
+        printf("[INFO] Client accepted (fd=%d, client count is %d)\n", iClientSock, pstEventCtx->iClientCount);
     }
 }
 

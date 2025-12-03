@@ -150,28 +150,30 @@ static FRAME_ERR checkFrameHeader(unsigned short unCmd, MSG_ID *pstMsgId,
 {
     if (!puchData || !pstMsgId)
         return FRAME_ERR_NULL_PTR;
-
+        
     if (tDataLen < sizeof(FRAME_HEADER))
         return FRAME_ERR_NEED_MORE_DATA;
-
-    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchData;
-
+        
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchData;    
     if (ntohs(pstHeader->unStx) != STX_CONST)
         return FRAME_ERR_INVALID_STX;
-
+        
+    if((pstHeader->stMsgId.uchDstId & pstMsgId->uchSrcId) != pstMsgId->uchSrcId)
+        return FRAME_ERR_INVALID_ID;
+    
     FRAME_ERR eErr = checkCmd(unCmd);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
     if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd))
         return FRAME_ERR_INVALID_LENGTH;
-
+        
     int iNeedSize =
         sizeof(FRAME_HEADER) + getDataSize(unCmd) + sizeof(FRAME_TAIL);
-
+        
     if ((int)tDataLen < iNeedSize)
         return FRAME_ERR_NEED_MORE_DATA;
-
+        
     return FRAME_OK;
 }
  
@@ -249,9 +251,9 @@ int getFrameSize(unsigned char *puchData)
 FRAME_ERR makeReqFrame(unsigned short unCmd, MSG_ID *pstMsgId,
                     unsigned char *puchSendData, int *piOutFrameSize)
 {
-    if (!puchSendData || !pstMsgId || !piOutFrameSize)
+    if (!puchSendData || !pstMsgId)
         return FRAME_ERR_NULL_PTR;
-
+    
     makeFrameHeader(unCmd | REQ_CMD_OFFSET, pstMsgId, puchSendData);
 
     int iDataSize = getDataSize(unCmd | REQ_CMD_OFFSET);
@@ -261,18 +263,21 @@ FRAME_ERR makeReqFrame(unsigned short unCmd, MSG_ID *pstMsgId,
             REQ_ID *pstReq =
                 (REQ_ID *)(puchSendData + sizeof(FRAME_HEADER));
             pstReq->chTmp = 0x01;
+            *piOutFrameSize = sizeof(REQ_ID);
             break;
         }
         case CMD_KEEP_ALIVE: {
             REQ_KEEP_ALIVE *pstReq =
                 (REQ_KEEP_ALIVE *)(puchSendData + sizeof(FRAME_HEADER));
             pstReq->chTmp = 0x01;
+            *piOutFrameSize = sizeof(REQ_KEEP_ALIVE);
             break;
         }
         case CMD_IBIT: {
             REQ_IBIT *pstReq =
                 (REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER));
             pstReq->chIbit = 0x01;
+            *piOutFrameSize = sizeof(REQ_IBIT);
             break;
         }
         default:
@@ -300,8 +305,7 @@ FRAME_ERR makeResFrame(unsigned short unCmd, MSG_ID *pstMsgId,
 
     makeFrameHeader(unCmd | RES_CMD_OFFSET, pstMsgId, puchSendData);
 
-    memcpy(puchSendData + sizeof(FRAME_HEADER),
-        puchCmdResult, iDataSize);
+    memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult, iDataSize);
 
     makeFrameTail(unCmd | RES_CMD_OFFSET, puchSendData);
 
@@ -316,19 +320,21 @@ FRAME_ERR requestFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
 {
     if (!puchRecvData || !pstMsgId || !punOutCmd)
         return FRAME_ERR_NULL_PTR;
-
+        
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
-    unsigned short unCmd = ntohs(pstHeader->unCmd) | REQ_CMD_OFFSET;
 
+    unsigned short unCmd = ntohs(pstHeader->unCmd) | REQ_CMD_OFFSET;
+    
     FRAME_ERR eErr =
         checkFrameHeader(unCmd, pstMsgId, puchRecvData, tDataLen);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
+        
     eErr = checkFrameTail(unCmd, puchRecvData);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
     *punOutCmd = ntohs(pstHeader->unCmd);
     return FRAME_OK;
 }
@@ -346,17 +352,13 @@ FRAME_ERR commandHandler(unsigned char *puchRecvData, MSG_ID *pstMsgId,
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
 
     unsigned short unReqCmd = ntohs(pstHeader->unCmd) | REQ_CMD_OFFSET;
-    unsigned short unResCmd = ntohs(pstHeader->unCmd) | RES_CMD_OFFSET;
+    unsigned short unResCmd = ntohs(pstHeader->unCmd) | RES_CMD_OFFSET;    
     
-    FRAME_ERR eErr = checkFrameHeader(unReqCmd, pstMsgId, puchRecvData, tDataLen);
-    if (eErr != FRAME_OK)
-        return eErr;
-
-    eErr = checkFrameTail(unReqCmd, puchRecvData);
-    if (eErr != FRAME_OK)
-        return eErr;
-
     switch (unReqCmd) {
+        case REQ_CMD_ID_INFO:
+            idInfo(puchRecvData, puchCmdResult);
+            break;
+
         case REQ_CMD_KEEP_ALIVE:
             keepAlive(puchRecvData, puchCmdResult);
             break;
@@ -394,6 +396,13 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData,
         return eErr;
 
     switch (unCmd) {
+        case RES_CMD_ID_INFO:
+        {
+            RES_ID* pstResIdInfo = (RES_ID *)(puchRecvData+sizeof(FRAME_HEADER));
+            fprintf(stderr,"Client Id  0x%02x\n", pstResIdInfo->chResult);
+            break;
+        }
+
         case RES_CMD_KEEP_ALIVE:
         {
             RES_KEEP_ALIVE* pstResKeepAlive = (RES_KEEP_ALIVE *)(puchRecvData+sizeof(FRAME_HEADER));
@@ -414,7 +423,56 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData,
 
     return FRAME_OK;
 }
- 
+
+
+/**
+ * @brief 응답(Response) 프레임 검증
+ */
+FRAME_ERR udsResponseFrame(unsigned char *puchRecvData,
+    MSG_ID *pstMsgId, size_t tDataLen, unsigned char *puchResult)
+{
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
+
+    unsigned short unCmd = ntohs(pstHeader->unCmd);
+
+    FRAME_ERR eErr = checkFrameHeader(unCmd, pstMsgId, puchRecvData, tDataLen);
+    if (eErr != FRAME_OK)
+        return eErr;
+
+    eErr = checkFrameTail(unCmd, puchRecvData);
+    if (eErr != FRAME_OK)
+        return eErr;
+
+    switch (unCmd) {
+        case RES_CMD_ID_INFO:
+        {
+            RES_ID* pstResIdInfo = (RES_ID *)(puchRecvData+sizeof(FRAME_HEADER));
+            fprintf(stderr,"Client Id  0x%02x\n", pstResIdInfo->chResult);
+            *puchResult = pstResIdInfo->chResult;
+            break;
+        }
+
+        case RES_CMD_KEEP_ALIVE:
+        {
+            RES_KEEP_ALIVE* pstResKeepAlive = (RES_KEEP_ALIVE *)(puchRecvData+sizeof(FRAME_HEADER));
+            fprintf(stderr,"keepalive %02x\n", pstResKeepAlive->chResult);
+            break;
+        }
+
+        case RES_CMD_IBIT:
+        {
+            RES_IBIT* pstResIBit = (RES_IBIT *)(puchRecvData+sizeof(FRAME_HEADER));
+            fprintf(stderr,"iBit %02x %02x\n", pstResIBit->chBitTotResult, pstResIBit->chPositionResult);
+            break;
+        }
+
+        default:
+            return FRAME_ERR_INVALID_CMD;
+    }
+
+    return FRAME_OK;
+}
+
 
 const char* frameErrToStr(FRAME_ERR eErr)
 {
@@ -453,4 +511,22 @@ const char* frameErrToStr(FRAME_ERR eErr)
         default:
             return "FRAME_ERR: Unrecognized error code";
     }
+}
+
+unsigned char getSrcId(unsigned char *puchRecvData)
+{
+    if (!puchRecvData)
+        return 0xFF;
+
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
+    return pstHeader->stMsgId.uchSrcId;
+}
+
+unsigned char getDstId(unsigned char *puchRecvData)
+{
+    if (!puchRecvData)
+        return 0xFF;
+
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
+    return pstHeader->stMsgId.uchDstId;
 }

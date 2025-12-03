@@ -165,7 +165,7 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
 
     achInput[strcspn(achInput, "\n")] = '\0';
 
-    MSG_ID stMsgId = { pstSockCtx->uchSrcId, pstSockCtx->uchDstId };
+    MSG_ID stMsgId = { pstSockCtx->uchSrcId, TCP_SVR_ID };
 
     if (!strcmp(achInput, "keepalive")) {
         fprintf(stderr,"[Client] REQ_KEEP_ALIVE\n");
@@ -197,7 +197,7 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_CLIENT, 2);
+    initEventContext(&stEventCtx, ROLE_TCP_CLIENT, TCP_CLN_ID);
 
     SOCK_CONTEXT* pstSockCtx = calloc(1, sizeof(SOCK_CONTEXT));
     if (!pstSockCtx) {

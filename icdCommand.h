@@ -127,6 +127,9 @@ typedef struct PACKED
 /* Public API                                                                 */
 /* ========================================================================== */
 
+int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+
+
 /**
  * @brief Keep-Alive 명령 처리 (통신 활성 여부 확인)
  *

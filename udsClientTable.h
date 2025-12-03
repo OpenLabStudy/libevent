@@ -22,6 +22,13 @@
 
 #define UDS_MAX_CLIENT 32
 
+typedef enum
+{
+    NONE            = 0x00,
+    NEED_REGISTER   = 0x01, 
+    REGISTERED      = 0x02  
+} UDS_REGISTER_INFO;
+
 /**
  * @struct UDS_CLIENT_ENTRY
  * @brief 단일 UDS 클라이언트 연결 상태를 표현하는 구조체
@@ -105,5 +112,7 @@ int udsClientBroadcastMask(const UDS_CLIENT_TABLE* pstTable,
                         const unsigned char* pchData,
                         int iLen);
 
+
+UDS_REGISTER_INFO udsClientFindFreeSlot(UDS_CLIENT_TABLE* pstTable, unsigned char uchClientId);                        
 #endif // UDS_CLIENT_TABLE_H
  

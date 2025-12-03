@@ -76,6 +76,11 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData);
 /* ========================================================================== */
 static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData)
 {
+    unsigned short unCmd = 0;
+    unsigned char auCmdResult[1000];
+    unsigned char auSendBuf[1024];
+    int iSendLen = 0;
+    FRAME_ERR eErr;
     SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
     if (!pstSockCtx)
         return;
@@ -98,10 +103,31 @@ static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData)
         .uchSrcId = pstSockCtx->uchSrcId,
         .uchDstId = pstSockCtx->uchDstId
     };
+    fprintf(stderr, "[UDS Client] %02x %02x\n", pstSockCtx->uchSrcId, pstSockCtx->uchDstId);
 
     responseFrame(puchRecvData, &stMsgId, tDataLen);
 
     evbuffer_drain(pstEvBuffer, tDataLen);
+
+    int iFrameSize = getFrameSize(puchRecvData);
+
+    /* === 헤더 및 명령 추출 === */
+    eErr = requestFrame(puchRecvData, &stMsgId, iFrameSize, &unCmd);
+    if (eErr != FRAME_OK) {
+        fprintf(stderr, "[APP] requestFrame ERR: %s\n", frameErrToStr(eErr));
+    }
+
+    /* === 명령 처리 === */
+    eErr = commandHandler(puchRecvData, &stMsgId, iFrameSize, auCmdResult, &iSendLen);
+
+    /* === 응답 프레임 생성 === */
+    eErr = makeResFrame(unCmd, &stMsgId, auCmdResult, auSendBuf);
+
+    fprintf(stderr, "[APP] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
+    if (bufferevent_write(pstBufferEvent, auSendBuf, iSendLen) < 0) {
+        fprintf(stderr, "[APP] bufferevent_write() failed\n");
+    }
+
     free(puchRecvData);
 }
 
@@ -193,15 +219,41 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
     }
 }
 
+void sendMyId(SOCK_CONTEXT* pstSockCtx)
+{
+    unsigned char auchSendBuf[1024];
+    FRAME_ERR eErr = FRAME_OK;
+    RES_ID stResId;
+    int iSendSize = sizeof(FRAME_HEADER)+sizeof(FRAME_TAIL)+getDataSize(RES_CMD_ID_INFO);
+    MSG_ID stMsgId = {
+        .uchSrcId = pstSockCtx->uchSrcId,
+        .uchDstId = pstSockCtx->uchDstId
+    };
+    stResId.chResult = pstSockCtx->uchSrcId;
+    eErr = makeResFrame(CMD_ID_INFO, &stMsgId, &stResId, auchSendBuf);
+    bufferevent_write(pstSockCtx->pstBufferEvent, auchSendBuf, iSendSize);
+}
+
 
 
 /* ========================================================================== */
 /* Entry Point                                                                */
 /* ========================================================================== */
-int run(void)
+int run(int iId)
 {
     EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_CLIENT, 2);
+    int iMyId;
+    if(iId == 1)
+        iMyId = UDS_1_CLN1_ID;
+    else if(iId == 2)
+        iMyId = UDS_1_CLN2_ID;
+    else if(iId == 3)
+        iMyId = UDS_1_CLN3_ID;
+    else if(iId == 4)
+        iMyId = UDS_1_CLN4_ID;
+
+
+    initEventContext(&stEventCtx, ROLE_UDS_CLIENT, iMyId);
 
     SOCK_CONTEXT* pstSockCtx = calloc(1, sizeof(SOCK_CONTEXT));
     if (!pstSockCtx) {
@@ -210,8 +262,8 @@ int run(void)
     }
 
     initSocketContext(pstSockCtx, &stEventCtx, RESPONSE_ENABLED);
-
-    stEventCtx.iSockFd = netUdsCreateClient("/tmp/uds1.sock");
+    pstSockCtx->uchDstId = UDS_1_SVR_ID;
+    stEventCtx.iSockFd = netUdsCreateClient(UDS_1_PATH);
     if (stEventCtx.iSockFd < 0) {
         fprintf(stderr, "[UDS Client] Failed to connect socket\n");
         return EXIT_FAILURE;
@@ -242,6 +294,8 @@ int run(void)
 
     event_add(stEventCtx.pstEvent, NULL);
 
+    sendMyId(pstSockCtx);
+    
     printf("[UDS Client] Connecting to /tmp/uds1.sock...\n");
 
     event_base_dispatch(stEventCtx.pstEventBase);
@@ -255,6 +309,8 @@ int run(void)
 #ifndef GOOGLE_TEST
 int main(int argc, char** argv)
 {
-    return run();
+    if(argc != 2)
+        return 0;
+    return run(atoi(argv[1]));
 }
 #endif

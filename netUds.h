@@ -15,6 +15,28 @@
 extern "C" {
 #endif
 
+#define UDS_1_PATH      "/tmp/uds1.sock"
+#define UDS_1_SVR_ID    0x10
+#define UDS_1_CLN1_ID   0x01
+#define UDS_1_CLN2_ID   0x02
+#define UDS_1_CLN3_ID   0x04
+#define UDS_1_CLN4_ID   0x08
+#define UDS_1_CLN5_ID   0x10
+#define UDS_1_CLN6_ID   0x11
+
+#define UDS_2_PATH      "/tmp/uds1.sock"
+#define UDS_2_SVR_ID    0x20
+#define UDS_2_CLN1_ID   0x21
+#define UDS_2_CLN2_ID   0x22
+#define UDS_2_CLN3_ID   0x24
+#define UDS_2_CLN4_ID   0x28
+#define UDS_2_CLN5_ID   0x40
+
+
+
+
+
+
 /* ========================================================================== */
 /* Public API                                                                 */
 /* ========================================================================== */

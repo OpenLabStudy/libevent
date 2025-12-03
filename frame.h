@@ -44,12 +44,13 @@ typedef enum {
     FRAME_ERR_NEED_MORE_DATA    = 1,      /**< 전체 프레임 구성에 필요한 데이터가 부족함 */
 
     FRAME_ERR_INVALID_STX       = -1,     /**< STX 값이 기대한 값과 다름 */
-    FRAME_ERR_INVALID_ETX       = -2,     /**< ETX 값이 기대한 값과 다름 */
-    FRAME_ERR_INVALID_CMD       = -3,     /**< 명령 코드가 유효하지 않음 */
-    FRAME_ERR_INVALID_LENGTH    = -4,     /**< 페이로드 길이(DataLength)가 실제 데이터와 불일치 */
-    FRAME_ERR_CRC_FAIL          = -5,     /**< CRC 값 불일치 */
-    FRAME_ERR_NULL_PTR          = -6,     /**< NULL 포인터 전달됨 */
-    FRAME_ERR_FRAME_TOO_SMALL   = -7,     /**< 프레임 길이가 최소 요구 크기보다 작음 */
+    FRAME_ERR_INVALID_ID        = -2,     /**< STX 값이 기대한 값과 다름 */
+    FRAME_ERR_INVALID_ETX       = -3,     /**< ETX 값이 기대한 값과 다름 */
+    FRAME_ERR_INVALID_CMD       = -4,     /**< 명령 코드가 유효하지 않음 */
+    FRAME_ERR_INVALID_LENGTH    = -5,     /**< 페이로드 길이(DataLength)가 실제 데이터와 불일치 */
+    FRAME_ERR_CRC_FAIL          = -6,     /**< CRC 값 불일치 */
+    FRAME_ERR_NULL_PTR          = -7,     /**< NULL 포인터 전달됨 */
+    FRAME_ERR_FRAME_TOO_SMALL   = -8,     /**< 프레임 길이가 최소 요구 크기보다 작음 */
 
     FRAME_ERR_UNKNOWN           = -100    /**< 정의되지 않은 알 수 없는 오류 */
 } FRAME_ERR;
@@ -168,6 +169,9 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData,
                         MSG_ID *pstMsgId, size_t tDataLen);
 
 
+FRAME_ERR udsResponseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId, 
+                    size_t tDataLen, unsigned char *puchResult);
+
 /**
  * @brief 요청 프레임 검증 후 명령 코드 추출
  *
@@ -201,6 +205,11 @@ int getFrameSize(unsigned char *puchData);
  * @return 오류 메시지 문자열 (정적 문자열, free() 불필요)
  */
 const char* frameErrToStr(FRAME_ERR eErr);
+
+
+
+unsigned char getSrcId(unsigned char *puchRecvData);
+unsigned char getDstId(unsigned char *puchRecvData);
 
 #endif /* FRAME_H */
  

@@ -14,32 +14,28 @@
 #include "udsClientTable.h"
 #include "requestContext.h"
 
-extern BRIDGE_CONTEXT g_stBridgeCtx;
-static EVENT_CONTEXT g_stTcpCtx;
-static EVENT_CONTEXT g_stUdsCtx;
-
 /* ==========================================================
  * Read Callback Wrappers → Bridge Router를 사용하도록 수정
  * ========================================================== */
 
-static void tcpReadWrapper(struct bufferevent* bev, void* arg)
+static void tcpReadWrapper(struct bufferevent* bev, void* pvData)
 {
-    bridgeTcpReadCb(bev, arg);
+    bridgeTcpReadCb(bev, pvData);
 }
 
-static void udsReadWrapper(struct bufferevent* bev, void* arg)
-{
-    bridgeUdsReadCb(bev, arg);
+static void udsReadWrapper(struct bufferevent* bev, void* pvData)
+{    
+    bridgeUdsReadCb(bev, pvData);
 }
 
-static void tcpEventWrapper(struct bufferevent* bev, short events, void* arg)
+static void tcpEventWrapper(struct bufferevent* bev, short events, void* pvData)
 {
-    bridgeTcpEventCb(bev, events, arg);
+    bridgeTcpEventCb(bev, events, pvData);
 }
 
-static void udsEventWrapper(struct bufferevent* bev, short events, void* arg)
+static void udsEventWrapper(struct bufferevent* bev, short events, void* pvData)
 {
-    bridgeUdsEventCb(bev, events, arg);
+    bridgeUdsEventCb(bev, events, pvData);
 }
 
 /* ==========================================================
@@ -48,6 +44,9 @@ static void udsEventWrapper(struct bufferevent* bev, short events, void* arg)
 
 int unifiedServerRun(const char* pszUdsPath, int iTcpPort)
 {
+    BRIDGE_CONTEXT stBridgeCtx;
+    EVENT_CONTEXT stTcpCtx;
+    EVENT_CONTEXT stUdsCtx;
     struct event_base* pstEvBase = event_base_new();
     if (!pstEvBase) {
         fprintf(stderr, "[ERR] event_base_new failed!\n");
@@ -63,50 +62,53 @@ int unifiedServerRun(const char* pszUdsPath, int iTcpPort)
     udsClientTableInit(&stUdsClientTable);
     reqCtxInit(&stReqCtx);
 
-    bridgeInit(&g_stBridgeCtx,
+    bridgeInit(&stBridgeCtx,
                &stUdsClientTable,
                &stReqCtx,
                pstEvBase,
-               0x10,      // TCP Src ID
+               TCP_SVR_ID,      // TCP Src ID
                300);     // timeout ms
 
     /* ==========================================
      * TCP 서버 초기화
      * ========================================== */
-    initEventContext(&g_stTcpCtx, ROLE_SERVER, 1);
-    g_stTcpCtx.pstEventBase = pstEvBase;
+    initEventContext(&stTcpCtx, ROLE_TCP_SERVER, TCP_SVR_ID);
+    stTcpCtx.pstEventBase = pstEvBase;
 
-    g_stTcpCtx.iSockFd = netTcpCreateServer(iTcpPort);
-    if (g_stTcpCtx.iSockFd < 0) {
+    stTcpCtx.iSockFd = netTcpCreateServer(iTcpPort);
+    if (stTcpCtx.iSockFd < 0) {
         fprintf(stderr, "[ERR] Failed to open TCP socket\n");
         return -1;
     }
 
-    g_stTcpCtx.stHandler.pfReadCb  = tcpReadWrapper;
-    g_stTcpCtx.stHandler.pfEventCb = tcpEventWrapper;
+    stTcpCtx.stHandler.pfReadCb  = tcpReadWrapper;
+    stTcpCtx.stHandler.pfEventCb = tcpEventWrapper;
+    stTcpCtx.pvUserCtx = (void *)&stBridgeCtx;
 
-    setupServerAcceptEvent(&g_stTcpCtx);
+    setupServerAcceptEvent(&stTcpCtx);
 
     printf("[TCP] Listening on port %d\n", iTcpPort);
 
     /* ==========================================
      * UDS 서버 초기화
      * ========================================== */
-    initEventContext(&g_stUdsCtx, ROLE_SERVER, 1);
-    g_stUdsCtx.pstEventBase = pstEvBase;
+    initEventContext(&stUdsCtx, ROLE_UDS_SERVER, UDS_1_SVR_ID);
+    stUdsCtx.pstEventBase = pstEvBase;
 
     unlink(pszUdsPath);
-    g_stUdsCtx.iSockFd = netUdsCreateServer(pszUdsPath);
+    stUdsCtx.iSockFd = netUdsCreateServer(pszUdsPath);
 
-    if (g_stUdsCtx.iSockFd < 0) {
+    if (stUdsCtx.iSockFd < 0) {
         fprintf(stderr, "[ERR] Failed to open UDS socket\n");
         return -1;
     }
 
-    g_stUdsCtx.stHandler.pfReadCb  = udsReadWrapper;
-    g_stUdsCtx.stHandler.pfEventCb = udsEventWrapper;
+    stUdsCtx.stHandler.pfReadCb  = udsReadWrapper;
+    stUdsCtx.stHandler.pfEventCb = udsEventWrapper;
+    stUdsCtx.pvUserCtx = (void *)&stBridgeCtx;
 
-    setupServerAcceptEvent(&g_stUdsCtx);
+    fprintf(stderr,"### %s():%d stUdsCtx addr %u ###\n", __func__,__LINE__, &stUdsCtx);
+    setupServerAcceptEvent(&stUdsCtx);
 
     printf("[UDS] Listening on %s\n", pszUdsPath);
 
@@ -140,6 +142,6 @@ int unifiedServerRun(const char* pszUdsPath, int iTcpPort)
 #ifndef GOOGLE_TEST
 int main(void)
 {
-    return unifiedServerRun("/tmp/routing.sock", 5000);
+    return unifiedServerRun("/tmp/uds1.sock", 5000);
 }
 #endif

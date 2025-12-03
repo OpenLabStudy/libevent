@@ -185,7 +185,7 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_SERVER, 1);
+    initEventContext(&stEventCtx, ROLE_TCP_SERVER, 1);
 
     stEventCtx.iSockFd = netTcpCreateServer(SERVER_PORT);
     if (stEventCtx.iSockFd < 0) {

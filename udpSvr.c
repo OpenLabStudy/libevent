@@ -153,7 +153,7 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_SERVER, 1);
+    initEventContext(&stEventCtx, ROLE_UDP_SERVER, 1);
 
     stEventCtx.pstSockCtx = calloc(1, sizeof(SOCK_CONTEXT));
     if (!stEventCtx.pstSockCtx) {

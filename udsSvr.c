@@ -183,11 +183,9 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int run(void)
 {
     EVENT_CONTEXT stEventCtx;
-    initEventContext(&stEventCtx, ROLE_SERVER, 1);
+    initEventContext(&stEventCtx, ROLE_UDS_SERVER, 1);
 
-    unlink("/tmp/uds1.sock");
-
-    stEventCtx.iSockFd = netUdsCreateServer("/tmp/uds1.sock");
+    stEventCtx.iSockFd = netUdsCreateServer(UDS_1_PATH);
     if (stEventCtx.iSockFd < 0) {
         fprintf(stderr, "[ERROR] Failed to create UDS server socket\n");
         return EXIT_FAILURE;

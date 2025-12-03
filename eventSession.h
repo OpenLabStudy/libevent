@@ -37,8 +37,14 @@ extern "C" {
  */
 typedef enum
 {
-    ROLE_SERVER = 0, /**< 서버 역할 */
-    ROLE_CLIENT = 1  /**< 클라이언트 역할 */
+    ROLE_SERVER         = 0x10,
+    ROLE_TCP_SERVER     = 0x11, /**< 서버 역할 */
+    ROLE_UDP_SERVER     = 0x12, /**< 서버 역할 */
+    ROLE_UDS_SERVER     = 0x13, /**< 서버 역할 */
+    ROLE_CLIENT         = 0x20,
+    ROLE_TCP_CLIENT     = 0x21,  /**< 클라이언트 역할 */
+    ROLE_UDP_CLIENT     = 0x22,  /**< 클라이언트 역할 */
+    ROLE_UDS_CLIENT     = 0x23  /**< 클라이언트 역할 */   
 } APP_ROLE;
 
 
@@ -94,6 +100,7 @@ typedef struct _EVENT_CONTEXT
     unsigned char       uchMyId;        /**< 송신자(자기 ID), 프레임 통신 시 활용 */
 
     EVENT_HANDLER       stHandler;      /**< 애플리케이션 제공 콜백 */
+    void* pvUserCtx;
 } EVENT_CONTEXT;
 
 
@@ -119,6 +126,7 @@ struct _SOCK_CONTEXT
     unsigned char       uchIsResponse;  /**< 1: 응답 생성 / 0: 요청만 */
 
     struct _SOCK_CONTEXT* pstNextSockCtx; /**< 연결 리스트 next pointer */
+    void* pvUserCtx;
 };
 
 
