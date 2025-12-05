@@ -1,147 +1,146 @@
-/**
- * @file unifiedServer.c
- * @brief 기존 이벤트 기반 accept 시스템을 유지한 통합 TCP + UDS 서버
- */
+/* tcpUdsBridge.c */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <signal.h>
-#include <unistd.h>
-#include <string.h>
 
+#include <event2/event.h>
+#include <event2/bufferevent.h>
+
+#include "eventSession.h"
+#include "dispatcher.h"
 #include "netTcp.h"
 #include "netUds.h"
-#include "bridgeRouter.h"
-#include "udsClientTable.h"
-#include "requestContext.h"
 
-/* ==========================================================
- * Read Callback Wrappers → Bridge Router를 사용하도록 수정
- * ========================================================== */
+#define TCP_PORT   5000
+#define UDS_PATH   "/tmp/bridge_uds.sock"
 
-static void tcpReadWrapper(struct bufferevent* bev, void* pvData)
+/* 전방 선언 */
+static void bridgeReadCb(struct bufferevent* bev, void* ctx);
+static void bridgeEventCb(struct bufferevent* bev, short events, void* ctx);
+static void signalCb(evutil_socket_t sig, short events, void* ctx);
+
+int main(int argc, char** argv)
 {
-    bridgeTcpReadCb(bev, pvData);
-}
+    (void)argc; (void)argv;
 
-static void udsReadWrapper(struct bufferevent* bev, void* pvData)
-{    
-    bridgeUdsReadCb(bev, pvData);
-}
+    BASE_CONTEXT       stBase;
+    SERVER_CONTEXT     stTcp;
+    SERVER_CONTEXT     stUds;
+    DISPATCHER_CONTEXT stDisp;
 
-static void tcpEventWrapper(struct bufferevent* bev, short events, void* pvData)
-{
-    bridgeTcpEventCb(bev, events, pvData);
-}
-
-static void udsEventWrapper(struct bufferevent* bev, short events, void* pvData)
-{
-    bridgeUdsEventCb(bev, events, pvData);
-}
-
-/* ==========================================================
- * 통합 서버 실행 함수
- * ========================================================== */
-
-int unifiedServerRun(const char* pszUdsPath, int iTcpPort)
-{
-    BRIDGE_CONTEXT stBridgeCtx;
-    EVENT_CONTEXT stTcpCtx;
-    EVENT_CONTEXT stUdsCtx;
-    struct event_base* pstEvBase = event_base_new();
-    if (!pstEvBase) {
-        fprintf(stderr, "[ERR] event_base_new failed!\n");
-        return -1;
+    /* 1. Base 초기화 */
+    baseContextInit(&stBase, 1);
+    stBase.pstEventBase = event_base_new();
+    if (!stBase.pstEventBase) {
+        fprintf(stderr, "event_base_new() failed\n");
+        return EXIT_FAILURE;
     }
 
-    /* ==========================================
-     * Request/UDS Clients Registry 초기화
-     * ========================================== */
-    static UDS_CLIENT_TABLE stUdsClientTable;
-    static REQUEST_CONTEXT   stReqCtx;
+    /* 2. 서버 초기화 */
+    serverContextInit(&stTcp, &stBase, ROLE_TCP_SERVER);
+    serverContextInit(&stUds, &stBase, ROLE_UDS_SERVER);
 
-    udsClientTableInit(&stUdsClientTable);
-    reqCtxInit(&stReqCtx);
-
-    bridgeInit(&stBridgeCtx,
-               &stUdsClientTable,
-               &stReqCtx,
-               pstEvBase,
-               TCP_SVR_ID,      // TCP Src ID
-               300);     // timeout ms
-
-    /* ==========================================
-     * TCP 서버 초기화
-     * ========================================== */
-    initEventContext(&stTcpCtx, ROLE_TCP_SERVER, TCP_SVR_ID);
-    stTcpCtx.pstEventBase = pstEvBase;
-
-    stTcpCtx.iSockFd = netTcpCreateServer(iTcpPort);
-    if (stTcpCtx.iSockFd < 0) {
-        fprintf(stderr, "[ERR] Failed to open TCP socket\n");
-        return -1;
+    stTcp.iListenFd = netTcpCreateServer(TCP_PORT);
+    if (stTcp.iListenFd < 0) {
+        fprintf(stderr, "TCP server create failed\n");
+        return EXIT_FAILURE;
     }
 
-    stTcpCtx.stHandler.pfReadCb  = tcpReadWrapper;
-    stTcpCtx.stHandler.pfEventCb = tcpEventWrapper;
-    stTcpCtx.pvUserCtx = (void *)&stBridgeCtx;
-
-    setupServerAcceptEvent(&stTcpCtx);
-
-    printf("[TCP] Listening on port %d\n", iTcpPort);
-
-    /* ==========================================
-     * UDS 서버 초기화
-     * ========================================== */
-    initEventContext(&stUdsCtx, ROLE_UDS_SERVER, UDS_1_SVR_ID);
-    stUdsCtx.pstEventBase = pstEvBase;
-
-    unlink(pszUdsPath);
-    stUdsCtx.iSockFd = netUdsCreateServer(pszUdsPath);
-
-    if (stUdsCtx.iSockFd < 0) {
-        fprintf(stderr, "[ERR] Failed to open UDS socket\n");
-        return -1;
+    stUds.iListenFd = netUdsCreateServer(UDS_1_PATH);
+    if (stUds.iListenFd < 0) {
+        fprintf(stderr, "UDS server create failed\n");
+        return EXIT_FAILURE;
     }
 
-    stUdsCtx.stHandler.pfReadCb  = udsReadWrapper;
-    stUdsCtx.stHandler.pfEventCb = udsEventWrapper;
-    stUdsCtx.pvUserCtx = (void *)&stBridgeCtx;
+    /* 3. Dispatcher 초기화 & Base.userCtx 연결 */
+    dispatcherInit(&stDisp, &stBase, &stTcp, &stUds);
+    stBase.pvUserCtx = &stDisp;
 
-    fprintf(stderr,"### %s():%d stUdsCtx addr %u ###\n", __func__,__LINE__, &stUdsCtx);
-    setupServerAcceptEvent(&stUdsCtx);
+    /* 4. App Handler 등록 */
+    stBase.stHandler.pfReadCb  = bridgeReadCb;
+    stBase.stHandler.pfWriteCb = NULL;          /* 필요시 사용할 수 있음 */
+    stBase.stHandler.pfEventCb = bridgeEventCb;
 
-    printf("[UDS] Listening on %s\n", pszUdsPath);
+    /* 5. Accept 이벤트 설정 */
+    setupServerAcceptEvent(&stTcp);
+    setupServerAcceptEvent(&stUds);
 
-    /* ==========================================
-     * Signal Handler 설정 (CTRL+C graceful exit)
-     * ========================================== */
+    /* 6. SIGINT 처리 */
     signal(SIGPIPE, SIG_IGN);
+    stBase.pstSignalEvent = evsignal_new(stBase.pstEventBase,
+                                         SIGINT,
+                                         signalCb,
+                                         &stBase);
+    event_add(stBase.pstSignalEvent, NULL);
 
-    struct event* pstSignalEvent =
-        evsignal_new(pstEvBase, SIGINT,
-                     (void (*)(evutil_socket_t, short, void*))event_base_loopbreak,
-                     pstEvBase);
+    fprintf(stderr, "[Bridge] TCP:%d, UDS:%s\n", TCP_PORT, UDS_1_PATH);
 
-    if (pstSignalEvent)
-        event_add(pstSignalEvent, NULL);
+    /* 7. 이벤트 루프 */
+    event_base_dispatch(stBase.pstEventBase);
 
-    /* ==========================================
-     * 실행
-     * ========================================== */
-    printf("\nUnified TCP + UDS Routing Server Running...\n\n");
+    /* 8. 종료 처리 */
+    dispatcherCleanup(&stDisp);
 
-    event_base_dispatch(pstEvBase);
+    /* 클라이언트 세션 해제, event_free, close 등은
+       네가 기존에 만든 closeAndFree / cleanup 루틴 재사용 */
 
-    return 0;
+    return EXIT_SUCCESS;
 }
 
-/* ========================================================================== */
-/* Standalone Main                                                            */
-/* ========================================================================== */
 
-#ifndef GOOGLE_TEST
-int main(void)
+/* ====== Read Callback (TCP/UDS 공용) ====== */
+
+static void bridgeReadCb(struct bufferevent* bev, void* ctx)
 {
-    return unifiedServerRun("/tmp/uds1.sock", 5000);
+    SOCK_CONTEXT* pstSock = (SOCK_CONTEXT*)ctx;
+    if (!pstSock || !pstSock->pstServerCtx)
+        return;
+
+    unsigned char buf[2048];
+    int len = bufferevent_read(bev, buf, sizeof(buf));
+    if (len <= 0)
+        return;
+
+    DISPATCHER_CONTEXT* pstDisp =
+        (DISPATCHER_CONTEXT*)pstSock->pstBaseCtx->pvUserCtx;
+
+    if (pstSock->pstServerCtx->eRole == ROLE_TCP_SERVER) {
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        dispatcherOnTcpRequest(pstDisp, pstSock, buf, len);
+    } else if (pstSock->pstServerCtx->eRole == ROLE_UDS_SERVER) {
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        dispatcherOnUdsResponse(pstDisp, pstSock, buf, len);
+    }
 }
-#endif
+
+
+/* ====== Event Callback (TCP/UDS 공용) ====== */
+
+static void bridgeEventCb(struct bufferevent* bev, short events, void* ctx)
+{
+    (void)bev;
+    SOCK_CONTEXT* pstSock = (SOCK_CONTEXT*)ctx;
+
+    if (events & BEV_EVENT_EOF) {
+        fprintf(stderr, "[Bridge] Connection closed\n");
+    } else if (events & BEV_EVENT_ERROR) {
+        fprintf(stderr, "[Bridge] Connection error\n");
+    }
+
+    /* 여기서 closeAndFree(pstSock) 호출 여부는
+       네 구조에 맞게 조절하면 됨
+    */
+}
+
+
+/* ====== Signal Handler ====== */
+
+static void signalCb(evutil_socket_t sig, short events, void* ctx)
+{
+    (void)sig; (void)events;
+    BASE_CONTEXT* pstBase = (BASE_CONTEXT*)ctx;
+    if (pstBase && pstBase->pstEventBase) {
+        event_base_loopexit(pstBase->pstEventBase, NULL);
+    }
+}

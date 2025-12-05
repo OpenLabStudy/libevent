@@ -12,14 +12,14 @@ LIBS_COMMON = -levent
 
 HDRS1       = frame.h icdCommand.h eventSession.h netCore.h netTcp.h netUds.h netUdp.h
 FRAME1_OBJS = frame.o icdCommand.o eventSession.o netCore.o netTcp.o netUds.o netUdp.o
-HDRS2       = requestContext.h udsClientTable.h bridgeRouter.h
-FRAME2_OBJS = requestContext.o udsClientTable.o bridgeRouter.o
+HDRS2       = dispatcher.h txQueue.h
+FRAME2_OBJS = dispatcher.o txQueue.o
 
 # === Phony targets ===
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln #udsSvr udsCln udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: tcpSvr tcpCln udsSvr udsCln tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 tcpUdsSvr: tcpUdsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
