@@ -200,7 +200,7 @@ static void signalCb(evutil_socket_t sig, short ev, void* pvData)
 int run(int iId)
 {
     BASE_CONTEXT stBaseCtx;
-    unsigned char uchMyId;
+    unsigned char uchMyId = 0x00;
     if(iId == 1)
         uchMyId = UDS_1_CLN1_ID;
     else if(iId == 2)
@@ -230,7 +230,8 @@ int run(int iId)
         close(iSockFd);
         return EXIT_FAILURE;
     }
-    initSocketContext(pstSockCtx, &stBaseCtx, RESPONSE_ENABLED);
+    
+    initSocketContext(pstSockCtx, NULL, RESPONSE_ENABLED);
     pstSockCtx->pstBaseCtx = &stBaseCtx;    
 
     /* 3) bufferevent 생성 및 콜백 등록 */

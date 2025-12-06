@@ -298,7 +298,6 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvData
 {
     (void)nKindOfEvent;
 
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     SERVER_CONTEXT* pstServerCtx = (SERVER_CONTEXT*)pvData;
     if (!pstServerCtx || !pstServerCtx->pstBaseCtx)
         return;

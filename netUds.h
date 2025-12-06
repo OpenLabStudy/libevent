@@ -24,7 +24,7 @@ extern "C" {
 #define UDS_1_CLN5_ID   0x10
 #define UDS_1_CLN6_ID   0x11
 
-#define UDS_2_PATH      "/tmp/uds1.sock"
+#define UDS_2_PATH      "/tmp/uds2.sock"
 #define UDS_2_SVR_ID    0x20
 #define UDS_2_CLN1_ID   0x21
 #define UDS_2_CLN2_ID   0x22

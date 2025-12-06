@@ -9,6 +9,7 @@
 
 typedef struct _REQUEST_CONTEXT REQUEST_CONTEXT;
 
+
 /* Dispatcher 인스턴스 */
 typedef struct _DISPATCHER_CONTEXT
 {
@@ -39,21 +40,21 @@ struct _REQUEST_CONTEXT
     REQUEST_CONTEXT* pstNext;
 };
 
-void dispatcherInit(DISPATCHER_CONTEXT* pstDisp,
+void dispatcherInit(DISPATCHER_CONTEXT* pstDispCtx,
                     BASE_CONTEXT* pstBase,
                     SERVER_CONTEXT* pstTcp,
                     SERVER_CONTEXT* pstUds);
 
-void dispatcherOnTcpRequest(DISPATCHER_CONTEXT* pstDisp,
+void dispatcherOnTcpRequest(DISPATCHER_CONTEXT* pstDispCtx,
                             SOCK_CONTEXT* pstTcpSock,
-                            const unsigned char* data,
-                            int len);
+                            const unsigned char* puchData,
+                            int iLength);
 
-void dispatcherOnUdsResponse(DISPATCHER_CONTEXT* pstDisp,
+void dispatcherOnUdsResponse(DISPATCHER_CONTEXT* pstDispCtx,
                              SOCK_CONTEXT* pstUdsSock,
-                             const unsigned char* data,
-                             int len);
+                             const unsigned char* puchData,
+                             int iLength);
 
-void dispatcherCleanup(DISPATCHER_CONTEXT* pstDisp);
+void dispatcherCleanup(DISPATCHER_CONTEXT* pstDispCtx);
 
 #endif /* DISPATCHER_H */

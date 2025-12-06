@@ -198,7 +198,7 @@ int run(void)
     stBaseCtx.pstEventBase = event_base_new();
     if (!stBaseCtx.pstEventBase) {
         fprintf(stderr, "[TCP-Server] event_base_new() failed\n");
-        close(stServerCtx.iListenFd);
+        netClose(stServerCtx.iListenFd);
         return EXIT_FAILURE;
     }
 
@@ -216,7 +216,7 @@ int run(void)
     if (!stBaseCtx.pstSignalEvent ||
         event_add(stBaseCtx.pstSignalEvent, NULL) < 0) {
         fprintf(stderr, "[TCP-Server] Could not create/add SIGINT event\n");
-        close(stServerCtx.iListenFd);
+        netClose(stServerCtx.iListenFd);
         return EXIT_FAILURE;
     }
 

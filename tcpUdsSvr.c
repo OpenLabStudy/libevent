@@ -91,10 +91,10 @@ int main(int argc, char** argv)
 
 /* ====== Read Callback (TCP/UDS 공용) ====== */
 
-static void bridgeReadCb(struct bufferevent* bev, void* ctx)
+static void bridgeReadCb(struct bufferevent* bev, void* pvSockCtx)
 {
-    SOCK_CONTEXT* pstSock = (SOCK_CONTEXT*)ctx;
-    if (!pstSock || !pstSock->pstServerCtx)
+    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvSockCtx;
+    if (!pstSockCtx || !pstSockCtx->pstServerCtx)
         return;
 
     unsigned char buf[2048];
@@ -103,24 +103,22 @@ static void bridgeReadCb(struct bufferevent* bev, void* ctx)
         return;
 
     DISPATCHER_CONTEXT* pstDisp =
-        (DISPATCHER_CONTEXT*)pstSock->pstBaseCtx->pvUserCtx;
+        (DISPATCHER_CONTEXT*)pstSockCtx->pstBaseCtx->pvUserCtx;
 
-    if (pstSock->pstServerCtx->eRole == ROLE_TCP_SERVER) {
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-        dispatcherOnTcpRequest(pstDisp, pstSock, buf, len);
-    } else if (pstSock->pstServerCtx->eRole == ROLE_UDS_SERVER) {
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-        dispatcherOnUdsResponse(pstDisp, pstSock, buf, len);
+    if (pstSockCtx->pstServerCtx->eRole == ROLE_TCP_SERVER) {
+        dispatcherOnTcpRequest(pstDisp, pstSockCtx, buf, len);
+    } else if (pstSockCtx->pstServerCtx->eRole == ROLE_UDS_SERVER) {
+        dispatcherOnUdsResponse(pstDisp, pstSockCtx, buf, len);
     }
 }
 
 
 /* ====== Event Callback (TCP/UDS 공용) ====== */
 
-static void bridgeEventCb(struct bufferevent* bev, short events, void* ctx)
+static void bridgeEventCb(struct bufferevent* bev, short events, void* pvSockCtx)
 {
     (void)bev;
-    SOCK_CONTEXT* pstSock = (SOCK_CONTEXT*)ctx;
+    (void)pvSockCtx;
 
     if (events & BEV_EVENT_EOF) {
         fprintf(stderr, "[Bridge] Connection closed\n");
@@ -136,10 +134,10 @@ static void bridgeEventCb(struct bufferevent* bev, short events, void* ctx)
 
 /* ====== Signal Handler ====== */
 
-static void signalCb(evutil_socket_t sig, short events, void* ctx)
+static void signalCb(evutil_socket_t sig, short events, void* pvBaseCtx)
 {
     (void)sig; (void)events;
-    BASE_CONTEXT* pstBase = (BASE_CONTEXT*)ctx;
+    BASE_CONTEXT* pstBase = (BASE_CONTEXT*)pvBaseCtx;
     if (pstBase && pstBase->pstEventBase) {
         event_base_loopexit(pstBase->pstEventBase, NULL);
     }

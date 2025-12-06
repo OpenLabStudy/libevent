@@ -20,9 +20,10 @@
 #include <event2/bufferevent.h>
 
 #include "eventSession.h"
-#include "netUds.h"
 #include "frame.h"
 #include "icdCommand.h"
+#include "netUds.h"
+#include "netCore.h"
 
 /* ========================================================================== */
 /* Static Function Prototypes                                                 */

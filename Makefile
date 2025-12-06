@@ -209,4 +209,4 @@ gpsUartRxGtest.o: ./gtest/gpsUartRxGtest.cc r632Gps.c
 clean:
 	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
 		udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest \
-		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest
+		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest tcpUdsSvr

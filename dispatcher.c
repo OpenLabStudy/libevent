@@ -7,262 +7,265 @@
 #include <string.h>
 #include <stdio.h>
 
-#define REQ_TIMEOUT_SEC 3
+#define REQ_TIMEOUT_SEC 0
+#define REQ_TIMEOUT_USEC (300*1000)
 
 /* ===== 내부 유틸 함수 ===== */
 
 static void removeRequest(DISPATCHER_CONTEXT* pstDisp,
                           REQUEST_CONTEXT* pstReq)
 {
-    REQUEST_CONTEXT** ppCur = &pstDisp->pstReqList;
-    while (*ppCur) {
-        if (*ppCur == pstReq) {
-            *ppCur = pstReq->pstNext;
+    REQUEST_CONTEXT** ppstReqCtx = &pstDisp->pstReqList;
+    while (*ppstReqCtx) {
+        if (*ppstReqCtx == pstReq) {
+            *ppstReqCtx = pstReq->pstNext;
             pstReq->pstNext = NULL;
             return;
         }
-        ppCur = &(*ppCur)->pstNext;
+        ppstReqCtx = &(*ppstReqCtx)->pstNext;
     }
 }
 
-static void timeoutCb(evutil_socket_t fd, short events, void* arg)
+static void timeoutCb(evutil_socket_t fd, short events, void* pvData)
 {
-    (void)fd; (void)events;
-    REQUEST_CONTEXT* pstReq = arg;
-    DISPATCHER_CONTEXT* pstDisp =
-        (DISPATCHER_CONTEXT*)pstReq->pstTcpRequester->pstBaseCtx->pvUserCtx;
+    (void)fd; 
+    (void)events;
+    REQUEST_CONTEXT* pstReqCtx = pvData;
+    DISPATCHER_CONTEXT* pstDispCtx =
+        (DISPATCHER_CONTEXT *)pstReqCtx->pstTcpRequester->pstBaseCtx->pvUserCtx;
 
-    fprintf(stderr, "[Dispatcher] Timeout ReqId=%u\n", pstReq->unRequestId);
+    fprintf(stderr, "[Dispatcher] Timeout ReqId=%u\n", pstReqCtx->unRequestId);
 
     /* 타임아웃 시 TCP로 TIMEOUT 문자열 송신 결정 enqueue */
-    TX_ITEM* item = calloc(1, sizeof(TX_ITEM));
-    item->eDest   = TX_TO_TCP_ONE;
-    item->pstTarget = pstReq->pstTcpRequester;
-    const char* msg = "TIMEOUT";
-    item->tLen = strlen(msg);
-    memcpy(item->auchBuf, msg, item->tLen);
-    txQueuePush(&pstDisp->stTxQueue, item);
+    TX_ITEM* pstTxItem = calloc(1, sizeof(TX_ITEM));
+    pstTxItem->eDest   = TX_TO_TCP_ONE;
+    pstTxItem->pstTarget = pstReqCtx->pstTcpRequester;
+    const char* pchMsg = "TIMEOUT";
+    pstTxItem->tLen = strlen(pchMsg);
+    memcpy(pstTxItem->auchBuf, pchMsg, pstTxItem->tLen);
+    txQueuePush(&pstDispCtx->stTxQueue, pstTxItem);
 
     /* flush 이벤트 활성화 */
-    event_active(pstDisp->pstFlushEvent, 0, 0);
+    event_active(pstDispCtx->pstFlushEvent, 0, 0);
 
     /* 요청 제거 */
-    removeRequest(pstDisp, pstReq);
-    if (pstReq->pstTimeoutEvent)
-        event_free(pstReq->pstTimeoutEvent);
-    free(pstReq);
+    removeRequest(pstDispCtx, pstReqCtx);
+    if (pstReqCtx->pstTimeoutEvent)
+        event_free(pstReqCtx->pstTimeoutEvent);
+    free(pstReqCtx);
 }
 
-static REQUEST_CONTEXT* createRequest(DISPATCHER_CONTEXT* pstDisp,
+static REQUEST_CONTEXT* createRequest(DISPATCHER_CONTEXT* pstDispCtx,
                                       SOCK_CONTEXT* pstTcpSock)
 {
-    REQUEST_CONTEXT* pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
-    pstReq->unRequestId     = (uint32_t)rand();
-    pstReq->pstTcpRequester = pstTcpSock;
-    pstReq->iPendingUds     = 0;
-    pstReq->iRespLen        = 0;
+    REQUEST_CONTEXT* pstReqCtx = calloc(1, sizeof(REQUEST_CONTEXT));
+    pstReqCtx->unRequestId     = (uint32_t)rand();
+    pstReqCtx->pstTcpRequester = pstTcpSock;
+    pstReqCtx->iPendingUds     = 0;
+    pstReqCtx->iRespLen        = 0;
 
     /* 리스트에 추가 */
-    pstReq->pstNext = pstDisp->pstReqList;
-    pstDisp->pstReqList = pstReq;
+    pstReqCtx->pstNext = pstDispCtx->pstReqList;
+    pstDispCtx->pstReqList = pstReqCtx;
 
     /* 타임아웃 이벤트 생성 */
-    struct timeval tv = { REQ_TIMEOUT_SEC, 0 };
-    pstReq->pstTimeoutEvent = evtimer_new(
-        pstDisp->pstBaseCtx->pstEventBase,
+    struct timeval tv = { REQ_TIMEOUT_SEC, REQ_TIMEOUT_USEC };
+    pstReqCtx->pstTimeoutEvent = evtimer_new(
+        pstDispCtx->pstBaseCtx->pstEventBase,
         timeoutCb,
-        pstReq
+        pstReqCtx
     );
-    if (pstReq->pstTimeoutEvent)
-        evtimer_add(pstReq->pstTimeoutEvent, &tv);
+    if (pstReqCtx->pstTimeoutEvent)
+        evtimer_add(pstReqCtx->pstTimeoutEvent, &tv);
 
-    return pstReq;
+    return pstReqCtx;
 }
 
 /* ===== TxQueue Flush 이벤트 콜백 ===== */
 /* 실제 bufferevent_write()는 여기서만 수행 → Dispatcher는 순수 라우터 역할 유지 */
 
-static void flushTxQueueCb(evutil_socket_t fd, short events, void* arg)
+static void flushTxQueueCb(evutil_socket_t fd, short events, void* pvData)
 {
-    (void)fd; (void)events;
-    DISPATCHER_CONTEXT* pstDisp = arg;
+    (void)fd; 
+    (void)events;
+    DISPATCHER_CONTEXT* pstDispCtx = pvData;
 
-    TX_ITEM* item;
-    while ((item = txQueuePop(&pstDisp->stTxQueue)) != NULL) {
-
-        switch (item->eDest) {
-
+    TX_ITEM* pstTxItem;
+    while ((pstTxItem = txQueuePop(&pstDispCtx->stTxQueue)) != NULL) {
+        switch (pstTxItem->eDest) {
         case TX_TO_TCP_ONE:
-            if (item->pstTarget && item->pstTarget->pstBufferEvent) {
-                bufferevent_write(item->pstTarget->pstBufferEvent,
-                                  item->auchBuf, item->tLen);
+            if (pstTxItem->pstTarget && pstTxItem->pstTarget->pstBufferEvent) {
+                bufferevent_write(pstTxItem->pstTarget->pstBufferEvent,
+                    pstTxItem->auchBuf, pstTxItem->tLen);
             }
             break;
 
         case TX_TO_TCP_ALL:
-            if (pstDisp->pstTcpServer) {
-                SOCK_CONTEXT* c = pstDisp->pstTcpServer->pstClientList;
-                while (c) {
-                    if (c->pstBufferEvent)
-                        bufferevent_write(c->pstBufferEvent,
-                                          item->auchBuf, item->tLen);
-                    c = c->pstNextSockCtx;
+            if (pstDispCtx->pstTcpServer) {
+                SOCK_CONTEXT* pstSockCtx = pstDispCtx->pstTcpServer->pstClientList;
+                while (pstSockCtx) {
+                    if (pstSockCtx->pstBufferEvent){
+                        bufferevent_write(pstSockCtx->pstBufferEvent,
+                            pstTxItem->auchBuf, pstTxItem->tLen);
+                    }
+                    pstSockCtx = pstSockCtx->pstNextSockCtx;
                 }
             }
             break;
 
         case TX_TO_UDS_ONE:
-            if (item->pstTarget && item->pstTarget->pstBufferEvent) {
-                bufferevent_write(item->pstTarget->pstBufferEvent,
-                                  item->auchBuf, item->tLen);
+            if (pstTxItem->pstTarget && pstTxItem->pstTarget->pstBufferEvent) {
+                bufferevent_write(pstTxItem->pstTarget->pstBufferEvent,
+                    pstTxItem->auchBuf, pstTxItem->tLen);
             }
             break;
 
         case TX_TO_UDS_ALL:
-            if (pstDisp->pstUdsServer) {
-                SOCK_CONTEXT* u = pstDisp->pstUdsServer->pstClientList;
-                while (u) {
-                    if (u->pstBufferEvent)
-                        bufferevent_write(u->pstBufferEvent,
-                                          item->auchBuf, item->tLen);
-                    u = u->pstNextSockCtx;
+            if (pstDispCtx->pstUdsServer) {
+                SOCK_CONTEXT* pstSockCtx = pstDispCtx->pstUdsServer->pstClientList;
+                while (pstSockCtx) {
+                    if (pstSockCtx->pstBufferEvent){
+                        bufferevent_write(pstSockCtx->pstBufferEvent,
+                            pstTxItem->auchBuf, pstTxItem->tLen);
+                    }
+                    pstSockCtx = pstSockCtx->pstNextSockCtx;
                 }
             }
             break;
         }
 
-        free(item);
+        free(pstTxItem);
     }
 }
 
 
 /* ===== Public API 구현 ===== */
 
-void dispatcherInit(DISPATCHER_CONTEXT* pstDisp,
+void dispatcherInit(DISPATCHER_CONTEXT* pstDispCtx,
                     BASE_CONTEXT* pstBase,
                     SERVER_CONTEXT* pstTcp,
                     SERVER_CONTEXT* pstUds)
 {
-    pstDisp->pstBaseCtx   = pstBase;
-    pstDisp->pstTcpServer = pstTcp;
-    pstDisp->pstUdsServer = pstUds;
-    pstDisp->pstReqList   = NULL;
+    pstDispCtx->pstBaseCtx   = pstBase;
+    pstDispCtx->pstTcpServer = pstTcp;
+    pstDispCtx->pstUdsServer = pstUds;
+    pstDispCtx->pstReqList   = NULL;
 
-    txQueueInit(&pstDisp->stTxQueue);
+    txQueueInit(&pstDispCtx->stTxQueue);
 
     /* TxQueue flush용 이벤트 fd = -1, EV_TIMEOUT 유형으로 생성 */
-    pstDisp->pstFlushEvent = event_new(
+    pstDispCtx->pstFlushEvent = event_new(
         pstBase->pstEventBase,
         -1,
         0,  /* EV_TIMEOUT 없이 event_active로 직접 트리거 */
         flushTxQueueCb,
-        pstDisp
+        pstDispCtx
     );
 }
 
-void dispatcherOnTcpRequest(DISPATCHER_CONTEXT* pstDisp,
+void dispatcherOnTcpRequest(DISPATCHER_CONTEXT* pstDispCtx,
                             SOCK_CONTEXT* pstTcpSock,
-                            const unsigned char* data,
-                            int len)
+                            const unsigned char* puchData,
+                            int iLength)
 {
-    if (!pstDisp->pstUdsServer || pstDisp->pstUdsServer->iClientCount <= 0) {
+    if (!pstDispCtx->pstUdsServer || pstDispCtx->pstUdsServer->iClientCount <= 0) {
         fprintf(stderr, "[Dispatcher] No UDS clients.\n");
         return;
     }
 
-    REQUEST_CONTEXT* pstReq = createRequest(pstDisp, pstTcpSock);
-    pstReq->iPendingUds = pstDisp->pstUdsServer->iClientCount;
+    REQUEST_CONTEXT* pstReqCtx = createRequest(pstDispCtx, pstTcpSock);
+    pstReqCtx->iPendingUds = pstDispCtx->pstUdsServer->iClientCount;
 
     /* UDS 전체 브로드캐스트를 TxQueue에 enqueue */
-    TX_ITEM* item = calloc(1, sizeof(TX_ITEM));
-    item->eDest = TX_TO_UDS_ALL;
-    item->tLen  = (size_t)len;
-    memcpy(item->auchBuf, data, item->tLen);
-    txQueuePush(&pstDisp->stTxQueue, item);
+    TX_ITEM* pstTxItem = calloc(1, sizeof(TX_ITEM));
+    pstTxItem->eDest = TX_TO_UDS_ALL;
+    pstTxItem->tLen  = (size_t)iLength;
+    memcpy(pstTxItem->auchBuf, puchData, pstTxItem->tLen);
+    txQueuePush(&pstDispCtx->stTxQueue, pstTxItem);
 
     /* Flush 이벤트 트리거 */
-    event_active(pstDisp->pstFlushEvent, 0, 0);
+    event_active(pstDispCtx->pstFlushEvent, 0, 0);
 
     fprintf(stderr, "[Dispatcher] ReqId=%u broadcast to %d UDS\n",
-            pstReq->unRequestId, pstReq->iPendingUds);
+        pstReqCtx->unRequestId, pstReqCtx->iPendingUds);
 }
 
-void dispatcherOnUdsResponse(DISPATCHER_CONTEXT* pstDisp,
+void dispatcherOnUdsResponse(DISPATCHER_CONTEXT* pstDispCtx,
                              SOCK_CONTEXT* pstUdsSock,
-                             const unsigned char* data,
-                             int len)
+                             const unsigned char* puchData,
+                             int iLength)
 {
     (void)pstUdsSock;
 
     /* 가장 단순한 정책: "pendingUds > 0"인 첫 요청에 붙인다 */
-    REQUEST_CONTEXT* pstReq = pstDisp->pstReqList;
-    while (pstReq) {
-        if (pstReq->iPendingUds > 0)
+    REQUEST_CONTEXT* pstReqCtx = pstDispCtx->pstReqList;
+    while (pstReqCtx) {
+        if (pstReqCtx->iPendingUds > 0)
             break;
-        pstReq = pstReq->pstNext;
+        pstReqCtx = pstReqCtx->pstNext;
     }
-    if (!pstReq) {
+    if (!pstReqCtx) {
         fprintf(stderr, "[Dispatcher] No pending requests.\n");
         return;
     }
 
-    if (pstReq->iRespLen + len <= (int)sizeof(pstReq->auchRespBuf)) {
-        memcpy(pstReq->auchRespBuf + pstReq->iRespLen, data, len);
-        pstReq->iRespLen += len;
+    if (pstReqCtx->iRespLen + iLength <= (int)sizeof(pstReqCtx->auchRespBuf)) {
+        memcpy(pstReqCtx->auchRespBuf + pstReqCtx->iRespLen, puchData, iLength);
+        pstReqCtx->iRespLen += iLength;
     } else {
         fprintf(stderr, "[Dispatcher] RespBuf overflow, trunc.\n");
     }
 
-    pstReq->iPendingUds--;
+    pstReqCtx->iPendingUds--;
     fprintf(stderr, "[Dispatcher] ReqId=%u pending=%d\n",
-            pstReq->unRequestId, pstReq->iPendingUds);
+        pstReqCtx->unRequestId, pstReqCtx->iPendingUds);
 
-    if (pstReq->iPendingUds <= 0) {
+    if (pstReqCtx->iPendingUds <= 0) {
         /* 타임아웃 이벤트 해제 */
-        if (pstReq->pstTimeoutEvent) {
-            evtimer_del(pstReq->pstTimeoutEvent);
-            event_free(pstReq->pstTimeoutEvent);
-            pstReq->pstTimeoutEvent = NULL;
+        if (pstReqCtx->pstTimeoutEvent) {
+            evtimer_del(pstReqCtx->pstTimeoutEvent);
+            event_free(pstReqCtx->pstTimeoutEvent);
+            pstReqCtx->pstTimeoutEvent = NULL;
         }
 
         /* TCP ONE 전송을 TxQueue에 enqueue */
-        TX_ITEM* item = calloc(1, sizeof(TX_ITEM));
-        item->eDest    = TX_TO_TCP_ONE;
-        item->pstTarget = pstReq->pstTcpRequester;
-        item->tLen     = (size_t)pstReq->iRespLen;
-        memcpy(item->auchBuf, pstReq->auchRespBuf, item->tLen);
-        txQueuePush(&pstDisp->stTxQueue, item);
+        TX_ITEM* pstTxItem = calloc(1, sizeof(TX_ITEM));
+        pstTxItem->eDest    = TX_TO_TCP_ONE;
+        pstTxItem->pstTarget = pstReqCtx->pstTcpRequester;
+        pstTxItem->tLen     = (size_t)pstReqCtx->iRespLen;
+        memcpy(pstTxItem->auchBuf, pstReqCtx->auchRespBuf, pstTxItem->tLen);
+        txQueuePush(&pstDispCtx->stTxQueue, pstTxItem);
 
-        event_active(pstDisp->pstFlushEvent, 0, 0);
+        event_active(pstDispCtx->pstFlushEvent, 0, 0);
 
         /* 요청 제거 */
-        removeRequest(pstDisp, pstReq);
-        free(pstReq);
+        removeRequest(pstDispCtx, pstReqCtx);
+        free(pstReqCtx);
     }
 }
 
-void dispatcherCleanup(DISPATCHER_CONTEXT* pstDisp)
+void dispatcherCleanup(DISPATCHER_CONTEXT* pstDispCtx)
 {
-    REQUEST_CONTEXT* pstCur = pstDisp->pstReqList;
-    while (pstCur) {
-        REQUEST_CONTEXT* pstNext = pstCur->pstNext;
-        if (pstCur->pstTimeoutEvent) {
-            evtimer_del(pstCur->pstTimeoutEvent);
-            event_free(pstCur->pstTimeoutEvent);
+    REQUEST_CONTEXT* pstReqCtx = pstDispCtx->pstReqList;
+    while (pstReqCtx) {
+        REQUEST_CONTEXT* pstNextReqCtx = pstReqCtx->pstNext;
+        if (pstReqCtx->pstTimeoutEvent) {
+            evtimer_del(pstReqCtx->pstTimeoutEvent);
+            event_free(pstReqCtx->pstTimeoutEvent);
         }
-        free(pstCur);
-        pstCur = pstNext;
+        free(pstReqCtx);
+        pstReqCtx = pstNextReqCtx;
     }
-    pstDisp->pstReqList = NULL;
+    pstDispCtx->pstReqList = NULL;
 
     /* TxQueue 내부 TX_ITEM free */
-    TX_ITEM* item;
-    while ((item = txQueuePop(&pstDisp->stTxQueue)) != NULL) {
-        free(item);
+    TX_ITEM* pstTxItem;
+    while ((pstTxItem = txQueuePop(&pstDispCtx->stTxQueue)) != NULL) {
+        free(pstTxItem);
     }
 
-    if (pstDisp->pstFlushEvent) {
-        event_free(pstDisp->pstFlushEvent);
-        pstDisp->pstFlushEvent = NULL;
+    if (pstDispCtx->pstFlushEvent) {
+        event_free(pstDispCtx->pstFlushEvent);
+        pstDispCtx->pstFlushEvent = NULL;
     }
 }
