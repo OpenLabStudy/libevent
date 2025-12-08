@@ -1,60 +1,69 @@
-/* dispatcher.h */
-
 #ifndef DISPATCHER_H
 #define DISPATCHER_H
 
-#include "eventSession.h"
-#include "txQueue.h"
-#include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
+#include <stdint.h>
+#include <event2/event.h>
+
+#include "txQueue.h"
+#include "eventSession.h"
+
+struct _REQUEST_CONTEXT;
 typedef struct _REQUEST_CONTEXT REQUEST_CONTEXT;
 
+/* ============================================================
+ * Request Context
+ * ============================================================ */
+struct _REQUEST_CONTEXT {
+    unsigned int    uiRequestId;
+    EVENT_SOURCE    *pstEventSrcReqest;
 
-/* Dispatcher 인스턴스 */
-typedef struct _DISPATCHER_CONTEXT
-{
-    BASE_CONTEXT*    pstBaseCtx;
-    SERVER_CONTEXT*  pstTcpServer;
-    SERVER_CONTEXT*  pstUdsServer;
+    int             iPending;
+    unsigned char   auchRespBuf[4096];
+    int             iRespLen;
 
-    REQUEST_CONTEXT* pstReqList;      /**< 요청 리스트 head */
+    struct event    *pstTimeoutEvent;
 
-    TX_QUEUE         stTxQueue;       /**< 전송 결정 큐 */
-    struct event*    pstFlushEvent;   /**< TxQueue flush 이벤트 */
-
-} DISPATCHER_CONTEXT;
-
-
-/* 요청 단위 컨텍스트 */
-struct _REQUEST_CONTEXT
-{
-    uint32_t         unRequestId;
-    SOCK_CONTEXT*    pstTcpRequester;
-
-    int              iPendingUds;
-    unsigned char    auchRespBuf[4096];
-    int              iRespLen;
-
-    struct event*    pstTimeoutEvent;  /**< 옵션: 타임아웃 관리 */
-
-    REQUEST_CONTEXT* pstNext;
+    REQUEST_CONTEXT *pstNext;
 };
 
-void dispatcherInit(DISPATCHER_CONTEXT* pstDispCtx,
-                    BASE_CONTEXT* pstBase,
-                    SERVER_CONTEXT* pstTcp,
-                    SERVER_CONTEXT* pstUds);
+/* ============================================================
+ * Dispatcher 구조체
+ * ============================================================ */
+typedef struct _DISPATCHER {
+    BASE_CONTEXT*    pstBaseCtx;
 
-void dispatcherOnTcpRequest(DISPATCHER_CONTEXT* pstDispCtx,
-                            SOCK_CONTEXT* pstTcpSock,
-                            const unsigned char* puchData,
-                            int iLength);
+    EVENT_SOURCE*    pstEventSrc;
+    REQUEST_CONTEXT* pstReqList;
 
-void dispatcherOnUdsResponse(DISPATCHER_CONTEXT* pstDispCtx,
-                             SOCK_CONTEXT* pstUdsSock,
-                             const unsigned char* puchData,
-                             int iLength);
+    TX_QUEUE         stTxQueue;
+    struct event*    pstFlushEvent;
 
-void dispatcherCleanup(DISPATCHER_CONTEXT* pstDispCtx);
+    /* <-- 전역변수 제거 후, 각 Dispatcher마다 독립적인 시퀀스 */
+    uint32_t         unReqSeq;
+
+} DISPATCHER;
+
+/* API */
+void dispatcherInit(DISPATCHER* pstDisp, BASE_CONTEXT* pstBase);
+void dispatcherCleanup(DISPATCHER* pstDisp);
+
+void dispatcherAttachSource(DISPATCHER* pstDisp, EVENT_SOURCE* pstSrc);
+void dispatcherDetachSource(DISPATCHER* pstDisp, EVENT_SOURCE* pstSrc);
+
+void dispatcherHandleRequest(DISPATCHER* pstDisp,
+                             EVENT_SOURCE* pstRequester,
+                             const unsigned char* data, int len);
+
+void dispatcherHandleWorkerResponse(DISPATCHER* pstDisp,
+                                    EVENT_SOURCE* pstWorker,
+                                    const unsigned char* data, int len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* DISPATCHER_H */

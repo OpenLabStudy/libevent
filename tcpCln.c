@@ -1,265 +1,147 @@
 /**
  * @file tcpCln.c
- * @brief Libevent 기반 TCP Client Application Layer (리팩토링 버전)
- *
- * BASE_CONTEXT + SOCK_CONTEXT 2레벨 구조 기반
- * - BASE_CONTEXT : event_base, signal, stdin 관리
- * - SOCK_CONTEXT : 서버와의 연결(bufferevent) 관리
+ * @brief EVENT_SOURCE + netTcp 기반 TCP Client (NO GLOBAL VARIABLES, stdin 이벤트 기반)
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-
-#include <event2/event.h>
-#include <event2/buffer.h>
-#include <event2/bufferevent.h>
-
-#include "netTcp.h"
-#include "netCore.h"
-#include "eventSession.h"
-#include "frame.h"
-#include "icdCommand.h"
-
-#define SERVER_IP   "127.0.0.1"
-#define SERVER_PORT 5000
-
-
-/* ========================================================================== */
-/* Static Function Prototypes                                                 */
-/* ========================================================================== */
-static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData);
-static void appEventCb(struct bufferevent* pstBufferEvent, short nEvents, void* pvData);
-static void stdinReadCb(evutil_socket_t fd, short nEvents, void* pvData);
-static void signalCb(evutil_socket_t sig, short events, void* pvData);
-
-
-/* ========================================================================== */
-/* Application Read Callback                                                  */
-/* ========================================================================== */
-static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData)
-{
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
-    if (!pstSockCtx)
-        return;
-
-    struct evbuffer* pstEvBuffer = bufferevent_get_input(pstBufferEvent);
-    size_t tDataLen = evbuffer_get_length(pstEvBuffer);
-
-    fprintf(stderr, "[TCP-Client] Received %zu bytes\n", tDataLen);
-
-    unsigned char* puchRecvData = malloc(tDataLen);
-    if (!puchRecvData)
-        return;
-
-    evbuffer_copyout(pstEvBuffer, puchRecvData, tDataLen);
-
-    MSG_ID stMsgId;
-    stMsgId.uchSrcId = pstSockCtx->uchSrcId;
-    stMsgId.uchDstId = pstSockCtx->uchDstId;
-
-    responseFrame(puchRecvData, &stMsgId, tDataLen);
-
-    evbuffer_drain(pstEvBuffer, tDataLen);
-    free(puchRecvData);
-}
-
-
-/* ========================================================================== */
-/* Application Event Callback                                                 */
-/* ========================================================================== */
-static void appEventCb(struct bufferevent* pstBufferEvent,
-                    short nEvents, void* pvData)
-{
-    (void)pstBufferEvent;
-
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
-    BASE_CONTEXT* pstBaseCtx = pstSockCtx->pstBaseCtx;
-
-    if (nEvents & BEV_EVENT_CONNECTED)
-        fprintf(stderr, "[TCP-Client] Connected to server.\n");
-
-    if (nEvents & BEV_EVENT_EOF) {
-        fprintf(stderr, "[TCP-Client] Server closed connection.\n");
-        shutdownApp(pstBaseCtx);
-    }
-
-    if (nEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[TCP-Client] Error: %s\n",
-                evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()));
-        shutdownApp(pstBaseCtx);
-    }
-}
-
-
-/* ========================================================================== */
-/* STDIN → Request Frame builder                                             */
-/* ========================================================================== */
-static void stdinReadCb(evutil_socket_t fd, short nEvents, void* pvData)
-{
-    (void)fd;
-    (void)nEvents;
-
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
-    BASE_CONTEXT* pstBaseCtx = pstSockCtx->pstBaseCtx;
-
-    char achInput[1024];
-    unsigned char auSendBuf[1024];
-    int iSendLen = 0;
-    FRAME_ERR eErr;
-
-    if (!fgets(achInput, sizeof(achInput), stdin)) {
-        shutdownApp(pstBaseCtx);
-        return;
-    }
-
-    achInput[strcspn(achInput, "\n")] = '\0';
-
-    MSG_ID stMsgId = { pstSockCtx->uchSrcId, TCP_SVR_ID };
-
-    if (!strcmp(achInput, "keepalive")) {
-        fprintf(stderr,"[Client] REQ_KEEP_ALIVE\n");
-        eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
-
-    } else if (!strcmp(achInput, "ibit")) {
-        fprintf(stderr,"[Client] REQ_IBIT\n");
-        eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
-
-    } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
-        shutdownApp(pstBaseCtx);
-        return;
-
-    } else {
-        fprintf(stderr, "Available commands:\n  keepalive\n  ibit\n  quit\n");
-        return;
-    }
-
-    if (eErr == FRAME_OK && iSendLen > 0)
-        bufferevent_write(pstSockCtx->pstBufferEvent, auSendBuf, (size_t)iSendLen);
-}
-
-
-/* ========================================================================== */
-/* SIGINT Handler                                                             */
-/* ========================================================================== */
-static void signalCb(evutil_socket_t sig, short events, void* pvData)
-{
-    (void)sig;
-    (void)events;
-
-    BASE_CONTEXT* pstBaseCtx = (BASE_CONTEXT*)pvData;
-    if (sig == SIGINT) {
-    fprintf(stderr, "\n[TCP-CLN] SIGINT received. Stopping event loop...\n");
-    shutdownApp(pstBaseCtx);
-}
-}
-
-
-/* ========================================================================== */
-/* Main Entry                                                                  */
-/* ========================================================================== */
-int run(void)
-{
-    BASE_CONTEXT stBaseCtx;
-    baseContextInit(&stBaseCtx, TCP_CLN_ID);  // ID 설정
-
-    /* ===== STEP 1: 서버 연결 ===== */
-    int iSockFd = netTcpCreateClient(SERVER_IP, SERVER_PORT);
-    if (iSockFd < 0) {
-        fprintf(stderr, "[TCP-Client] Failed to create/connect TCP\n");
-        return EXIT_FAILURE;
-    }
-
-    /* ===== STEP 2: event_base 생성 ===== */
-    stBaseCtx.pstEventBase = event_base_new();
-    if (!stBaseCtx.pstEventBase) {
-        fprintf(stderr, "[TCP-Client] event_base_new() failed\n");
-        return EXIT_FAILURE;
-    }
-
-    /* ===== STEP 3: SOCK_CONTEXT 생성 ===== */
-    SOCK_CONTEXT* pstSockCtx = calloc(1, sizeof(SOCK_CONTEXT));
-    if (!pstSockCtx) {
-        perror("calloc");
-        return EXIT_FAILURE;
-    }
-    initSocketContext(pstSockCtx, NULL, RESPONSE_ENABLED);
-    pstSockCtx->pstBaseCtx = &stBaseCtx;
-
-    pstSockCtx->pstBufferEvent =
-        bufferevent_socket_new(stBaseCtx.pstEventBase,
-                            iSockFd,
-                            BEV_OPT_CLOSE_ON_FREE);
-
-    if (!pstSockCtx->pstBufferEvent) {
-        fprintf(stderr, "[TCP-Client] bufferevent_socket_new() failed\n");
-        event_base_free(stBaseCtx.pstEventBase);
-        free(pstSockCtx);
-        return EXIT_FAILURE;
-    }
-
-    /* ===== STEP 4: Callback 등록 ===== */
-    bufferevent_setcb(pstSockCtx->pstBufferEvent,
-                    appReadCb,
-                    NULL,
-                    appEventCb,
-                    pstSockCtx);
-
-    bufferevent_enable(pstSockCtx->pstBufferEvent, EV_READ | EV_WRITE);
-
-
-    /* ===== STEP 5: STDIN 이벤트 등록 ===== */
-    stBaseCtx.pstEvent = event_new(stBaseCtx.pstEventBase,
-                                fileno(stdin),
-                                EV_READ | EV_PERSIST,
-                                stdinReadCb,
-                                pstSockCtx);
-    if (!stBaseCtx.pstEvent ||
-        event_add(stBaseCtx.pstEvent, NULL) < 0) {
-        fprintf(stderr, "[TCP-Client] stdin event_new/event_add failed\n");
-        return EXIT_FAILURE;
-    }
-
-    /* ===== STEP 6: SIGINT 등록 ===== */
-    stBaseCtx.pstSignalEvent = evsignal_new(stBaseCtx.pstEventBase,
-                                            SIGINT,
-                                            signalCb,
-                                            &stBaseCtx);
-    if (!stBaseCtx.pstSignalEvent ||
-        event_add(stBaseCtx.pstSignalEvent, NULL) < 0) {
-        fprintf(stderr, "[TCP-Client] evsignal_new/event_add failed\n");
-        return EXIT_FAILURE;
-    }  
-
-
-    fprintf(stderr, "[TCP-Client] Connecting to %s:%d ...\n",
-            SERVER_IP, SERVER_PORT);
-
-    /* ===== STEP 7: 이벤트 루프 ===== */
-    event_base_dispatch(stBaseCtx.pstEventBase);
-
-    /* ===== STEP 8: Cleanup ===== */
-    closeAndFree(pstSockCtx);
-
-    if (stBaseCtx.pstSignalEvent)
-        event_free(stBaseCtx.pstSignalEvent);
-
-    if (stBaseCtx.pstEvent)
-        event_free(stBaseCtx.pstEvent);
-
-    if (stBaseCtx.pstEventBase)
-        event_base_free(stBaseCtx.pstEventBase);
-
-    return EXIT_SUCCESS;
-}
-
-
-#ifndef GOOGLE_TEST
-int main(int argc, char** argv)
-{
-    (void)argc; (void)argv;
-    return run();
-}
-#endif
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+ 
+ #include <event2/event.h>
+ 
+ #include "eventSource.h"
+ #include "dispatcher.h"
+ #include "eventSession.h"
+ #include "netTcp.h"
+ #include "netCore.h"
+ 
+ /* ============================================================
+  * 서버 → 클라이언트 수신 콜백
+  * ============================================================ */
+ static void srvReadCb(EVENT_SOURCE* src,
+                       const unsigned char* buf,
+                       int len)
+ {
+     printf("[CLI] Recv (%d bytes): ", len);
+     fwrite(buf, 1, len, stdout);
+     printf("\n");
+ }
+ 
+ /* ============================================================
+  * 서버 이벤트 콜백 (EOF / ERROR)
+  * ============================================================ */
+ static void srvEventCb(EVENT_SOURCE* src, short ev)
+ {
+     if (ev & BEV_EVENT_EOF)
+         printf("[CLI] Server closed connection.\n");
+     else if (ev & BEV_EVENT_ERROR)
+         printf("[CLI] Socket error.\n");
+ 
+     eventSourceDestroy(src);
+ }
+ 
+ /* ============================================================
+  * stdin 이벤트 콜백
+  * ============================================================ */
+ static void stdinReadCb(evutil_socket_t fd, short what, void* arg)
+ {
+     (void)what;
+     EVENT_SOURCE* src = (EVENT_SOURCE*)arg;
+     char buf[256];
+ 
+     ssize_t n = read(fd, buf, sizeof(buf));
+     if (n > 0) {
+         // 입력한 내용을 서버로 전송
+         // 개행 포함해서 그대로 보냄
+         // 필요하면 '\n' 처리 여기서 해도 됨
+         fprintf(stderr, "[CLI] stdin %zd bytes → send\n", n);
+         bufferevent_write(src->pstBev, buf, (int)n);
+     } else if (n == 0) {
+         // stdin EOF (Ctrl+D 등)
+         printf("[CLI] stdin EOF. (no more input)\n");
+         // 여기서 바로 loopexit 할지, 서버 종료까지 대기할지 선택 가능
+         // 일단은 아무것도 안 하고 리턴만
+     } else {
+         perror("[CLI] read(stdin)");
+     }
+ }
+ 
+ /* ============================================================
+  * main()
+  * ============================================================ */
+ int main()
+ {
+     /* ------------------- */
+     /* BASE_CONTEXT 생성   */
+     /* ------------------- */
+     BASE_CONTEXT stBaseCtx;
+     baseContextInit(&stBaseCtx, 0x55);
+ 
+     stBaseCtx.pstEventBase = event_base_new();
+     if (!stBaseCtx.pstEventBase) {
+         printf("[CLI] event_base_new failed\n");
+         return -1;
+     }
+ 
+     /* ------------------- */
+     /* TCP 연결            */
+     /* ------------------- */
+     int iFd = netTcpCreateClient("127.0.0.1", 5000);
+     if (iFd < 0) {
+         perror("netTcpCreateClient");
+         event_base_free(stBaseCtx.pstEventBase);
+         return -1;
+     }
+ 
+     printf("[CLI] Connecting to 127.0.0.1:5000...\n");
+ 
+     /* ------------------- */
+     /* EVENT_SOURCE 생성   */
+     /* ------------------- */
+     EVENT_SOURCE* src = eventSourceCreateBevStandalone(
+         stBaseCtx.pstEventBase,
+         iFd,
+         SRC_TYPE_TCP_CLIENT,
+         srvReadCb,
+         srvEventCb);
+ 
+     if (!src) {
+         printf("[CLI] eventSourceCreateBevStandalone failed\n");
+         netClose(iFd);
+         event_base_free(stBaseCtx.pstEventBase);
+         return -1;
+     }
+ 
+     /* ------------------- */
+     /* stdin 이벤트 등록   */
+     /* ------------------- */
+     struct event* evStdin = event_new(
+         stBaseCtx.pstEventBase,
+         STDIN_FILENO,
+         EV_READ | EV_PERSIST,
+         stdinReadCb,
+         src);  // arg로 EVENT_SOURCE 전달
+ 
+     if (!evStdin) {
+         printf("[CLI] evStdin create failed\n");
+         eventSourceDestroy(src);
+         event_base_free(stBaseCtx.pstEventBase);
+         return -1;
+     }
+ 
+     event_add(evStdin, NULL);
+ 
+     /* ------------------- */
+     /* 이벤트 루프 실행    */
+     /* ------------------- */
+     event_base_dispatch(stBaseCtx.pstEventBase);
+ 
+     /* clean-up */
+     event_free(evStdin);
+     baseContextCleanup(&stBaseCtx);
+     event_base_free(stBaseCtx.pstEventBase);
+ 
+     return 0;
+ }
  

@@ -1,41 +1,52 @@
-/* txQueue.h */
-
 #ifndef TX_QUEUE_H
 #define TX_QUEUE_H
 
-#include "eventSession.h"
-#include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
-typedef enum {
-    TX_TO_TCP_ONE,
-    TX_TO_TCP_ALL,
-    TX_TO_UDS_ONE,
-    TX_TO_UDS_ALL
-} TX_DEST;
+/* 전방 선언 */
+struct _EVENT_SOURCE;
+typedef struct _EVENT_SOURCE EVENT_SOURCE;
 
-typedef struct _TX_ITEM
-{
-    TX_DEST         eDest;
-    SOCK_CONTEXT*   pstTarget;          /**< TX_TO_*_ONE 일 때 대상 */
-    size_t          tLen;
-    unsigned char   auchBuf[2048];
+/**
+ * @brief 단일 송신 노드
+ */
+typedef struct _TX_NODE {
+    EVENT_SOURCE* src;
+    int           len;
+    unsigned char data[4096];
 
-    struct _TX_ITEM* pstNext;
-} TX_ITEM;
+    struct _TX_NODE* next;
+} TX_NODE;
 
-typedef struct _TX_QUEUE
-{
-    TX_ITEM* pstHead;
-    TX_ITEM* pstTail;
+/**
+ * @brief 송신 큐
+ */
+typedef struct _TX_QUEUE {
+    TX_NODE* head;
+    TX_NODE* tail;
 } TX_QUEUE;
 
-static inline void txQueueInit(TX_QUEUE* q)
-{
-    q->pstHead = q->pstTail = NULL;
-}
+void txQueueInit(TX_QUEUE* q);
+void txQueueClear(TX_QUEUE* q);
 
-void txQueuePush(TX_QUEUE* q, TX_ITEM* item);
-TX_ITEM* txQueuePop(TX_QUEUE* q);
+/**
+ * @brief 송신 노드 push
+ */
+void txQueuePush(TX_QUEUE* q, EVENT_SOURCE* src,
+                 const unsigned char* data, int len);
+
+/**
+ * @brief 한 노드 pop (없으면 -1 리턴)
+ */
+int txQueuePop(TX_QUEUE* q, EVENT_SOURCE** pSrc,
+               unsigned char* buf, int bufSize);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TX_QUEUE_H */
