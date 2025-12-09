@@ -109,8 +109,8 @@ static void dispatcherFlushCb(evutil_socket_t fd, short what, void* pvArg)
     while ((iLen = txQueuePop(&pstDispatcher->stTxQueue, 
         &pstEventDst, auchBuffer, sizeof(auchBuffer))) > 0) {
 
-        if (pstEventDst->pstBev)
-            bufferevent_write(pstEventDst->pstBev, auchBuffer, iLen);
+        if (pstEventDst->pstBufferEvent)
+            bufferevent_write(pstEventDst->pstBufferEvent, auchBuffer, iLen);
 
         else if (pstEventDst->iFd >= 0)
             if(write(pstEventDst->iFd, auchBuffer, iLen) != iLen){
@@ -178,8 +178,8 @@ void dispatcherHandleRequest(DISPATCHER* pstDispatcher,
 
     pstCurrEventSrc = pstDispatcher->pstEventSrc;
     for (; pstCurrEventSrc; pstCurrEventSrc = pstCurrEventSrc->pstNext) {
-        if (pstCurrEventSrc->eRole == SRC_ROLE_WORKER && pstCurrEventSrc->pstBev)
-            bufferevent_write(pstCurrEventSrc->pstBev, uchPacket, iLen + 4);
+        if (pstCurrEventSrc->eRole == SRC_ROLE_WORKER && pstCurrEventSrc->pstBufferEvent)
+            bufferevent_write(pstCurrEventSrc->pstBufferEvent, uchPacket, iLen + 4);
     }
 
     printf("[DISP] RequestId=%u broadcast (workers=%d)\n", uiReqId, iWorkersCnt);

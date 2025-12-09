@@ -12,34 +12,50 @@
  
  #include "eventSource.h"
  #include "dispatcher.h"
- #include "eventSession.h"
  #include "netTcp.h"
  #include "netCore.h"
  
  /* ============================================================
   * 서버 → 클라이언트 수신 콜백
   * ============================================================ */
- static void srvReadCb(EVENT_SOURCE* src,
-                       const unsigned char* buf,
-                       int len)
- {
-     printf("[CLI] Recv (%d bytes): ", len);
-     fwrite(buf, 1, len, stdout);
-     printf("\n");
- }
+static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
+{
+    unsigned char auchRecvBuffer[2048];
+    struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
+    while (1) {
+        size_t tRecvLen = evbuffer_get_length(pstInputBuffer);
+        fprintf(stderr,"### %s():%d %zu###\n",__func__,__LINE__, tRecvLen);        
+        if (tRecvLen <= 0)
+            break;
+            
+        int iCopyLen   = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, tRecvLen);
+        evbuffer_drain(pstInputBuffer, iCopyLen);
+        fprintf(stderr,"### %s():%d read %s###\n",__func__,__LINE__,auchRecvBuffer);
+    }
+}
  
  /* ============================================================
   * 서버 이벤트 콜백 (EOF / ERROR)
   * ============================================================ */
- static void srvEventCb(EVENT_SOURCE* src, short ev)
- {
-     if (ev & BEV_EVENT_EOF)
-         printf("[CLI] Server closed connection.\n");
-     else if (ev & BEV_EVENT_ERROR)
-         printf("[CLI] Socket error.\n");
- 
-     eventSourceDestroy(src);
- }
+static void eventCallback(struct bufferevent* pstBufferEvent,
+    short nEvents, void* pvData)
+{
+    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
+    (void)pstBufferEvent;
+
+    if (nEvents & BEV_EVENT_EOF) {
+        fprintf(stderr, "[TCP-Client] Server disconnected\n");
+    } else if (nEvents & BEV_EVENT_ERROR) {
+        fprintf(stderr, "[TCP-Client] Client socket error\n");
+    }
+
+    /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
+    eventSourceDestroy(pstEventSrc);
+    /* 이벤트 루프 종료 지시 */
+    
+    if (pstEventSrc->pstDispatcher->pstBaseCtx->pstEventBase)
+        event_base_loopexit(pstEventSrc->pstDispatcher->pstBaseCtx->pstEventBase, NULL);
+}
  
  /* ============================================================
   * stdin 이벤트 콜백
@@ -52,16 +68,10 @@
  
      ssize_t n = read(fd, buf, sizeof(buf));
      if (n > 0) {
-         // 입력한 내용을 서버로 전송
-         // 개행 포함해서 그대로 보냄
-         // 필요하면 '\n' 처리 여기서 해도 됨
          fprintf(stderr, "[CLI] stdin %zd bytes → send\n", n);
-         bufferevent_write(src->pstBev, buf, (int)n);
+         bufferevent_write(src->pstBufferEvent, buf, (int)n);
      } else if (n == 0) {
-         // stdin EOF (Ctrl+D 등)
          printf("[CLI] stdin EOF. (no more input)\n");
-         // 여기서 바로 loopexit 할지, 서버 종료까지 대기할지 선택 가능
-         // 일단은 아무것도 안 하고 리턴만
      } else {
          perror("[CLI] read(stdin)");
      }
@@ -99,14 +109,14 @@
      /* ------------------- */
      /* EVENT_SOURCE 생성   */
      /* ------------------- */
-     EVENT_SOURCE* src = eventSourceCreateBevStandalone(
+     EVENT_SOURCE* pstEventSrc = eventSourceCreateBevStandalone(
          stBaseCtx.pstEventBase,
          iFd,
          SRC_TYPE_TCP_CLIENT,
-         srvReadCb,
-         srvEventCb);
+         readCallback,
+         eventCallback);
  
-     if (!src) {
+     if (!pstEventSrc) {
          printf("[CLI] eventSourceCreateBevStandalone failed\n");
          netClose(iFd);
          event_base_free(stBaseCtx.pstEventBase);
@@ -121,11 +131,11 @@
          STDIN_FILENO,
          EV_READ | EV_PERSIST,
          stdinReadCb,
-         src);  // arg로 EVENT_SOURCE 전달
+         pstEventSrc);  // arg로 EVENT_SOURCE 전달
  
      if (!evStdin) {
          printf("[CLI] evStdin create failed\n");
-         eventSourceDestroy(src);
+         eventSourceDestroy(pstEventSrc);
          event_base_free(stBaseCtx.pstEventBase);
          return -1;
      }

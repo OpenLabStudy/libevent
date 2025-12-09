@@ -7,63 +7,31 @@
 #include <errno.h>
 #include <stdio.h>
 
-/* --------------------------------------------------------- */
-/* bufferevent read/event 래퍼                               */
-/* --------------------------------------------------------- */
-// static void bevReadCb(struct bufferevent* pstBufferEvent, void* pvArg)
-// {
-//     fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
-//     EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE*)pvArg;
-//     if (!pstEventSrc || !pstEventSrc->pfOnRead)
-//         return;
-//         fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
-//     unsigned char auchBuffer[2048];
-//     int iLen = bufferevent_read(pstBufferEvent, auchBuffer, sizeof(auchBuffer));
-//     if (iLen > 0) {
-//         fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
-//         pstEventSrc->pfOnRead(pstEventSrc, auchBuffer, iLen);
-//     }
-//     fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
-// }
+void baseContextInit(BASE_CONTEXT* pstCtx, uint16_t usMyId)
+{
+    if (!pstCtx)
+        return;
+    memset(pstCtx, 0, sizeof(BASE_CONTEXT));
+    pstCtx->usMyId = usMyId;
+}
 
-// static void bevEventCb(struct bufferevent* pstBufferEvent, short nKindOfEvent, void* pvArg)
-// {
-//     (void)pstBufferEvent;
-//     EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE*)pvArg;
-//     if (!pstEventSrc || !pstEventSrc->pfOnEvent)
-//         return;
+void baseContextCleanup(BASE_CONTEXT* pstCtx)
+{
+    if (!pstCtx)
+        return;
 
-//     pstEventSrc->pfOnEvent(pstEventSrc, nKindOfEvent);
-// }
+    if (pstCtx->pstSignalEvent) {
+        event_free(pstCtx->pstSignalEvent);
+        pstCtx->pstSignalEvent = NULL;
+    }
+    if (pstCtx->pstMainTimer) {
+        event_free(pstCtx->pstMainTimer);
+        pstCtx->pstMainTimer = NULL;
+    }
 
-// /* --------------------------------------------------------- */
-// /* raw FD 이벤트 콜백                                        */
-// /* --------------------------------------------------------- */
-// static void rawFdEventCb(evutil_socket_t iFd, short nKindOfEvent, void* pvArg)
-// {
-//     EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE*)pvArg;
-//     if (!pstEventSrc) 
-//         return;
-
-//     if (nKindOfEvent & EV_READ) {
-//         if (!pstEventSrc->pfOnRead)
-//             return;
-
-//         unsigned char auchBuffer[2048];
-//         int iLen = (int)read(iFd, auchBuffer, sizeof(auchBuffer));
-//         if (iLen > 0) {
-//             pstEventSrc->pfOnRead(pstEventSrc, auchBuffer, iLen);
-//         } else if (iLen == 0) { /* EOF */
-//             if (pstEventSrc->pfOnEvent)
-//                 pstEventSrc->pfOnEvent(pstEventSrc, BEV_EVENT_EOF);
-//         } else {
-//             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-//                 if (pstEventSrc->pfOnEvent)
-//                     pstEventSrc->pfOnEvent(pstEventSrc, BEV_EVENT_ERROR);
-//             }
-//         }
-//     }
-// }
+    /* pstEventBase는 main()에서 event_base_free() */
+    pstCtx->pstEventBase = NULL;
+}
 
 /* --------------------------------------------------------- */
 /* bufferevent 기반 EVENT_SOURCE 생성                        */
@@ -73,8 +41,8 @@ EVENT_SOURCE* eventSourceCreateWithBev(
     int         iFd,
     SRC_TYPE    eType,
     SRC_ROLE    eRole,
-    ES_READ_CB  pfRead,
-    ES_EVENT_CB pfEvent)
+    bufferevent_data_cb  pfRead,
+    bufferevent_event_cb pfEvent)
 {
     if (!pstDispatcher || !pstDispatcher->pstBaseCtx ||
         !pstDispatcher->pstBaseCtx->pstEventBase)
@@ -92,17 +60,17 @@ EVENT_SOURCE* eventSourceCreateWithBev(
     pstEventSrc->eRole      = eRole;
     pstEventSrc->pstDispatcher = pstDispatcher;
 
-    pstEventSrc->pstBev = bufferevent_socket_new(
+    pstEventSrc->pstBufferEvent = bufferevent_socket_new(
         pstDispatcher->pstBaseCtx->pstEventBase,
         iFd,
         BEV_OPT_CLOSE_ON_FREE);
-    if (!pstEventSrc->pstBev) {
+    if (!pstEventSrc->pstBufferEvent) {
         free(pstEventSrc);
         return NULL;
     }
 
-    bufferevent_setcb(pstEventSrc->pstBev, pfRead, NULL, pfEvent, pstEventSrc);
-    bufferevent_enable(pstEventSrc->pstBev, EV_READ | EV_WRITE);
+    bufferevent_setcb(pstEventSrc->pstBufferEvent, pfRead, NULL, pfEvent, pstEventSrc);
+    bufferevent_enable(pstEventSrc->pstBufferEvent, EV_READ | EV_WRITE);
 
     dispatcherAttachSource(pstDispatcher, pstEventSrc);
 
@@ -114,8 +82,8 @@ EVENT_SOURCE* eventSourceCreateBevStandalone(
     struct event_base* base,
     int                fd,
     SRC_TYPE           eType,
-    ES_READ_CB         pfRead,
-    ES_EVENT_CB        pfEvent)
+    bufferevent_data_cb         pfRead,
+    bufferevent_event_cb        pfEvent)
 {
     if (!base) 
         return NULL;
@@ -129,17 +97,17 @@ EVENT_SOURCE* eventSourceCreateBevStandalone(
     pstEventSrc->eRole     = SRC_ROLE_NONE;
     pstEventSrc->pstDispatcher = NULL; /* 중요 */
 
-    pstEventSrc->pstBev = bufferevent_socket_new(
+    pstEventSrc->pstBufferEvent = bufferevent_socket_new(
         base,
         fd,
         BEV_OPT_CLOSE_ON_FREE);
-    if (!pstEventSrc->pstBev) {
+    if (!pstEventSrc->pstBufferEvent) {
         free(pstEventSrc);
         return NULL;
     }
 
-    bufferevent_setcb(pstEventSrc->pstBev, pfRead, NULL, pfEvent, pstEventSrc);
-    bufferevent_enable(pstEventSrc->pstBev, EV_READ | EV_WRITE);
+    bufferevent_setcb(pstEventSrc->pstBufferEvent, pfRead, NULL, pfEvent, pstEventSrc);
+    bufferevent_enable(pstEventSrc->pstBufferEvent, EV_READ | EV_WRITE);
 
     return pstEventSrc; /* Dispatcher에 attach 하지 않음 */
 }
@@ -153,8 +121,7 @@ EVENT_SOURCE* eventSourceCreateWithFd(
     int         iFd,
     SRC_TYPE    eType,
     SRC_ROLE    eRole,
-    ES_READ_CB  pfRead,
-    ES_EVENT_CB pfEvent)
+    event_callback_fn pfEvent)
 {
     if (!pstDispatcher || !pstDispatcher->pstBaseCtx ||
         !pstDispatcher->pstBaseCtx->pstEventBase)
@@ -169,11 +136,12 @@ EVENT_SOURCE* eventSourceCreateWithFd(
     pstEventSrc->eRole          = eRole;
     pstEventSrc->pstDispatcher  = pstDispatcher;
 
+    struct event *event_new(struct event_base *, evutil_socket_t, short, event_callback_fn, void *);
     pstEventSrc->pstEvent = event_new(
         pstDispatcher->pstBaseCtx->pstEventBase,
         iFd,
         EV_READ | EV_PERSIST,
-        pfRead,
+        pfEvent,
         pstEventSrc);
     if (!pstEventSrc->pstEvent) {
         free(pstEventSrc);
@@ -196,9 +164,9 @@ void eventSourceDestroy(EVENT_SOURCE* pstEventSrc)
     if (pstEventSrc->pstDispatcher)
         dispatcherDetachSource(pstEventSrc->pstDispatcher, pstEventSrc);
 
-    if (pstEventSrc->pstBev) {
-        bufferevent_free(pstEventSrc->pstBev);
-        pstEventSrc->pstBev = NULL;
+    if (pstEventSrc->pstBufferEvent) {
+        bufferevent_free(pstEventSrc->pstBufferEvent);
+        pstEventSrc->pstBufferEvent = NULL;
         /* fd는 BEV_OPT_CLOSE_ON_FREE로 닫힘 */
         pstEventSrc->iFd = -1;
     }

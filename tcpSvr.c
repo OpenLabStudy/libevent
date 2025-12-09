@@ -10,11 +10,8 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "eventSession.h"
 #include "dispatcher.h"
-#include "eventSource.h"
-#include "netTcp.h"
-#include "netCore.h"
+#include "tcpSvr.h"
 
 #define SERVER_PORT 5000
 
@@ -22,13 +19,14 @@
 /* Application-Level Read Processing                                          */
 /* ========================================================================== */
 
-void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
+static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
     unsigned char auchRecvBuffer[2048];
+    memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
     while (1) {
         size_t tRecvLen = evbuffer_get_length(pstInputBuffer);
-        fprintf(stderr,"### %s():%d %d###\n",__func__,__LINE__, tRecvLen);        
+        fprintf(stderr,"### %s():%d %zu###\n",__func__,__LINE__, tRecvLen);        
         if (tRecvLen <= 0)
             break;
             
@@ -41,7 +39,7 @@ void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 /* ========================================================================== */
 /* Application-Level Event Callback                                           */
 /* ========================================================================== */
-void eventCallback(struct bufferevent* pstBufferEvent,
+static void eventCallback(struct bufferevent* pstBufferEvent,
     short nEvents, void* pvData)
 {
     EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
