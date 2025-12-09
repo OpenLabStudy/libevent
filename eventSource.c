@@ -37,16 +37,12 @@ void baseContextCleanup(BASE_CONTEXT* pstCtx)
 /* bufferevent 기반 EVENT_SOURCE 생성                        */
 /* --------------------------------------------------------- */
 EVENT_SOURCE* eventSourceCreateWithBev(
-    DISPATCHER* pstDispatcher,
-    int         iFd,
-    SRC_TYPE    eType,
-    SRC_ROLE    eRole,
-    bufferevent_data_cb  pfRead,
-    bufferevent_event_cb pfEvent)
+    DISPATCHER* pstDispatcher, int iFd,
+    SRC_TYPE eType, SRC_ROLE eRole,
+    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent)
 {
     if (!pstDispatcher || !pstDispatcher->pstBaseCtx ||
-        !pstDispatcher->pstBaseCtx->pstEventBase)
-    {
+        !pstDispatcher->pstBaseCtx->pstEventBase){
         fprintf(stderr, "[eventSource] Dispatcher is NULL\n");
         return NULL;
     }
@@ -55,22 +51,26 @@ EVENT_SOURCE* eventSourceCreateWithBev(
     if (!pstEventSrc) 
         return NULL;
 
-    pstEventSrc->iFd        = iFd;
-    pstEventSrc->eType      = eType;
-    pstEventSrc->eRole      = eRole;
-    pstEventSrc->pstDispatcher = pstDispatcher;
+    pstEventSrc->iFd            = iFd;
+    pstEventSrc->eType          = eType;
+    pstEventSrc->eRole          = eRole;
+    pstEventSrc->pstDispatcher  = pstDispatcher;
 
     pstEventSrc->pstBufferEvent = bufferevent_socket_new(
-        pstDispatcher->pstBaseCtx->pstEventBase,
-        iFd,
-        BEV_OPT_CLOSE_ON_FREE);
+        pstDispatcher->pstBaseCtx->pstEventBase, 
+        iFd, BEV_OPT_CLOSE_ON_FREE);
     if (!pstEventSrc->pstBufferEvent) {
         free(pstEventSrc);
         return NULL;
     }
 
-    bufferevent_setcb(pstEventSrc->pstBufferEvent, pfRead, NULL, pfEvent, pstEventSrc);
-    bufferevent_enable(pstEventSrc->pstBufferEvent, EV_READ | EV_WRITE);
+    bufferevent_setcb(pstEventSrc->pstBufferEvent, 
+        pfRead, 
+        NULL, 
+        pfEvent, 
+        pstEventSrc);
+    bufferevent_enable(pstEventSrc->pstBufferEvent, 
+        EV_READ | EV_WRITE);
 
     dispatcherAttachSource(pstDispatcher, pstEventSrc);
 

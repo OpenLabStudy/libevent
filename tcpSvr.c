@@ -18,19 +18,18 @@
 /* ========================================================================== */
 /* Application-Level Read Processing                                          */
 /* ========================================================================== */
-
 static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
     unsigned char auchRecvBuffer[2048];
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
     while (1) {
-        size_t tRecvLen = evbuffer_get_length(pstInputBuffer);
-        fprintf(stderr,"### %s():%d %zu###\n",__func__,__LINE__, tRecvLen);        
-        if (tRecvLen <= 0)
+        size_t ulRecvLen = evbuffer_get_length(pstInputBuffer);
+        fprintf(stderr,"### %s():%d %zu###\n",__func__,__LINE__, ulRecvLen);        
+        if (ulRecvLen <= 0)
             break;
             
-        int iCopyLen   = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, tRecvLen);
+        int iCopyLen   = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, ulRecvLen);
         evbuffer_drain(pstInputBuffer, iCopyLen);
         fprintf(stderr,"### %s():%d read %s###\n",__func__,__LINE__,auchRecvBuffer);
     }
@@ -46,9 +45,9 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
     (void)pstBufferEvent;
 
     if (nEvents & BEV_EVENT_EOF) {
-    fprintf(stderr, "[TCP-Server] Client disconnected\n");
+        fprintf(stderr, "[TCP-Server] Client disconnected\n");
     } else if (nEvents & BEV_EVENT_ERROR) {
-    fprintf(stderr, "[TCP-Server] Client socket error\n");
+        fprintf(stderr, "[TCP-Server] Client socket error\n");
     }
 
     /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
@@ -64,10 +63,10 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
     BASE_CONTEXT* pstBaseCtx = (BASE_CONTEXT*)pvArg;
     DISPATCHER* pstDispatcher  = (DISPATCHER*)pstBaseCtx->pvUserCtx;
 
-    struct sockaddr_in cliaddr;
-    socklen_t clilen = sizeof(cliaddr);
+    struct sockaddr_in stClientAddr;
+    socklen_t uiClientLen = sizeof(stClientAddr);
 
-    int iClientSock = accept(iListenFd, (struct sockaddr*)&cliaddr, &clilen);
+    int iClientSock = accept(iListenFd, (struct sockaddr*)&stClientAddr, &uiClientLen);
     if (iClientSock < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
             perror("[TCP-SVR] accept");
@@ -120,8 +119,8 @@ int main()
     stBaseCtx.pvUserCtx = &stDispatcher;
 
     /* TCP Listen 소켓 생성 */
-    int listenFd = netTcpCreateServer(SERVER_PORT);
-    if (listenFd < 0) {
+    int iListenFd = netTcpCreateServer(SERVER_PORT);
+    if (iListenFd < 0) {
         perror("netTcpCreateServer");
         return -1;
     }
@@ -129,17 +128,15 @@ int main()
     printf("[TCP-SVR] Listening on port %d\n", SERVER_PORT);
 
     /* Accept 이벤트 등록 */
-    struct event* evAccept =
-        event_new(stBaseCtx.pstEventBase, listenFd, EV_READ | EV_PERSIST,
-                acceptCb, &stBaseCtx);
-    event_add(evAccept, NULL);
+    struct event* stEventAccept = event_new(
+            stBaseCtx.pstEventBase, iListenFd, 
+            EV_READ | EV_PERSIST, acceptCb, &stBaseCtx);
+    event_add(stEventAccept, NULL);
 
     /* SIGINT 처리 등록 */
     stBaseCtx.pstSignalEvent = evsignal_new(
-    stBaseCtx.pstEventBase,
-        SIGINT,
-        signalCb,
-        &stBaseCtx);
+        stBaseCtx.pstEventBase, SIGINT,
+        signalCb, &stBaseCtx);
     event_add(stBaseCtx.pstSignalEvent, NULL);
 
     /* 이벤트 루프 시작 */
@@ -149,8 +146,8 @@ int main()
     dispatcherCleanup(&stDispatcher);
     baseContextCleanup(&stBaseCtx);
 
-    event_free(evAccept);
-    netClose(listenFd);
+    event_free(stEventAccept);
+    netClose(iListenFd);
     event_base_free(stBaseCtx.pstEventBase);
 
     printf("[TCP-SVR] Terminated.\n");
