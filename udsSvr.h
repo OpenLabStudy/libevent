@@ -17,7 +17,7 @@
  
  #include "netUds.h"
  #include "netCore.h"
- #include "eventSession.h"
+ #include "eventSource.h"
  #include "frame.h"
  
  #ifdef __cplusplus

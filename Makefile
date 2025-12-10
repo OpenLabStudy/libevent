@@ -19,7 +19,7 @@ FRAME2_OBJS = dispatcher.o txQueue.o eventSource.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln #udsSvr udsCln tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: tcpSvr tcpCln udsSvr udsCln # tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 tcpUdsSvr: tcpUdsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
@@ -31,16 +31,16 @@ tcpUdsSvr.o: tcpUdsSvr.c $(HDRS1) $(HDRS2)
 
 
 
-udsSvr: udsSvr.o $(FRAME1_OBJS)
+udsSvr: udsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-udsCln: udsCln.o $(FRAME1_OBJS)
+udsCln: udsCln.o $(FRAME1_OBJS) $(FRAME2_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-udsSvr.o: udsSvr.c $(HDRS1)
+udsSvr.o: udsSvr.c $(HDRS1) $(HDRS2)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-udsCln.o: udsCln.c $(HDRS1)
+udsCln.o: udsCln.c $(HDRS1) $(HDRS2)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 

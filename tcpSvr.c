@@ -27,8 +27,7 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     int iSendLen = 0;
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
-    
+    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;    
 
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
@@ -42,7 +41,6 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 
         int iCopyLen = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, tRecvLen);
         int iFrameSize = getFrameSize(auchRecvBuffer);
-
         if (iFrameSize <= 0) {
             evbuffer_drain(pstInputBuffer, 1);
             continue;
@@ -154,7 +152,7 @@ int run()
     DISPATCHER   stDispatcher;
 
     /* BASE_CONTEXT 초기화 */
-    baseContextInit(&stBaseCtx, 0x77);
+    baseContextInit(&stBaseCtx, TCP_SVR_ID);
     stBaseCtx.pstEventBase = event_base_new();
     if (!stBaseCtx.pstEventBase) {
         fprintf(stderr,"event_base_new failed\n");
@@ -170,9 +168,7 @@ int run()
     if (iListenFd < 0) {
         perror("netTcpCreateServer");
         return -1;
-    }
-
-    fprintf(stderr,"[TCP-SVR] Listening on port %d\n", SERVER_PORT);
+    }    
 
     /* Accept 이벤트 등록 */
     struct event* stEventAccept = event_new(
@@ -184,6 +180,8 @@ int run()
     stBaseCtx.pstSignalEvent = evsignal_new(stBaseCtx.pstEventBase, 
         SIGINT, signalCb, &stBaseCtx);
     event_add(stBaseCtx.pstSignalEvent, NULL);
+
+    fprintf(stderr,"[TCP-SVR] Listening on port %d\n", SERVER_PORT);
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stBaseCtx.pstEventBase);

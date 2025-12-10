@@ -17,7 +17,7 @@
 #include "frame.h"
 #include "icdCommand.h"
  
- /* ============================================================
+/* ============================================================
   * 서버 → 클라이언트 수신 콜백
   * ============================================================ */
 static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
@@ -69,9 +69,9 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
 /* ============================================================
 * stdin 이벤트 콜백
 * ============================================================ */
-static void stdinReadCb(evutil_socket_t fd, short what, void* pvData)
+static void stdinReadCb(evutil_socket_t fd, short nEvents, void* pvData)
 {
-    (void)what;
+    (void)nEvents;
     EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
     char achInput[1024];
     unsigned char auSendBuf[1024];
