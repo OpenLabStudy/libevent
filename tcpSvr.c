@@ -21,17 +21,63 @@
 static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
     unsigned char auchRecvBuffer[2048];
+    MSG_ID stMsgId;
+    unsigned char auCmdResult[1000];
+    unsigned char auSendBuf[1024];
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
+    int iSendLen = 0;
+    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
+    
+
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
-    while (1) {
-        size_t ulRecvLen = evbuffer_get_length(pstInputBuffer);
-        fprintf(stderr,"### %s():%d %zu###\n",__func__,__LINE__, ulRecvLen);        
-        if (ulRecvLen <= 0)
+    while (1) {    
+        size_t tRecvLen = evbuffer_get_length(pstInputBuffer);
+        if (tRecvLen < FRAME_HEADER_MIN_SIZE)
             break;
-            
-        int iCopyLen   = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, ulRecvLen);
-        evbuffer_drain(pstInputBuffer, iCopyLen);
-        fprintf(stderr,"### %s():%d read %s###\n",__func__,__LINE__,auchRecvBuffer);
+
+        if (tRecvLen > sizeof(auchRecvBuffer))
+            tRecvLen = sizeof(auchRecvBuffer);
+
+        int iCopyLen = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, tRecvLen);
+        int iFrameSize = getFrameSize(auchRecvBuffer);
+
+        if (iFrameSize <= 0) {
+            evbuffer_drain(pstInputBuffer, 1);
+            continue;
+        }
+
+        if (iCopyLen < iFrameSize)
+            break;
+
+        evbuffer_drain(pstInputBuffer, iFrameSize);
+
+        stMsgId.uchSrcId = pstEventSrc->pstDispatcher->pstBaseCtx->usMyId;
+        stMsgId.uchDstId = 0x00;
+
+        /* === 헤더 및 명령 추출 === */
+        eErr = requestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
+        if (eErr != FRAME_OK) {
+            fprintf(stderr, "[APP] requestFrame ERR: %s\n", frameErrToStr(eErr));
+            continue;
+        }
+
+        /* === 명령 처리 === */
+        eErr = commandHandler(auchRecvBuffer, &stMsgId, iFrameSize, auCmdResult, &iSendLen);
+        if (eErr != FRAME_OK || iSendLen <= 0)
+            continue;
+
+        /* === 응답 프레임 생성 === */
+        eErr = makeResFrame(unCmd, &stMsgId, auCmdResult, auSendBuf);
+        if (eErr != FRAME_OK)
+            continue;
+
+        fprintf(stderr, "[APP] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
+
+        if (bufferevent_write(pstBufferEvent, auSendBuf, iSendLen) < 0) {
+            fprintf(stderr, "[APP] bufferevent_write() failed\n");
+        }
     }
 }
 
@@ -94,14 +140,15 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
     BASE_CONTEXT* pstBaseCtx = (BASE_CONTEXT*)pvArg;
 
-    printf("\n[TCP-SVR] SIGINT → shutdown\n");
-    event_base_loopexit(pstBaseCtx->pstEventBase, NULL);
+    fprintf(stderr,"\n[TCP-SVR] SIGINT → shutdown\n");
+    if(pstBaseCtx->pstEventBase)
+        event_base_loopexit(pstBaseCtx->pstEventBase, NULL);
 }
 
 /* ============================================================
 * main()
 * ============================================================ */
-int main()
+int run()
 {
     BASE_CONTEXT stBaseCtx;
     DISPATCHER   stDispatcher;
@@ -110,7 +157,7 @@ int main()
     baseContextInit(&stBaseCtx, 0x77);
     stBaseCtx.pstEventBase = event_base_new();
     if (!stBaseCtx.pstEventBase) {
-        printf("event_base_new failed\n");
+        fprintf(stderr,"event_base_new failed\n");
         return -1;
     }
 
@@ -125,7 +172,7 @@ int main()
         return -1;
     }
 
-    printf("[TCP-SVR] Listening on port %d\n", SERVER_PORT);
+    fprintf(stderr,"[TCP-SVR] Listening on port %d\n", SERVER_PORT);
 
     /* Accept 이벤트 등록 */
     struct event* stEventAccept = event_new(
@@ -134,9 +181,8 @@ int main()
     event_add(stEventAccept, NULL);
 
     /* SIGINT 처리 등록 */
-    stBaseCtx.pstSignalEvent = evsignal_new(
-        stBaseCtx.pstEventBase, SIGINT,
-        signalCb, &stBaseCtx);
+    stBaseCtx.pstSignalEvent = evsignal_new(stBaseCtx.pstEventBase, 
+        SIGINT, signalCb, &stBaseCtx);
     event_add(stBaseCtx.pstSignalEvent, NULL);
 
     /* 이벤트 루프 시작 */
@@ -150,6 +196,14 @@ int main()
     netClose(iListenFd);
     event_base_free(stBaseCtx.pstEventBase);
 
-    printf("[TCP-SVR] Terminated.\n");
+    fprintf(stderr,"[TCP-SVR] Terminated.\n");
     return 0;
 }
+
+/* === main === */
+#ifndef GOOGLE_TEST
+int main(int argc, char** argv)
+{
+    return run();
+}
+#endif

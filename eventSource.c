@@ -95,7 +95,7 @@ EVENT_SOURCE* eventSourceCreateBevStandalone(
     pstEventSrc->iFd       = fd;
     pstEventSrc->eType     = eType;
     pstEventSrc->eRole     = SRC_ROLE_NONE;
-    pstEventSrc->pstDispatcher = NULL; /* 중요 */
+    pstEventSrc->pstDispatcher = NULL; 
 
     pstEventSrc->pstBufferEvent = bufferevent_socket_new(
         base,
