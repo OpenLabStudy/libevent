@@ -153,7 +153,7 @@ int run(int iId)
         return EXIT_FAILURE;
     }
 
-    printf("[CLI] Connecting to 127.0.0.1:5000...\n");
+    printf("[CLI] Connecting to %s\n", UDS_1_PATH);
 
     /* ------------------- */
     /* EVENT_SOURCE 생성   */
