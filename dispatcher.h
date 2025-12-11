@@ -13,6 +13,16 @@ extern "C" {
 
 struct _REQUEST_CONTEXT;
 typedef struct _REQUEST_CONTEXT REQUEST_CONTEXT;
+typedef struct event_base       EVENT_BASE;
+
+/* ================================================================ */
+/* 요청 상태                                                         */
+/* ================================================================ */
+typedef enum {
+    REQ_STATE_WAITING = 0,     /* UDS 응답 대기 중 */
+    REQ_STATE_COMPLETED,       /* 응답 수신 완료 */
+    REQ_STATE_TIMEOUT          /* 타임아웃 발생 */
+} REQ_STATE;
 
 /* ============================================================
  * Request Context
@@ -21,34 +31,28 @@ struct _REQUEST_CONTEXT {
     unsigned int    uiRequestId;
     EVENT_SOURCE    *pstEventSrcReqest;
 
-    int             iPending;
+    struct event    *pstTimeoutEvent;
+
     unsigned char   auchRespBuf[4096];
     int             iRespLen;
 
-    struct event    *pstTimeoutEvent;
+    REQ_STATE        iState;               /* 요청 상태 */    
 
     REQUEST_CONTEXT *pstNext;
 };
 
-/* ============================================================
- * Dispatcher 구조체
- * ============================================================ */
-typedef struct _DISPATCHER {
-    BASE_CONTEXT*    pstBaseCtx;
 
-    EVENT_SOURCE*    pstEventSrc;
-    REQUEST_CONTEXT* pstReqList;
-
-    TX_QUEUE         stTxQueue;
-    struct event*    pstFlushEvent;
-
-    /* <-- 전역변수 제거 후, 각 Dispatcher마다 독립적인 시퀀스 */
-    uint32_t         unReqSeq;
-
-} DISPATCHER;
+typedef struct _EVENT_ENGINE {
+    struct event_base*  pstEventBase;
+    IO_CHANNEL*         pstIoChannelList;
+    REQUEST_CONTEXT*    pstReqList;
+    TX_QUEUE            stTxQueue;
+    struct event*       pstFlushEvent;
+    unsigned int        uiRequestSeq;
+} EVENT_ENGINE;
 
 /* API */
-void dispatcherInit(DISPATCHER* pstDisp, BASE_CONTEXT* pstBase);
+void eventEngineInit(EVENT_ENGINE* pstEventEngine, EVENT_BASE* pstEventBase);
 void dispatcherCleanup(DISPATCHER* pstDisp);
 
 void dispatcherAttachSource(DISPATCHER* pstDisp, EVENT_SOURCE* pstSrc);

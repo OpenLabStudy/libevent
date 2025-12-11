@@ -10,13 +10,6 @@ extern "C" {
 #include <event2/buffer.h>
 #include <stdint.h>
 
-/* 전방 선언 */
-struct _DISPATCHER;
-typedef struct _DISPATCHER DISPATCHER;
-
-struct _BASE_CONTEXT;
-typedef struct _BASE_CONTEXT BASE_CONTEXT;
-
 /* FD 타입 */
 typedef enum {
     SRC_TYPE_TCP_CLIENT = 1,
@@ -24,54 +17,26 @@ typedef enum {
     SRC_TYPE_UART,
     SRC_TYPE_UDP,
     SRC_TYPE_OTHER
-} SRC_TYPE;
+} IO_TYPE;
 
 /* 역할 */
 typedef enum {
     SRC_ROLE_NONE = 0,
     SRC_ROLE_REQUESTER,
     SRC_ROLE_WORKER
-} SRC_ROLE;
+} IO_ROLE;
 
-/* 콜백 타입 */
-struct _EVENT_SOURCE;
-typedef struct _EVENT_SOURCE EVENT_SOURCE;
+typedef struct _IO_CHANNEL IO_CHANNEL;
+typedef struct _IO_CHANNEL {
+    int                 iFd;
+    struct event_base*  pstEventBase;
+    struct bufferevent* pstBufferEvent;
 
-typedef void (*READ_CB)(struct bufferevent* pstBufferEvent, void* pvData);
-
-typedef void (*EVENT_CB)(struct bufferevent* pstBufferEvent,
-    short nEvents, void* pvData);
-
-
-/**
- * @brief 애플리케이션 공용 컨텍스트 (event_base + signal/timer)
- */
-typedef struct _BASE_CONTEXT
-{
-    struct event_base* pstEventBase;   /**< libevent 메인 루프 */
-    struct event*      pstSignalEvent; /**< SIGINT 등 */
-    struct event*      pstMainTimer;   /**< 주기 타이머(옵션) */
-
-    uint16_t           usMyId;         /**< 장비/프로세스 ID */
-    void*              pvUserCtx;      /**< 사용자 확장용 포인터 */
-} BASE_CONTEXT;    
-
-/**
- * @brief FD 하나를 대표하는 EVENT_SOURCE
- */
-struct _EVENT_SOURCE
-{
-    int iFd;                            /**< FD 번호 */
-
-    struct bufferevent* pstBufferEvent;         /**< TCP/UDS용 */
-    struct event*       pstEvent;       /**< UART/UDP 등 raw FD용 */
-
-    SRC_TYPE eType;
-    SRC_ROLE eRole;
-
-    struct _EVENT_SOURCE* pstNext;      /**< DISPATCHER 리스트 */
-    DISPATCHER*           pstDispatcher;/**< 소속 Dispatcher */
-};
+    IO_TYPE             eType;
+    IO_ROLE             eRole;
+    
+    struct _IO_CHANNEL* pstNext;
+} IO_CHANNEL;
 
 
 /**
@@ -91,8 +56,8 @@ void baseContextCleanup(BASE_CONTEXT* pstCtx);
 EVENT_SOURCE* eventSourceCreateWithBev(
     DISPATCHER*     pstDisp,
     int             fd,
-    SRC_TYPE        eType,
-    SRC_ROLE        eRole,
+    IO_TYPE        eType,
+    IO_ROLE        eRole,
     bufferevent_data_cb      pfRead,
     bufferevent_event_cb     pfEvent);
 
@@ -100,7 +65,7 @@ EVENT_SOURCE* eventSourceCreateWithBev(
 EVENT_SOURCE* eventSourceCreateBevStandalone(
     struct event_base* base,
     int                fd,
-    SRC_TYPE           eType,
+    IO_TYPE           eType,
     bufferevent_data_cb         pfRead,
     bufferevent_event_cb        pfEvent);
 
@@ -110,8 +75,8 @@ EVENT_SOURCE* eventSourceCreateBevStandalone(
 EVENT_SOURCE* eventSourceCreateWithFd(
     DISPATCHER*     pstDisp,
     int             fd,
-    SRC_TYPE        eType,
-    SRC_ROLE        eRole,
+    IO_TYPE        eType,
+    IO_ROLE        eRole,
     event_callback_fn     pfEvent);
 
 

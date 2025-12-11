@@ -19,22 +19,22 @@ static REQUEST_CONTEXT* dispatcherFindReq(
 /* ============================================================
  * Dispatcher 초기화
  * ============================================================ */
-void dispatcherInit(DISPATCHER* pstDispatcher, BASE_CONTEXT* pstBaseCtx)
+void eventEngineInit(EVENT_ENGINE* pstEventEngine, EVENT_BASE* pstEventBase)
 {
-    memset(pstDispatcher, 0, sizeof(DISPATCHER));
-    pstDispatcher->pstBaseCtx = pstBaseCtx;
+    memset(pstEventEngine, 0, sizeof(EVENT_ENGINE));
+    pstEventEngine->pstEventBase = pstEventBase;
 
     /* Request ID 시퀀스 초기화 */
-    pstDispatcher->unReqSeq = 1;
+    pstEventEngine->uiRequestSeq = 1;
 
-    txQueueInit(&pstDispatcher->stTxQueue);
+    txQueueInit(&pstEventEngine->stTxQueue);
 
-    pstDispatcher->pstFlushEvent = event_new(
-        pstBaseCtx->pstEventBase,
+    pstEventEngine->pstFlushEvent = event_new(
+        pstEventBase,
         -1,
         EV_TIMEOUT,
         dispatcherFlushCb,
-        pstDispatcher);
+        pstEventEngine);
 }
 
 /* ============================================================ */
