@@ -12,8 +12,8 @@ LIBS_COMMON = -levent
 
 HDRS1       = frame.h icdCommand.h netCore.h netTcp.h netUds.h netUdp.h
 FRAME1_OBJS = frame.o icdCommand.o netCore.o netTcp.o netUds.o netUdp.o
-HDRS2       = dispatcher.h txQueue.h eventSource.h 
-FRAME2_OBJS = dispatcher.o txQueue.o eventSource.o 
+HDRS2       = eventEngine.h txQueue.h eventSource.h 
+FRAME2_OBJS = eventEngine.o txQueue.o eventSource.o 
 
 # === Phony targets ===
 .PHONY: all clean gtest

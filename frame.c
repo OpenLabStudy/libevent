@@ -153,24 +153,23 @@ static FRAME_ERR checkFrameHeader(unsigned short unCmd, MSG_ID *pstMsgId,
         
     if (tDataLen < sizeof(FRAME_HEADER))
         return FRAME_ERR_NEED_MORE_DATA;
-        
+
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchData;    
     if (ntohs(pstHeader->unStx) != STX_CONST)
         return FRAME_ERR_INVALID_STX;
-        
-    if((pstHeader->stMsgId.uchDstId & pstMsgId->uchSrcId) != pstMsgId->uchSrcId)
-        return FRAME_ERR_INVALID_ID;
+    // if((pstHeader->stMsgId.uchDstId & pstMsgId->uchSrcId) != pstMsgId->uchSrcId)
+    //     return FRAME_ERR_INVALID_ID;
     
     FRAME_ERR eErr = checkCmd(unCmd);
     if (eErr != FRAME_OK)
         return eErr;
-        
+
     if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd))
         return FRAME_ERR_INVALID_LENGTH;
         
     int iNeedSize =
         sizeof(FRAME_HEADER) + getDataSize(unCmd) + sizeof(FRAME_TAIL);
-        
+
     if ((int)tDataLen < iNeedSize)
         return FRAME_ERR_NEED_MORE_DATA;
         
@@ -329,12 +328,11 @@ FRAME_ERR requestFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
         checkFrameHeader(unCmd, pstMsgId, puchRecvData, tDataLen);
     if (eErr != FRAME_OK)
         return eErr;
-        
-        
+
     eErr = checkFrameTail(unCmd, puchRecvData);
     if (eErr != FRAME_OK)
         return eErr;
-        
+    
     *punOutCmd = ntohs(pstHeader->unCmd);
     return FRAME_OK;
 }

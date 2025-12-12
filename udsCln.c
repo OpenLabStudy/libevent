@@ -14,7 +14,7 @@
 #include <event2/event.h>
 
 #include "eventSource.h"
-#include "dispatcher.h"
+#include "eventEngine.h"
 #include "netUds.h"
 #include "netCore.h"
 #include "frame.h"
@@ -27,7 +27,7 @@
 static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
     unsigned char* puchRecvData;
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
     size_t ulDataLen = evbuffer_get_length(pstInputBuffer);
     fprintf(stderr, "[Client] Received %zu bytes\n", ulDataLen);
@@ -36,11 +36,8 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
         return;
 
     evbuffer_copyout(pstInputBuffer, puchRecvData, ulDataLen);
-
-    MSG_ID stMsgId;
-    stMsgId.uchSrcId = pstEventSrc->pstDispatcher->pstBaseCtx->usMyId;
-    stMsgId.uchDstId = UDS_1_SVR_ID;
-
+    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+    
     responseFrame(puchRecvData, &stMsgId, ulDataLen);
 
     evbuffer_drain(pstInputBuffer, ulDataLen);
@@ -52,11 +49,10 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 /* ========================================================================== */
 /* Application-level Event Callback (UDS Client)                              */
 /* ========================================================================== */
-
 static void eventCallback(struct bufferevent* pstBufferEvent,
-                       short nEvents, void* pvData)
+    short nEvents, void* pvData)
 {
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     (void)pstBufferEvent;
 
     if (nEvents & BEV_EVENT_EOF) {
@@ -66,11 +62,11 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
     }
 
     /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
-    eventSourceDestroy(pstEventSrc);
+    eventSourceDestroy(pstIoChannel);
     /* 이벤트 루프 종료 지시 */
     
-    if (pstEventSrc->pstDispatcher->pstBaseCtx->pstEventBase)
-        event_base_loopexit(pstEventSrc->pstDispatcher->pstBaseCtx->pstEventBase, NULL);
+    if (pstIoChannel->pstEventBase)
+        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
 }
 
 
@@ -78,36 +74,34 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
 /* ========================================================================== */
 /* STDIN → Request Frame builder                                             */
 /* ========================================================================== */
-
-static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
+static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
     (void)nEvents;
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     char achInput[1024];
     unsigned char auSendBuf[1024];
     int iSendLen = 0;
     FRAME_ERR eErr;
 
     if (!fgets(achInput, sizeof(achInput), stdin)) {
-        event_base_loopexit(pstEventSrc->pstDispatcher->pstBaseCtx->pstEventBase, NULL);
+        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
         return;
     }
 
     achInput[strcspn(achInput, "\n")] = '\0';
 
-    /* UDS 서버 ID를 목적지로 사용하는 예제 */
-    MSG_ID stMsgId = { pstEventSrc->pstDispatcher->pstBaseCtx->usMyId, UDS_1_SVR_ID };
+    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
 
     if (!strcmp(achInput, "keepalive")) {
-        fprintf(stderr,"[UDS-Client] REQ_KEEP_ALIVE\n");
+        fprintf(stderr,"[Client] REQ_KEEP_ALIVE\n");
         eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
 
     } else if (!strcmp(achInput, "ibit")) {
-        fprintf(stderr,"[UDS-Client] REQ_IBIT\n");
+        fprintf(stderr,"[Client] REQ_IBIT\n");
         eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
 
     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
-        event_base_loopexit(pstEventSrc->pstDispatcher->pstBaseCtx->pstEventBase, NULL);
+        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
         return;
 
     } else {
@@ -116,7 +110,7 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
     }
 
     if (eErr == FRAME_OK && iSendLen > 0) {
-        bufferevent_write(pstEventSrc->pstBufferEvent, 
+        bufferevent_write(pstIoChannel->pstBufferEvent, 
             auSendBuf, (size_t)iSendLen);
     }
 }
@@ -127,8 +121,8 @@ static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData)
 /* ========================================================================== */
 int run(int iId)
 {
-    BASE_CONTEXT stBaseCtx;
-    DISPATCHER   stDispatcher;
+    EVENT_ENGINE   stEventEngine;
+    // baseContextInit(&stBaseCtx, TCP_CLN_ID);    
     unsigned char uchMyId = 0x00;
     if(iId == 1)
         uchMyId = UDS_1_CLN1_ID;
@@ -138,17 +132,16 @@ int run(int iId)
         uchMyId = UDS_1_CLN3_ID;
     else if(iId == 4)
         uchMyId = UDS_1_CLN4_ID;
-    baseContextInit(&stBaseCtx, uchMyId);
-    stBaseCtx.pstEventBase = event_base_new();
-    if (!stBaseCtx.pstEventBase) {
-        fprintf(stderr, "[UDS-Client] event_base_new() failed\n");
-        return EXIT_FAILURE;
-    }
-    dispatcherInit(&stDispatcher, &stBaseCtx);
-    stBaseCtx.pvUserCtx = &stDispatcher;
 
-    int iSockFd = netUdsCreateClient(UDS_1_PATH);
-    if (iSockFd < 0) {
+    stEventEngine.pstEventBase = event_base_new();
+    if (!stEventEngine.pstEventBase) {
+        printf("[CLI] event_base_new failed\n");
+        return -1;
+    }
+    eventEngineInit(&stEventEngine);
+    
+    int iClientSock = netUdsCreateClient(UDS_1_PATH);
+    if (iClientSock < 0) {
         fprintf(stderr, "[UDS-Client] Failed to create UDS client socket\n");
         return EXIT_FAILURE;
     }
@@ -158,12 +151,12 @@ int run(int iId)
     /* ------------------- */
     /* EVENT_SOURCE 생성   */
     /* ------------------- */
-    netSetNonblock(iSockFd);
+    netSetNonblock(iClientSock);
 
     eventSourceCreateWithBev(
-        &stDispatcher,
-        iSockFd,
-        SRC_TYPE_UDS_CLIENT,
+        &stEventEngine,
+        iClientSock,
+        SRC_TYPE_TCP_CLIENT,
         SRC_ROLE_WORKER,
         readCallback,
         eventCallback
@@ -173,16 +166,16 @@ int run(int iId)
     /* stdin 이벤트 등록   */
     /* ------------------- */
     struct event* evStdin = event_new(
-        stBaseCtx.pstEventBase,
+        stEventEngine.pstEventBase,
         STDIN_FILENO,
         EV_READ | EV_PERSIST,
         stdinReadCb,
-        stDispatcher.pstEventSrc);  // arg로 EVENT_SOURCE 전달
+        stEventEngine.pstIoChannel);  // arg로 EVENT_SOURCE 전달
 
     if (!evStdin) {
         printf("[CLI] evStdin create failed\n");
         // eventSourceDestroy(pstEventSrc);
-        event_base_free(stBaseCtx.pstEventBase);
+        event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
 
@@ -191,14 +184,13 @@ int run(int iId)
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */
-    event_base_dispatch(stBaseCtx.pstEventBase);
+    event_base_dispatch(stEventEngine.pstEventBase);
 
     /* clean-up */
     event_free(evStdin);
-    baseContextCleanup(&stBaseCtx);
-    event_base_free(stBaseCtx.pstEventBase);
+    event_base_free(stEventEngine.pstEventBase);
 
-    return EXIT_SUCCESS;
+    return 0;
 }
 
 

@@ -10,6 +10,9 @@ extern "C" {
 #include <event2/buffer.h>
 #include <stdint.h>
 
+struct _EVENT_ENGINE;
+typedef struct _EVENT_ENGINE EVENT_ENGINE;
+
 /* FD 타입 */
 typedef enum {
     SRC_TYPE_TCP_CLIENT = 1,
@@ -27,11 +30,14 @@ typedef enum {
 } IO_ROLE;
 
 typedef struct _IO_CHANNEL IO_CHANNEL;
-typedef struct _IO_CHANNEL {
-    int                 iFd;
+typedef struct _IO_CHANNEL {    
     struct event_base*  pstEventBase;
-    struct bufferevent* pstBufferEvent;
 
+    struct bufferevent* pstBufferEvent;
+    struct event*       pstEvent;
+
+    int                 iFd;
+    char                chMyId;
     IO_TYPE             eType;
     IO_ROLE             eRole;
     
@@ -40,54 +46,15 @@ typedef struct _IO_CHANNEL {
 
 
 /**
- * @brief BASE_CONTEXT 초기화 (포인터만 세팅, event_base_new()는 외부에서)
- */
-void baseContextInit(BASE_CONTEXT* pstCtx, uint16_t usMyId);
-
-/**
- * @brief BASE_CONTEXT 정리 (signal, timer만 free, event_base는 외부에서 free)
- */
-void baseContextCleanup(BASE_CONTEXT* pstCtx);
-
-/**
  * @brief bufferevent 기반 EVENT_SOURCE 생성 (TCP/UDS)
  */
-
-EVENT_SOURCE* eventSourceCreateWithBev(
-    DISPATCHER*     pstDisp,
-    int             fd,
-    IO_TYPE        eType,
-    IO_ROLE        eRole,
-    bufferevent_data_cb      pfRead,
-    bufferevent_event_cb     pfEvent);
-
-
-EVENT_SOURCE* eventSourceCreateBevStandalone(
-    struct event_base* base,
-    int                fd,
-    IO_TYPE           eType,
-    bufferevent_data_cb         pfRead,
-    bufferevent_event_cb        pfEvent);
-
-/**
- * @brief raw FD 기반 EVENT_SOURCE 생성 (UART/UDP 등)
- */
-EVENT_SOURCE* eventSourceCreateWithFd(
-    DISPATCHER*     pstDisp,
-    int             fd,
-    IO_TYPE        eType,
-    IO_ROLE        eRole,
-    event_callback_fn     pfEvent);
-
-
-void dispatcherHandleRequest(DISPATCHER* pstDispatcher,
-    EVENT_SOURCE* pstEventSrc,
-    const unsigned char* puchData,
-    int iLen);
-/**
- * @brief EVENT_SOURCE 파괴 (FD close + bufferevent/event free + Dispatcher detach)
- */
-void eventSourceDestroy(EVENT_SOURCE* src);
+IO_CHANNEL* eventSourceCreateWithBev(
+    EVENT_ENGINE* pstEventEngine, int iFd,
+    IO_TYPE eType, IO_ROLE eRole,
+    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent);
+IO_CHANNEL* eventSourceCreateWithFd( EVENT_ENGINE* pstEventEngine, int iFd, 
+    IO_TYPE eType, IO_ROLE eRole, event_callback_fn pfEvent);
+void eventSourceDestroy(IO_CHANNEL* pstIoChannel);
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,5 @@
-#ifndef DISPATCHER_H
-#define DISPATCHER_H
+#ifndef EVENT_ENGINE_H
+#define EVENT_ENGINE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,23 +28,20 @@ typedef enum {
  * Request Context
  * ============================================================ */
 struct _REQUEST_CONTEXT {
-    unsigned int    uiRequestId;
-    EVENT_SOURCE    *pstEventSrcReqest;
-
-    struct event    *pstTimeoutEvent;
-
-    unsigned char   auchRespBuf[4096];
-    int             iRespLen;
-
-    REQ_STATE        iState;               /* 요청 상태 */    
-
-    REQUEST_CONTEXT *pstNext;
+    unsigned int        uiRequestId;
+    IO_CHANNEL*         pstIoChannelRequest;
+    struct event*       pstTimeoutEvent;
+    unsigned char       auchRespBuf[4096];
+    int                 iPending;
+    int                 iRespLen;
+    REQ_STATE           eState;
+    REQUEST_CONTEXT*    pstNextReqCtx;
 };
 
 
 typedef struct _EVENT_ENGINE {
     struct event_base*  pstEventBase;
-    IO_CHANNEL*         pstIoChannelList;
+    IO_CHANNEL*         pstIoChannel;
     REQUEST_CONTEXT*    pstReqList;
     TX_QUEUE            stTxQueue;
     struct event*       pstFlushEvent;
@@ -52,22 +49,22 @@ typedef struct _EVENT_ENGINE {
 } EVENT_ENGINE;
 
 /* API */
-void eventEngineInit(EVENT_ENGINE* pstEventEngine, EVENT_BASE* pstEventBase);
-void dispatcherCleanup(DISPATCHER* pstDisp);
+void eventEngineInit(EVENT_ENGINE* pstEventEngine);
+void eventEngineCleanup(EVENT_ENGINE* pstEventEngine);
 
-void dispatcherAttachSource(DISPATCHER* pstDisp, EVENT_SOURCE* pstSrc);
-void dispatcherDetachSource(DISPATCHER* pstDisp, EVENT_SOURCE* pstSrc);
+void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel);
+void eventEngineDetachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel);
 
-void dispatcherHandleRequest(DISPATCHER* pstDisp,
-                             EVENT_SOURCE* pstRequester,
-                             const unsigned char* data, int len);
+void eventEngineHandleRequest(EVENT_ENGINE* pstEventEngine,
+                             IO_CHANNEL* pstIoChannel,
+                             const unsigned char* puchData, int iLen);
 
-void dispatcherHandleWorkerResponse(DISPATCHER* pstDisp,
-                                    EVENT_SOURCE* pstWorker,
-                                    const unsigned char* data, int len);
+void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
+                                    IO_CHANNEL* pstIoChannel,
+                                    const unsigned char* puchData, int iLen);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* DISPATCHER_H */
+#endif

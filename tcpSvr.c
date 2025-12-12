@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "dispatcher.h"
+#include "eventEngine.h"
 #include "tcpSvr.h"
 
 #define SERVER_PORT 5000
@@ -20,14 +20,13 @@
 /* ========================================================================== */
 static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
-    unsigned char auchRecvBuffer[2048];
-    MSG_ID stMsgId;
+    unsigned char auchRecvBuffer[2048];    
     unsigned char auCmdResult[1000];
     unsigned char auSendBuf[1024];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     int iSendLen = 0;
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;    
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
@@ -50,9 +49,7 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
             break;
 
         evbuffer_drain(pstInputBuffer, iFrameSize);
-
-        stMsgId.uchSrcId = pstEventSrc->pstDispatcher->pstBaseCtx->usMyId;
-        stMsgId.uchDstId = 0x00;
+        MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
 
         /* === 헤더 및 명령 추출 === */
         eErr = requestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
@@ -104,8 +101,7 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
 static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 {
     (void)nKindOfEvent;
-    BASE_CONTEXT* pstBaseCtx = (BASE_CONTEXT*)pvArg;
-    DISPATCHER* pstDispatcher  = (DISPATCHER*)pstBaseCtx->pvUserCtx;
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
     struct sockaddr_in stClientAddr;
     socklen_t uiClientLen = sizeof(stClientAddr);
@@ -122,7 +118,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
     netSetNonblock(iClientSock);
 
     eventSourceCreateWithBev(
-        pstDispatcher,
+        pstEventEngine,
         iClientSock,
         SRC_TYPE_TCP_CLIENT,
         SRC_ROLE_REQUESTER,
@@ -136,11 +132,11 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 * ============================================================ */
 static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
-    BASE_CONTEXT* pstBaseCtx = (BASE_CONTEXT*)pvArg;
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
     fprintf(stderr,"\n[TCP-SVR] SIGINT → shutdown\n");
-    if(pstBaseCtx->pstEventBase)
-        event_base_loopexit(pstBaseCtx->pstEventBase, NULL);
+    if(pstEventEngine->pstEventBase)
+        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
 
 /* ============================================================
@@ -148,20 +144,19 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 * ============================================================ */
 int run()
 {
-    BASE_CONTEXT stBaseCtx;
-    DISPATCHER   stDispatcher;
+    EVENT_ENGINE   stEventEngine;
+    struct event   *pstSignalEvent;
 
     /* BASE_CONTEXT 초기화 */
-    baseContextInit(&stBaseCtx, TCP_SVR_ID);
-    stBaseCtx.pstEventBase = event_base_new();
-    if (!stBaseCtx.pstEventBase) {
+    // baseContextInit(&stBaseCtx, TCP_SVR_ID);
+    stEventEngine.pstEventBase = event_base_new();
+    if (!stEventEngine.pstEventBase) {
         fprintf(stderr,"event_base_new failed\n");
         return -1;
     }
 
     /* Dispatcher 초기화 */
-    dispatcherInit(&stDispatcher, &stBaseCtx);
-    stBaseCtx.pvUserCtx = &stDispatcher;
+    eventEngineInit(&stEventEngine);
 
     /* TCP Listen 소켓 생성 */
     int iListenFd = netTcpCreateServer(SERVER_PORT);
@@ -172,27 +167,26 @@ int run()
 
     /* Accept 이벤트 등록 */
     struct event* stEventAccept = event_new(
-            stBaseCtx.pstEventBase, iListenFd, 
-            EV_READ | EV_PERSIST, acceptCb, &stBaseCtx);
+            stEventEngine.pstEventBase, iListenFd, 
+            EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
     event_add(stEventAccept, NULL);
 
     /* SIGINT 처리 등록 */
-    stBaseCtx.pstSignalEvent = evsignal_new(stBaseCtx.pstEventBase, 
-        SIGINT, signalCb, &stBaseCtx);
-    event_add(stBaseCtx.pstSignalEvent, NULL);
+    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
+        SIGINT, signalCb, &stEventEngine);
+    event_add(pstSignalEvent, NULL);
 
     fprintf(stderr,"[TCP-SVR] Listening on port %d\n", SERVER_PORT);
 
     /* 이벤트 루프 시작 */
-    event_base_dispatch(stBaseCtx.pstEventBase);
+    event_base_dispatch(stEventEngine.pstEventBase);
 
     /* 종료 처리 */
-    dispatcherCleanup(&stDispatcher);
-    baseContextCleanup(&stBaseCtx);
+    eventEngineCleanup(&stEventEngine);
 
     event_free(stEventAccept);
     netClose(iListenFd);
-    event_base_free(stBaseCtx.pstEventBase);
+    event_base_free(stEventEngine.pstEventBase);
 
     fprintf(stderr,"[TCP-SVR] Terminated.\n");
     return 0;
