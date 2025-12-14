@@ -52,35 +52,37 @@ IO_CHANNEL* eventSourceCreateWithBev(
 /* --------------------------------------------------------- */
 /* raw FD 기반 IO_CHANNEL 생성                             */
 /* --------------------------------------------------------- */
-IO_CHANNEL* eventSourceCreateWithFd( EVENT_ENGINE* pstEventEngine, int iFd, 
-    IO_TYPE eType, IO_ROLE eRole, event_callback_fn pfEvent)
+IO_CHANNEL* eventSourceCreateWithFd(EVENT_ENGINE* pstEventEngine, int iFd,
+    IO_TYPE eType, IO_ROLE eRole,
+    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!pstEventEngine || !pstEventEngine->pstEventBase)
         return NULL;
-
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL*)calloc(1, sizeof(IO_CHANNEL));
     if (!pstIoChannel)
         return NULL;
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     pstIoChannel->iFd            = iFd;
     pstIoChannel->eType          = eType;
     pstIoChannel->eRole          = eRole;
     pstIoChannel->pstEventBase  = pstEventEngine->pstEventBase;
 
-    struct event *event_new(struct event_base *, evutil_socket_t, short, event_callback_fn, void *);
+    // bev1 = bufferevent_new(pair[0], readcb, writecb, errorcb, NULL);
+    /* === 4) STDIN 이벤트 등록 === */
     pstIoChannel->pstEvent = event_new(
         pstEventEngine->pstEventBase,
         iFd,
         EV_READ | EV_PERSIST,
-        pfEvent,
+        pfRead,
         pstIoChannel);
-    if (!pstIoChannel->pstEvent) {
-        free(pstIoChannel);
-        return NULL;
-    }
+    if (pstIoChannel->pstEvent)
+        event_add(pstIoChannel->pstEvent, NULL);
 
-    event_add(pstIoChannel->pstEvent, NULL);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     eventEngineAttachSource(pstEventEngine, pstIoChannel);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     return pstIoChannel;
 }
 

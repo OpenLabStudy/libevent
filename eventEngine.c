@@ -163,7 +163,7 @@ void eventEngineHandleRequest(EVENT_ENGINE* pstEventEngine,
             pstEventEngine->pstEventBase,
             eventEngineReqTimeoutCb,
             pstReqCtx);
-        struct timeval tv = { REQ_TIMEOUT_SEC, REQ_TIMEOUT_SEC};
+        struct timeval tv = { REQ_TIMEOUT_SEC, REQ_TIMEOUT_MSEC};
         evtimer_add(pstReqCtx->pstTimeoutEvent, &tv);
     }
 

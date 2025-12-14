@@ -140,7 +140,7 @@ int run()
     eventSourceCreateWithBev(
         &stEventEngine,
         iClientSock,
-        SRC_TYPE_TCP_CLIENT,
+        SRC_TYPE_TCP,
         SRC_ROLE_WORKER,
         readCallback,
         eventCallback

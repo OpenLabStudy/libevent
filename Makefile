@@ -19,7 +19,7 @@ FRAME2_OBJS = eventEngine.o txQueue.o eventSource.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln udsSvr udsCln # tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: tcpSvr tcpCln udsSvr udsCln #gpsReceiver  tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 tcpUdsSvr: tcpUdsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
@@ -91,6 +91,12 @@ mCastReceiver.o: mCastReceiver.c $(HDRS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # === Uart apps (standalone) ===
+gpsReceiver: gpsReceiver.o r632Gps.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+
+gpsReceiver.o: gpsReceiver.c $(HDRS1) $(HDRS2)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 uartRx: uartRx.o r632Gps.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
@@ -209,4 +215,4 @@ gpsUartRxGtest.o: ./gtest/gpsUartRxGtest.cc r632Gps.c
 clean:
 	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
 		udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest \
-		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest tcpUdsSvr
+		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest tcpUdsSvr gpsReceiver

@@ -15,10 +15,10 @@ typedef struct _EVENT_ENGINE EVENT_ENGINE;
 
 /* FD 타입 */
 typedef enum {
-    SRC_TYPE_TCP_CLIENT = 1,
-    SRC_TYPE_UDS_CLIENT,
-    SRC_TYPE_UART,
+    SRC_TYPE_TCP = 1,
+    SRC_TYPE_UDS,
     SRC_TYPE_UDP,
+    SRC_TYPE_UART,    
     SRC_TYPE_OTHER
 } IO_TYPE;
 
@@ -52,8 +52,9 @@ IO_CHANNEL* eventSourceCreateWithBev(
     EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
     bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent);
-IO_CHANNEL* eventSourceCreateWithFd( EVENT_ENGINE* pstEventEngine, int iFd, 
-    IO_TYPE eType, IO_ROLE eRole, event_callback_fn pfEvent);
+IO_CHANNEL* eventSourceCreateWithFd(EVENT_ENGINE* pstEventEngine, int iFd,
+    IO_TYPE eType, IO_ROLE eRole,
+    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent);
 void eventSourceDestroy(IO_CHANNEL* pstIoChannel);
 
 #ifdef __cplusplus

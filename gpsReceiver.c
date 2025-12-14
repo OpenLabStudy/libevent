@@ -45,7 +45,7 @@
 #include "eventSource.h"
 #include "frame.h"
 #include "icdCommand.h"
-#include "dispatcher.h"
+#include "eventEngine.h"
 
 /* ========================================================================== */
 /* UART + Event Context Structure                                             */
@@ -64,116 +64,59 @@ typedef struct SUartCtx
     struct event*       pstEventReconnect;   /**< Reopen retry timer */
 
     int                 iRetryIntervalMsec;        /**< Retry interval (exp backoff) */
-
-    BASE_CONTEXT*       pstBaseCtx;     /**< 공용 BASE_CONTEXT */
 } SUartCtx;
 
 
 /* ========================================================================== */
-/* Static Function Prototypes                                                 */
-/* ========================================================================== */
-static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData);
-static void appEventCb(struct bufferevent* pstBufferEvent,
-                       short nEvents, void* pvData);
-static void stdinReadCb(evutil_socket_t sig, short nEvents, void* pvData);
-static void signalCb(evutil_socket_t sig, short ev, void* pvData);
-
-/* ========================================================================== */
 /* Application-level Read Callback (UDS Client)                               */
 /* ========================================================================== */
-static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData)
+static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
-    unsigned short unCmd = 0;
-    unsigned char auCmdResult[1000];
-    unsigned char auSendBuf[1024];
-    int iSendLen = 0;
-    FRAME_ERR eErr;
-    MSG_ID stMsgId;
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
-    if (!pstSockCtx)
-        return;
-
-    struct evbuffer* pstEvBuffer = bufferevent_get_input(pstBufferEvent);
-    size_t tDataLen = evbuffer_get_length(pstEvBuffer);
-
-    fprintf(stderr, "[UDS-Client] Received %zu bytes\n", tDataLen);
-
-    if (!tDataLen)
-        return;
-
-    unsigned char* puchRecvData = malloc(tDataLen);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    unsigned char* puchRecvData;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
+    size_t ulDataLen = evbuffer_get_length(pstInputBuffer);
+    fprintf(stderr, "[Client] Received %zu bytes\n", ulDataLen);
+    puchRecvData = (unsigned char*)malloc(ulDataLen);
     if (!puchRecvData)
         return;
 
-    evbuffer_copyout(pstEvBuffer, puchRecvData, tDataLen);
+    evbuffer_copyout(pstInputBuffer, puchRecvData, ulDataLen);
+    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
     
-    stMsgId.uchSrcId = pstSockCtx->uchSrcId;
-    stMsgId.uchDstId = getSrcId(puchRecvData);
+    responseFrame(puchRecvData, &stMsgId, ulDataLen);
 
-    fprintf(stderr, "[UDS Client] %02x %02x\n", pstSockCtx->uchSrcId, pstSockCtx->uchDstId);
-    int iFrameSize = getFrameSize(puchRecvData);
-
-    /* === 헤더 및 명령 추출 === */
-    eErr = requestFrame(puchRecvData, &stMsgId, iFrameSize, &unCmd);
-    if (eErr != FRAME_OK) {
-        fprintf(stderr, "[APP] requestFrame ERR: %s\n", frameErrToStr(eErr));
-    }
-
-    /* === 명령 처리 === */
-    eErr = commandHandler(puchRecvData, &stMsgId, iFrameSize, auCmdResult, &iSendLen);
-
-    /* === 응답 프레임 생성 === */
-    eErr = makeResFrame(unCmd, &stMsgId, auCmdResult, auSendBuf);
-
-    fprintf(stderr, "[APP] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
-    if (bufferevent_write(pstBufferEvent, auSendBuf, iSendLen) < 0) {
-        fprintf(stderr, "[APP] bufferevent_write() failed\n");
-    }
-
-    evbuffer_drain(pstEvBuffer, tDataLen);
-    free(puchRecvData);    
+    evbuffer_drain(pstInputBuffer, ulDataLen);
+    free(puchRecvData);
 }
+
+
 
 /* ========================================================================== */
 /* Application-level Event Callback (UDS Client)                              */
 /* ========================================================================== */
-static void appEventCb(struct bufferevent* pstBufferEvent,
-                       short nEvents, void* pvData)
+static void eventCallback(struct bufferevent* pstBufferEvent,
+    short nEvents, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     (void)pstBufferEvent;
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
-    BASE_CONTEXT* pstBaseCtx = pstSockCtx ? pstSockCtx->pstBaseCtx : NULL;
-
-    if (nEvents & BEV_EVENT_CONNECTED) {
-        fprintf(stderr,"[UDS-Client] Connected to server.\n");
-    }
 
     if (nEvents & BEV_EVENT_EOF) {
-        fprintf(stderr,"[UDS-Client] Server closed connection.\n");
-        shutdownApp(pstBaseCtx);
+        fprintf(stderr, "[TCP-Client] Server disconnected\n");
+    } else if (nEvents & BEV_EVENT_ERROR) {
+        fprintf(stderr, "[TCP-Client] Client socket error\n");
     }
 
-    if (nEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr,"[UDS-Client] Error: %s\n",
-            evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()));
-        shutdownApp(pstBaseCtx);
-    }
+    /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
+    // eventSourceDestroy(pstIoChannel);
+    /* 이벤트 루프 종료 지시 */
+    
+    if (pstIoChannel->pstEventBase)
+        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
 }
 
-
-/* ========================================================================== */
-/* Signal Handling (UDS Client)                                               */
-/* ========================================================================== */
-static void signalCb(evutil_socket_t sig, short ev, void* pvData)
-{
-    (void)ev;
-    BASE_CONTEXT* pstBaseCtx = (BASE_CONTEXT*)pvData;
-
-    if (sig == SIGINT) {
-        fprintf(stderr, "\n[UDS-Client] SIGINT received. Stopping event loop...\n");
-        shutdownApp(pstBaseCtx);
-    }
-}
 
 /* ========================================================================== */
 /* Static Forward Declarations (Hungarian Prefix 적용)                        */
@@ -274,17 +217,19 @@ int uartOpen(UART_CTX* pstUartCtx)
     int iFd = open(pstUartCtx->pchDevPath, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (iFd < 0)
         return -1;
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     // 원하는 Baudrate을 Context에서 가져오도록 변경
     if (uartSetRaw(iFd, pstUartCtx->iBaudrate) < 0) {
         close(iFd);
         return -1;
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     if (uartMakeNonblocking(iFd) < 0) {
         close(iFd);
         return -1;
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     pstUartCtx->iFd = iFd;
     return 0;
@@ -311,33 +256,10 @@ void uartClose(UART_CTX* pstUartCtx)
  * @param pstBev    bufferevent 객체
  * @param pvCtx     사용자 정의 컨텍스트 (SUartCtx*)
  */
-static void uartReadCallback(struct bufferevent* pstBev, void* pvCtx)
+static void uartReadCallback(struct bufferevent* pstBev, void* pvArg)
 {
-    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
-    struct evbuffer* pstInput = bufferevent_get_input(pstBev);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
-    while (1)
-    {
-        size_t tLen = evbuffer_get_length(pstInput);
-        if (tLen == 0)
-            break;
-
-        unsigned char* puchBuf = evbuffer_pullup(pstInput, tLen);
-        if (!puchBuf)
-            break;
-
-        if (R632Feed(puchBuf, (int)tLen, &pstCtx->stGpsInfo))
-        {
-            printf("\n===== R632 GNSS FRAME RECEIVED =====\n");
-            printf("Time  : %s\n", pstCtx->stGpsInfo.m_szTime);
-            printf("Lat   : %.8lf\n", pstCtx->stGpsInfo.m_stMsg3.m_dLatitude);
-            printf("Lon   : %.8lf\n", pstCtx->stGpsInfo.m_stMsg3.m_dLongitude);
-            printf("Alt   : %.3f m\n", pstCtx->stGpsInfo.m_stMsg3.m_fHeight);
-            printf("Sat   : %u\n", pstCtx->stGpsInfo.m_stMsg3.m_wNumSatsUsed);
-        }
-
-        evbuffer_drain(pstInput, tLen);
-    }
 }
 
 
@@ -354,101 +276,37 @@ static void uartReadCallback(struct bufferevent* pstBev, void* pvCtx)
  */
 static void uartEventCallback(struct bufferevent* pstBev, short shEvents, void* pvCtx)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)pstBev;
-    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
+    // SUartCtx* pstCtx = (SUartCtx*)pvCtx;
 
-    if (shEvents & BEV_EVENT_ERROR)
-        fprintf(stderr, "[WARN] UART error detected: %s\n", strerror(errno));
+    // if (shEvents & BEV_EVENT_ERROR)
+    //     fprintf(stderr, "[WARN] UART error detected: %s\n", strerror(errno));
 
-    if (shEvents & BEV_EVENT_EOF)
-        fprintf(stderr, "[INFO] UART disconnected.\n");
+    // if (shEvents & BEV_EVENT_EOF)
+    //     fprintf(stderr, "[INFO] UART disconnected.\n");
 
-    if (shEvents & (BEV_EVENT_ERROR | BEV_EVENT_EOF))
-    {
-        struct timeval stDelay =
-        {
-            .tv_sec  = pstCtx->iBackoffMsec / 1000,
-            .tv_usec = (pstCtx->iBackoffMsec % 1000) * 1000
-        };
+    // if (shEvents & (BEV_EVENT_ERROR | BEV_EVENT_EOF))
+    // {
+    //     struct timeval stDelay =
+    //     {
+    //         .tv_sec  = pstCtx->iBackoffMsec / 1000,
+    //         .tv_usec = (pstCtx->iBackoffMsec % 1000) * 1000
+    //     };
 
-        if (pstCtx->iBackoffMsec < 2000)
-            pstCtx->iBackoffMsec *= 2;
+    //     if (pstCtx->iBackoffMsec < 2000)
+    //         pstCtx->iBackoffMsec *= 2;
 
-        evtimer_add(pstCtx->pstEventReconnect, &stDelay);
-        bufferevent_free(pstCtx->pstBev);
-        pstCtx->pstBev = NULL;
+    //     evtimer_add(pstCtx->pstEventReconnect, &stDelay);
+    //     bufferevent_free(pstCtx->pstBev);
+    //     pstCtx->pstBev = NULL;
 
-        if (pstCtx->iFd >= 0)
-        {
-            close(pstCtx->iFd);
-            pstCtx->iFd = -1;
-        }
-    }
-}
-
-/**
- * @brief 재연결 이벤트 타이머 콜백
- *
- * UART 장치가 끊어졌을 경우 일정 시간 후 자동 재연결을 수행한다.
- *
- * @param iFd      unused
- * @param shEvent  unused
- * @param pvCtx    SUartCtx*
- */
-static void reconnectTimerCallback(evutil_socket_t iFd, short shEvent, void* pvCtx)
-{
-    (void)iFd;
-    (void)shEvent;
-
-    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
-
-    printf("[INFO] Attempting UART reopen: %s ...\n", pstCtx->pchDevPath);
-
-    if (openUartDevice(pstCtx) == 0)
-    {
-        printf("[OK] UART reconnected.\n");
-        pstCtx->iBackoffMsec = 200;
-
-        pstCtx->pstBev = bufferevent_socket_new(
-            pstCtx->pstEventBase,
-            pstCtx->iFd,
-            BEV_OPT_CLOSE_ON_FREE);
-
-        bufferevent_setcb(pstCtx->pstBev, uartReadCallback, NULL, uartEventCallback, pstCtx);
-        bufferevent_enable(pstCtx->pstBev, EV_READ);
-    }
-    else
-    {
-        fprintf(stderr, "[FAIL] Retry in %d ms...\n", pstCtx->iBackoffMsec);
-
-        struct timeval stDelay =
-        {
-            .tv_sec  = pstCtx->iBackoffMsec / 1000,
-            .tv_usec = (pstCtx->iBackoffMsec % 1000) * 1000
-        };
-
-        if (pstCtx->iBackoffMsec < 2000)
-            pstCtx->iBackoffMsec *= 2;
-
-        evtimer_add(pstCtx->pstEventReconnect, &stDelay);
-    }
-}
-
-
-
-/**
- * @brief SIGINT (Ctrl+C) 처리 함수
- *
- * 이벤트 루프 종료를 호출한다.
- */
-static void sigintCallback(evutil_socket_t iSig, short shEvent, void* pvCtx)
-{
-    (void)iSig;
-    (void)shEvent;
-
-    SUartCtx* pstCtx = (SUartCtx*)pvCtx;
-    fprintf(stderr, "\n[INFO] SIGINT received. Stopping event loop...\n");
-    event_base_loopexit(pstCtx->pstEventBase, NULL);
+    //     if (pstCtx->iFd >= 0)
+    //     {
+    //         close(pstCtx->iFd);
+    //         pstCtx->iFd = -1;
+    //     }
+    // }
 }
 
 
@@ -461,8 +319,7 @@ static void sigintCallback(evutil_socket_t iSig, short shEvent, void* pvCtx)
 
 int run(int iId, char* pchUartPath)
 {    
-    BASE_CONTEXT stBaseCtx;
-    DISPATCHER   stDispatcher;
+    EVENT_ENGINE   stEventEngine;
     unsigned char uchMyId = 0x00;
     if(iId == 1)
         uchMyId = UDS_1_CLN1_ID;
@@ -472,17 +329,16 @@ int run(int iId, char* pchUartPath)
         uchMyId = UDS_1_CLN3_ID;
     else if(iId == 4)
         uchMyId = UDS_1_CLN4_ID;
-    baseContextInit(&stBaseCtx, uchMyId);
-    stBaseCtx.pstEventBase = event_base_new();
-    if (!stBaseCtx.pstEventBase) {
+        
+    stEventEngine.pstEventBase = event_base_new();
+    if (!stEventEngine.pstEventBase) {
         fprintf(stderr, "[UDS-Client] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
-    dispatcherInit(&stDispatcher, &stBaseCtx);
-    stBaseCtx.pvUserCtx = &stDispatcher;
+    eventEngineInit(&stEventEngine);
 
-    int iSockFd = netUdsCreateClient(UDS_1_PATH);
-    if (iSockFd < 0) {
+    int iClientSock = netUdsCreateClient(UDS_1_PATH);
+    if (iClientSock < 0) {
         fprintf(stderr, "[UDS-Client] Failed to create UDS client socket\n");
         return EXIT_FAILURE;
     }
@@ -491,12 +347,12 @@ int run(int iId, char* pchUartPath)
     /* ------------------- */
     /* EVENT_SOURCE 생성   */
     /* ------------------- */
-    netSetNonblock(iSockFd);
+    netSetNonblock(iClientSock);
 
     eventSourceCreateWithBev(
-        &stDispatcher,
-        iSockFd,
-        SRC_TYPE_UDS_CLIENT,
+        &stEventEngine,
+        iClientSock,
+        SRC_TYPE_UDS,
         SRC_ROLE_WORKER,
         readCallback,
         eventCallback
@@ -504,37 +360,31 @@ int run(int iId, char* pchUartPath)
 
     UART_CTX stUartCtx = {0};
     stUartCtx.pchDevPath = pchUartPath;
+    stUartCtx.iBaudrate = 115200;
     stUartCtx.iFd = -1;
     stUartCtx.iBackoffMsec = 200;
 
     /* 초기 장치열기 */
+    fprintf(stderr,"### %s():%d %s###\n",__func__,__LINE__, stUartCtx.pchDevPath);
     uartOpen(&stUartCtx);
-
-    /* SIGINT 처리 이벤트 등록 */
-    struct event  *pstEventSigint;
-    pstEventSigint = evsignal_new(
-        stBaseCtx.pstEventBase,
-        SIGINT,
-        signalCb,
-        &stBaseCtx
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    eventSourceCreateWithFd(
+        &stEventEngine,
+        stUartCtx.iFd,
+        SRC_TYPE_UART,
+        SRC_ROLE_WORKER,
+        uartReadCallback,
+        uartEventCallback
     );
-    if (pstEventSigint ||
-        event_add(pstEventSigint, NULL) < 0) {
-        fprintf(stderr, "[UDS-Client] evsignal_new/event_add failed\n");
-        event_base_free(stBaseCtx.pstEventBase);
-        netClose(iSockFd);
-        return EXIT_FAILURE;
-    }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */
-    event_base_dispatch(stBaseCtx.pstEventBase);
+    event_base_dispatch(stEventEngine.pstEventBase);
 
     /* clean-up */
-    event_free(pstEventSigint);
-    baseContextCleanup(&stBaseCtx);
-    event_base_free(stBaseCtx.pstEventBase);
+    event_base_free(stEventEngine.pstEventBase);
 
     return EXIT_SUCCESS;
 }

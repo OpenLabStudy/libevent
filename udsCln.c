@@ -23,7 +23,6 @@
 /* ========================================================================== */
 /* Application-level Read Callback (UDS Client)                               */
 /* ========================================================================== */
-
 static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 {
     unsigned char* puchRecvData;
@@ -156,7 +155,7 @@ int run(int iId)
     eventSourceCreateWithBev(
         &stEventEngine,
         iClientSock,
-        SRC_TYPE_TCP_CLIENT,
+        SRC_TYPE_UDS,
         SRC_ROLE_WORKER,
         readCallback,
         eventCallback

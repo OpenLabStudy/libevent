@@ -132,7 +132,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
     eventSourceCreateWithBev(
         pstEventEngine,
         iClientSock,
-        SRC_TYPE_TCP_CLIENT,
+        SRC_TYPE_UDS,
         SRC_ROLE_REQUESTER,
         readCallback,
         eventCallback
