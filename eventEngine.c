@@ -22,7 +22,7 @@ static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine,
 void eventEngineInit(EVENT_ENGINE* pstEventEngine)
 {
     pstEventEngine->pstIoChannel = NULL;
-    pstEventEngine->pstIoChannel = NULL;
+    pstEventEngine->pstReqList = NULL;
 
     /* Request ID 시퀀스 초기화 */
     pstEventEngine->uiRequestSeq = 1;
@@ -40,6 +40,7 @@ void eventEngineInit(EVENT_ENGINE* pstEventEngine)
 /* ============================================================ */
 void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
 {
+    /* 1. REQUEST_CONTEXT 정리 */
     REQUEST_CONTEXT* pstReqCtx = pstEventEngine->pstReqList;
     while (pstReqCtx) {
         REQUEST_CONTEXT* pstNextReqCtx = pstReqCtx->pstNextReqCtx;
@@ -47,14 +48,37 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
             event_free(pstReqCtx->pstTimeoutEvent);
         free(pstReqCtx);
         pstReqCtx = pstNextReqCtx;
+    }    
+    pstEventEngine->pstReqList = NULL;
+
+    /* 2. TX Queue 정리 */
+    txQueueClear(&pstEventEngine->stTxQueue);
+    /* 3. Flush event 정리 */
+    if (pstEventEngine->pstFlushEvent) {
+        event_free(pstEventEngine->pstFlushEvent);
+        pstEventEngine->pstFlushEvent = NULL;
     }
 
-    pstEventEngine->pstReqList = NULL;
-    txQueueClear(&pstEventEngine->stTxQueue);
+    /* ===================================================== */
+    /* 4. ★ IO_CHANNEL / EVENT_SOURCE 정리 (필수 추가) ★ */
+    /* ===================================================== */
+    IO_CHANNEL* pstCh = pstEventEngine->pstIoChannel;
+    while (pstCh) {
+        IO_CHANNEL* pstNextCh = pstCh->pstNext;
 
-    if (pstEventEngine->pstFlushEvent)
-        event_free(pstEventEngine->pstFlushEvent);
+        /* 이 안에서
+         * - bufferevent_free
+         * - event_free
+         * - close(fd)
+         * - free(IO_CHANNEL)
+         */
+        eventSourceDestroy(pstCh);
+
+        pstCh = pstNextCh;
+    }
+    pstEventEngine->pstIoChannel = NULL;
 }
+
 
 /* ============================================================ */
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel)
@@ -208,7 +232,6 @@ void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
     pstReqCtx->iPending--;
 
     if (pstReqCtx->iPending <= 0) {
-
         if (pstReqCtx->pstTimeoutEvent) {
             evtimer_del(pstReqCtx->pstTimeoutEvent);
             event_free(pstReqCtx->pstTimeoutEvent);

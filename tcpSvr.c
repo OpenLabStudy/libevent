@@ -82,7 +82,7 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
 static void eventCallback(struct bufferevent* pstBufferEvent,
     short nEvents, void* pvData)
 {
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     (void)pstBufferEvent;
 
     if (nEvents & BEV_EVENT_EOF) {
@@ -91,8 +91,9 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
         fprintf(stderr, "[TCP-Server] Client socket error\n");
     }
 
-    /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
-    eventSourceDestroy(pstEventSrc);
+    /* 이벤트 루프 종료 지시 */    
+    if (pstIoChannel->pstEventBase)
+        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
 }
 
 /* ============================================================
@@ -163,7 +164,7 @@ int run()
     if (iListenFd < 0) {
         perror("netTcpCreateServer");
         return -1;
-    }    
+    }
 
     /* Accept 이벤트 등록 */
     struct event* stEventAccept = event_new(
@@ -180,12 +181,22 @@ int run()
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
+    netClose(iListenFd);
+    if(pstSignalEvent){
+        event_del(pstSignalEvent);
+        event_free(pstSignalEvent);
+        pstSignalEvent =  NULL;
+    }
+
+    if(stEventAccept){
+        event_del(stEventAccept);
+        event_free(stEventAccept);
+        stEventAccept =  NULL;
+    }
+    
 
     /* 종료 처리 */
     eventEngineCleanup(&stEventEngine);
-
-    event_free(stEventAccept);
-    netClose(iListenFd);
     event_base_free(stEventEngine.pstEventBase);
 
     fprintf(stderr,"[TCP-SVR] Terminated.\n");

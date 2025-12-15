@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include <event2/event.h>
 
@@ -54,11 +56,7 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
     } else if (nEvents & BEV_EVENT_ERROR) {
         fprintf(stderr, "[TCP-Client] Client socket error\n");
     }
-
-    /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
-    eventSourceDestroy(pstIoChannel);
-    /* 이벤트 루프 종료 지시 */
-    
+    /* 이벤트 루프 종료 지시 */    
     if (pstIoChannel->pstEventBase)
         event_base_loopexit(pstIoChannel->pstEventBase, NULL);
 }
@@ -107,6 +105,17 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     }
 }
 
+/* ============================================================
+* SIGINT 콜백
+* ============================================================ */
+static void signalCb(evutil_socket_t sig, short events, void* pvArg)
+{
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
+
+    fprintf(stderr,"\n[TCP-SVR] SIGINT → shutdown\n");
+    if(pstEventEngine->pstEventBase)
+        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
+}
 
 int run()
 {
@@ -154,24 +163,39 @@ int run()
         STDIN_FILENO,
         EV_READ | EV_PERSIST,
         stdinReadCb,
-        stEventEngine.pstIoChannel);  // arg로 EVENT_SOURCE 전달
-
+        stEventEngine.pstIoChannel);
     if (!evStdin) {
         printf("[CLI] evStdin create failed\n");
-        // eventSourceDestroy(pstEventSrc);
         event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
-
     event_add(evStdin, NULL);
+
+    struct event   *pstSignalEvent;
+    /* SIGINT 처리 등록 */
+    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
+        SIGINT, signalCb, &stEventEngine);
+    event_add(pstSignalEvent, NULL);
+
 
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */
     event_base_dispatch(stEventEngine.pstEventBase);
+    netClose(iClientSock);
+    if(pstSignalEvent){
+        event_del(pstSignalEvent);
+        event_free(pstSignalEvent);
+        pstSignalEvent =  NULL;
+    }
 
-    /* clean-up */
-    event_free(evStdin);
+    if(evStdin){
+        event_del(evStdin);
+        event_free(evStdin);
+        evStdin =  NULL;
+    }
+    
+    eventEngineCleanup(&stEventEngine);
     event_base_free(stEventEngine.pstEventBase);
 
     return 0;
