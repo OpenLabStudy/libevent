@@ -28,13 +28,12 @@ typedef enum {
  * Request Context
  * ============================================================ */
 struct _REQUEST_CONTEXT {
-    unsigned int        uiRequestId;
-    IO_CHANNEL*         pstIoChannelRequest;
-    struct event*       pstTimeoutEvent;
-    unsigned char       auchRespBuf[4096];
-    int                 iPending;
-    int                 iRespLen;
     REQ_STATE           eState;
+    unsigned int        uiRequestId;
+    int                 iPendingCount;
+    IO_CHANNEL*         pstIoChannelList;
+    struct event*       pstTimeoutEvent;
+    struct evbufer*     pstRespEvBuffer;    
     REQUEST_CONTEXT*    pstNextReqCtx;
 };
 
