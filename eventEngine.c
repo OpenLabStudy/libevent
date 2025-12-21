@@ -21,13 +21,11 @@ static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine,
  * ============================================================ */
 void eventEngineInit(EVENT_ENGINE* pstEventEngine)
 {
-    pstEventEngine->pstIoChannel = NULL;
-    pstEventEngine->pstReqList = NULL;
+    pstEventEngine->pstIoChannelList    = NULL;
+    pstEventEngine->pstReqList          = NULL;
 
     /* Request ID 시퀀스 초기화 */
     pstEventEngine->uiRequestSeq = 1;
-
-    txQueueInit(&pstEventEngine->stTxQueue);
 
     pstEventEngine->pstFlushEvent = event_new(
         pstEventEngine->pstEventBase,
@@ -51,8 +49,6 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
     }    
     pstEventEngine->pstReqList = NULL;
 
-    /* 2. TX Queue 정리 */
-    txQueueClear(&pstEventEngine->stTxQueue);
     /* 3. Flush event 정리 */
     if (pstEventEngine->pstFlushEvent) {
         event_free(pstEventEngine->pstFlushEvent);
@@ -83,7 +79,7 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
 /* ============================================================ */
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel)
 {
-    pstIoChannel->pstNext           = pstEventEngine->pstIoChannel;
+    pstIoChannel->pstNextIoChannel  = pstEventEngine->;
     pstEventEngine->pstIoChannel    = pstIoChannel;
 }
 

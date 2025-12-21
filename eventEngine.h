@@ -31,7 +31,7 @@ struct _REQUEST_CONTEXT {
     REQ_STATE           eState;
     unsigned int        uiRequestId;
     int                 iPendingCount;
-    IO_CHANNEL*         pstIoChannelList;
+    IO_CHANNEL*         pstIoReqList;
     struct event*       pstTimeoutEvent;
     struct evbufer*     pstRespEvBuffer;    
     REQUEST_CONTEXT*    pstNextReqCtx;
@@ -40,9 +40,8 @@ struct _REQUEST_CONTEXT {
 
 typedef struct _EVENT_ENGINE {
     struct event_base*  pstEventBase;
-    IO_CHANNEL*         pstIoChannel;
+    IO_CHANNEL*         pstIoChannelList;
     REQUEST_CONTEXT*    pstReqList;
-    TX_QUEUE            stTxQueue;
     struct event*       pstFlushEvent;
     unsigned int        uiRequestSeq;
 } EVENT_ENGINE;

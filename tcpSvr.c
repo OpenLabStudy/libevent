@@ -18,7 +18,7 @@
 /* ========================================================================== */
 /* Application-Level Read Processing                                          */
 /* ========================================================================== */
-static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
+static void readCallback(int iFd, short nEvent, void* pvData)
 {
     unsigned char auchRecvBuffer[2048];    
     unsigned char auCmdResult[1000];
@@ -76,6 +76,11 @@ static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
     }
 }
 
+static void writeCallback(int iFd, short nEvent, void* pvData)
+{
+
+}
+
 /* ========================================================================== */
 /* Application-Level Event Callback                                           */
 /* ========================================================================== */
@@ -124,7 +129,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
         SRC_TYPE_TCP,
         SRC_ROLE_REQUESTER,
         readCallback,
-        eventCallback
+        writeCallback
     );
 }
 

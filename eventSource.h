@@ -30,18 +30,18 @@ typedef enum {
 } IO_ROLE;
 
 typedef struct _IO_CHANNEL IO_CHANNEL;
-typedef struct _IO_CHANNEL {    
-    struct event_base*  pstEventBase;
-
-    struct bufferevent* pstBufferEvent;
-    struct event*       pstEvent;
-
+typedef struct _IO_CHANNEL {
     int                 iFd;
     char                chMyId;
     IO_TYPE             eType;
     IO_ROLE             eRole;
+
+    struct event*       pstReadEvent;
+    struct event*       pstWriteEvent;
+    struct evbuffer*    pstReadBuffer;
+    struct evbuffer*    pstWriteBuffer;   
     
-    struct _IO_CHANNEL* pstNext;
+    struct _IO_CHANNEL* pstNextIoChannel;
 } IO_CHANNEL;
 
 

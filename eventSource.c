@@ -13,7 +13,7 @@
 IO_CHANNEL* eventSourceCreateWithBev(
     EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
-    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent)
+    event_callback_fn  pfRead, event_callback_fn pfWrite)
 {
     if (!pstEventEngine || !pstEventEngine->pstEventBase){
         fprintf(stderr, "[eventSource] pstEventEngine is NULL\n");
@@ -27,22 +27,14 @@ IO_CHANNEL* eventSourceCreateWithBev(
     pstIoChannel->iFd            = iFd;
     pstIoChannel->eType          = eType;
     pstIoChannel->eRole          = eRole;
-    pstIoChannel->pstEventBase  = pstEventEngine->pstEventBase;
 
-    pstIoChannel->pstBufferEvent = bufferevent_socket_new(
-        pstEventEngine->pstEventBase, iFd, BEV_OPT_CLOSE_ON_FREE);
-    if (!pstIoChannel->pstBufferEvent) {
-        free(pstIoChannel);
-        return NULL;
-    }
+    pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
+        iFd, EV_READ|EV_PERSIST, pfRead, pstIoChannel);
+    event_add(pstIoChannel->pstReadEvent, NULL);
 
-    bufferevent_setcb(pstIoChannel->pstBufferEvent, 
-        pfRead, 
-        NULL, 
-        pfEvent, 
-        pstIoChannel);
-    bufferevent_enable(pstIoChannel->pstBufferEvent, 
-        EV_READ | EV_WRITE);
+    pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
+        iFd, EV_READ|EV_PERSIST, pfWrite, pstIoChannel);
+    event_add(pstIoChannel->pstWriteEvent, NULL);
 
     eventEngineAttachSource(pstEventEngine, pstIoChannel);
 
