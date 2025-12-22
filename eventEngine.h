@@ -44,6 +44,7 @@ typedef struct _EVENT_ENGINE {
     REQUEST_CONTEXT*    pstReqList;
     struct event*       pstFlushEvent;
     unsigned int        uiRequestSeq;
+    void*               pvSharedData;
 } EVENT_ENGINE;
 
 /* API */

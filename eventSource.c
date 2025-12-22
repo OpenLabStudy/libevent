@@ -110,6 +110,7 @@ IO_CHANNEL* eventSourceCreateWithBev(
     pstIoChannel->eRole                 = eRole;
     pstIoChannel->ePendingLogicEvent    = IO_EVENT_NONE; 
     pstIoChannel->pstNextIoChannel      = NULL;
+    pstIoChannel->pvSharedData          = pstEventEngine->pvSharedData;
 
     pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
         iFd, EV_READ|EV_PERSIST, readCallback, pstIoChannel);

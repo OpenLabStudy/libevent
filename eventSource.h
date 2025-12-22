@@ -55,6 +55,7 @@ typedef struct _IO_CHANNEL {
     struct event*       pstShutdownEvent;
     struct event*       pstLogicEvent;
     IO_EVENT_TYPE       ePendingLogicEvent;
+    void*               pvSharedData;
     struct _IO_CHANNEL* pstNextIoChannel;
 } IO_CHANNEL;
 

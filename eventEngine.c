@@ -23,6 +23,7 @@ void eventEngineInit(EVENT_ENGINE* pstEventEngine)
 {
     pstEventEngine->pstIoChannelList    = NULL;
     pstEventEngine->pstReqList          = NULL;
+    pstEventEngine->pvSharedData        = NULL;
 
     /* Request ID 시퀀스 초기화 */
     pstEventEngine->uiRequestSeq = 1;

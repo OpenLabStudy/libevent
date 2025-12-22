@@ -29,8 +29,6 @@ tcpUdsSvr.o: tcpUdsSvr.c $(HDRS1) $(HDRS2)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 
-
-
 udsSvr: udsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
@@ -55,7 +53,6 @@ udpSvr.o: udpSvr.c $(HDRS1) $(HDRS2)
 
 udpCln.o: udpCln.c $(HDRS1) $(HDRS2)
 	$(CC) $(CFLAGS) -c -o $@ $<
-
 
 
 tcpSvr: tcpSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
