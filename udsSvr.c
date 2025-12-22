@@ -149,8 +149,8 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 int run(void)
 {
     EVENT_ENGINE   stEventEngine;
-    struct event   *pstSignalEvent;
-
+    struct event*   pstSignalEvent;
+    struct event*   pstEventAccept;
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
         fprintf(stderr, "[UDS-SVR] event_base_new() failed\n");
@@ -167,10 +167,9 @@ int run(void)
     }
 
     /* Accept 이벤트 등록 */
-    struct event* stEventAccept = event_new(
-            stEventEngine.pstEventBase, iListenFd, 
+    pstEventAccept = event_new(stEventEngine.pstEventBase, iListenFd, 
             EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
-    event_add(stEventAccept, NULL);
+    event_add(pstEventAccept, NULL);
 
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
@@ -186,10 +185,10 @@ int run(void)
         pstSignalEvent =  NULL;
     }
 
-    if(stEventAccept){
-        event_del(stEventAccept);
-        event_free(stEventAccept);
-        stEventAccept =  NULL;
+    if(pstEventAccept){
+        event_del(pstEventAccept);
+        event_free(pstEventAccept);
+        pstEventAccept =  NULL;
     }  
 
     /* === 종료 처리 === */

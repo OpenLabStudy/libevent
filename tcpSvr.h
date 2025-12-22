@@ -20,6 +20,8 @@
 #include "eventSource.h"
 #include "frame.h"
 
+#define SERVER_PORT 5000
+
 #ifdef __cplusplus
 extern "C" {
 #endif

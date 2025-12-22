@@ -13,8 +13,6 @@
 #include "eventEngine.h"
 #include "tcpSvr.h"
 
-#define SERVER_PORT 5000
-
 static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
@@ -138,7 +136,8 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 int run()
 {
     EVENT_ENGINE   stEventEngine;
-    struct event   *pstSignalEvent;
+    struct event*   pstSignalEvent;
+    struct event*   pstEventAccept;
 
     /* BASE_CONTEXT 초기화 */
     stEventEngine.pstEventBase = event_base_new();
@@ -158,10 +157,9 @@ int run()
     }
 
     /* Accept 이벤트 등록 */
-    struct event* stEventAccept = event_new(
-            stEventEngine.pstEventBase, iListenFd, 
+    pstEventAccept = event_new(stEventEngine.pstEventBase, iListenFd, 
             EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
-    event_add(stEventAccept, NULL);
+    event_add(pstEventAccept, NULL);
 
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase,
@@ -178,10 +176,10 @@ int run()
         pstSignalEvent =  NULL;
     }
 
-    if(stEventAccept){
-        event_del(stEventAccept);
-        event_free(stEventAccept);
-        stEventAccept =  NULL;
+    if(pstEventAccept){
+        event_del(pstEventAccept);
+        event_free(pstEventAccept);
+        pstEventAccept =  NULL;
     }
     
     /* 종료 처리 */

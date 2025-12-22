@@ -21,7 +21,6 @@ extern "C" {
 
 #define TCP_SVR_ID      0x77
 #define TCP_CLN_ID      0x55
-#define SERVER_PORT     5000
 
 
 /* ========================================================================== */

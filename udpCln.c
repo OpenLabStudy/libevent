@@ -26,241 +26,182 @@
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 
-#include "netUdp.h"
-#include "netCore.h"
-#include "eventSession.h"
-#include "frame.h"
+#include "eventEngine.h"
 #include "icdCommand.h"
-
-#define SERVER_IP           "127.0.0.1"
-#define UDP_SERVER_PORT     5001
-#define UDP_CLIENT_PORT     5002
-
-/* ========================================================================== */
-/* Static Function Prototypes                                                 */
-/* ========================================================================== */
-
-static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData);
-static void appEventCb(struct bufferevent* pstBufferEvent,
-                       short nEvents, void* pvData);
-static void stdinReadCb(evutil_socket_t fd, short nEvents, void* pvData);
+#include "udpSvr.h"
 
 
 
-/* ========================================================================== */
-/* Application Read Callback (Server → Client 데이터 수신)                    */
-/* ========================================================================== */
-static void appReadCb(struct bufferevent* pstBufferEvent, void* pvData)
+static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)pvData;
-    if (!pstSockCtx)
-        return;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+    unsigned char auchRecvBuffer[2048];
+    
+    switch (eEventType) {
+    case IO_EVT_RX_DATA:
+        /* protocol / packet 처리 */        
+        while (1) {
+            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+                break;
 
-    struct evbuffer* pstEvBuffer = bufferevent_get_input(pstBufferEvent);
-    size_t tDataLen = evbuffer_get_length(pstEvBuffer);
+            if (tRecvLen > sizeof(auchRecvBuffer))
+                tRecvLen = sizeof(auchRecvBuffer);
 
-    if (tDataLen == 0)
-        return;
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
+            MSG_ID stMsgId = { UDP_CLN_ID, UDP_SVR_ID };
+            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen);
 
-    unsigned char* puchRecvData = (unsigned char*)malloc(tDataLen);
-    if (!puchRecvData)
-        return;
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+        }
+        break;
 
-    evbuffer_copyout(pstEvBuffer, puchRecvData, tDataLen);
+    case IO_EVT_CHANNEL_CLOSED:
+        printf("[TCP-CLI] channel closed fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
 
-    fprintf(stderr, "[UDP Client] Received %zu bytes\n", tDataLen);
+    case IO_EVT_ERROR:
+        printf("[TCP-CLI] channel error fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
 
-    MSG_ID stMsgId;
-    stMsgId.uchSrcId = pstSockCtx->uchSrcId;
-    stMsgId.uchDstId = pstSockCtx->uchDstId;
-
-    responseFrame(puchRecvData, &stMsgId, tDataLen);
-
-    evbuffer_drain(pstEvBuffer, tDataLen);
-    free(puchRecvData);
+    default:
+        break;
+    }
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-
-
-/* ========================================================================== */
-/* Application Event Callback                                                 */
-/* ========================================================================== */
-static void appEventCb(struct bufferevent* pstBufferEvent,
-                       short nEvents, void* pvData)
+/* ============================================================
+* stdin 이벤트 콜백
+* ============================================================ */
+static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
-    (void)pstBufferEvent;
-
-    SOCK_CONTEXT*  pstSockCtx  = (SOCK_CONTEXT*)pvData;
-    EVENT_CONTEXT* pstEventCtx = pstSockCtx ? pstSockCtx->pstEventCtx : NULL;
-
-    if (nEvents & BEV_EVENT_CONNECTED) {
-        fprintf(stderr, "[UDP Client] Connected (UDP connect())\n");
-    }
-
-    if (nEvents & BEV_EVENT_EOF) {
-        fprintf(stderr, "[UDP Client] EOF from server.\n");
-        if (pstEventCtx && pstEventCtx->pstEventBase)
-            event_base_loopexit(pstEventCtx->pstEventBase, NULL);
-    }
-
-    if (nEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[UDP Client] Error: %s\n",
-                evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()));
-        if (pstEventCtx && pstEventCtx->pstEventBase)
-            event_base_loopexit(pstEventCtx->pstEventBase, NULL);
-    }
-}
-
-
-
-/* ========================================================================== */
-/* STDIN Callback Implementation                                              */
-/* ========================================================================== */
-static void stdinReadCb(evutil_socket_t fd, short nEvents, void* pvData)
-{
-    (void)fd;
     (void)nEvents;
 
-    SOCK_CONTEXT*  pstSockCtx   = (SOCK_CONTEXT*)pvData;
-    EVENT_CONTEXT* pstEventCtx  = pstSockCtx ? pstSockCtx->pstEventCtx : NULL;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
-    char          achStdInBuf[1024];
-    unsigned char auchSendBuf[1024];
-    int           iSendSize = 0;
-    FRAME_ERR     eErr;
+    char achInput[1024];
+    unsigned char auSendBuf[1024];
+    int iSendLen = 0;
+    FRAME_ERR eErr;
 
-    if (!fgets(achStdInBuf, sizeof(achStdInBuf), stdin)) {
-        if (pstEventCtx && pstEventCtx->pstEventBase)
-            event_base_loopexit(pstEventCtx->pstEventBase, NULL);
+    if (!fgets(achInput, sizeof(achInput), stdin)) {
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        event_active(pstIoChannel->pstLogicEvent, 0, 0);
         return;
     }
 
-    achStdInBuf[strcspn(achStdInBuf, "\n")] = '\0';
+    achInput[strcspn(achInput, "\n")] = '\0';
+    MSG_ID stMsgId = { UDP_CLN_ID, UDP_SVR_ID };
 
-    MSG_ID stMsgId = {
-        .uchSrcId = pstSockCtx->uchSrcId,
-        .uchDstId = pstSockCtx->uchDstId
-    };
+    if (!strcmp(achInput, "keepalive")) {
+        fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
+        eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
 
-    if (strcmp(achStdInBuf, "keepalive") == 0) {
-        fprintf(stderr, "[UDP Client] SEND: KEEP_ALIVE\n");
-        eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId,
-                            auchSendBuf, &iSendSize);
+    } else if (!strcmp(achInput, "ibit")) {
+        fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
+        eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
 
-    } else if (strcmp(achStdInBuf, "ibit") == 0) {
-        fprintf(stderr, "[UDP Client] SEND: IBIT\n");
-        eErr = makeReqFrame(CMD_IBIT, &stMsgId,
-                            auchSendBuf, &iSendSize);
-
-    } else if (!strcmp(achStdInBuf, "quit") ||
-               !strcmp(achStdInBuf, "exit")) {
-        fprintf(stderr, "[UDP Client] Terminating...\n");
-        if (pstEventCtx && pstEventCtx->pstEventBase)
-            event_base_loopexit(pstEventCtx->pstEventBase, NULL);
+    } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
-
     } else {
-        fprintf(stderr,
-                "[Usage]\n"
-                "  keepalive\n"
-                "  ibit\n"
-                "  quit / exit\n");
+        fprintf(stderr, "Available commands:\n  keepalive\n  ibit\n  quit\n");
         return;
     }
 
-    if (eErr == FRAME_OK && iSendSize > 0) {
-        if (bufferevent_write(pstSockCtx->pstBufferEvent,
-                              auchSendBuf, (size_t)iSendSize) < 0) {
-            fprintf(stderr,
-                    "[UDP Client] bufferevent_write() failed\n");
-        }
-    } else if (eErr != FRAME_OK) {
-        fprintf(stderr, "[FRAME ERROR] %s\n", frameErrToStr(eErr));
-    }
+    if (eErr == FRAME_OK && iSendLen > 0) {
+        evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, iSendLen);
+        event_add(pstIoChannel->pstWriteEvent, NULL); 
+    } 
 }
 
+/* ============================================================
+* SIGINT 콜백
+* ============================================================ */
+static void signalCb(evutil_socket_t sig, short events, void* pvArg)
+{
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
+    fprintf(stderr,"\n[TCP-CLI] SIGINT → shutdown\n");
+    if(pstEventEngine->pstEventBase)
+        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
+}
 
 /* ========================================================================== */
 /* Entry Point                                                                */
 /* ========================================================================== */
 int run(void)
 {
-    EVENT_CONTEXT stEventCtx;
-    /* UDP Client: MyId = 2 (예: 서버=1, 클라=2) */
-    initEventContext(&stEventCtx, ROLE_UDP_CLIENT, 2);
-
-    SOCK_CONTEXT* pstSockCtx = (SOCK_CONTEXT*)calloc(1, sizeof(SOCK_CONTEXT));
-    if (!pstSockCtx) {
-        perror("calloc");
-        return EXIT_FAILURE;
+    EVENT_ENGINE   stEventEngine;
+    stEventEngine.pstEventBase = event_base_new();
+    if (!stEventEngine.pstEventBase) {
+        printf("[TCP-CLI] event_base_new failed\n");
+        return -1;
     }
-
-    initSocketContext(pstSockCtx, &stEventCtx, RESPONSE_ENABLED);
+    eventEngineInit(&stEventEngine);
 
     /* === 1) UDP 클라이언트 소켓 생성 (connect()까지 수행) === */
-    stEventCtx.iSockFd = netUdpCreateClient(SERVER_IP,
-                                            UDP_SERVER_PORT,
-                                            UDP_CLIENT_PORT);
-    if (stEventCtx.iSockFd < 0) {
+    int iSockFd = netUdpCreateClient(SERVER_IP, 
+        UDP_SERVER_PORT, UDP_CLIENT_PORT);
+    if (iSockFd < 0) {
         fprintf(stderr, "[UDP Client] UDP socket create failed\n");
-        free(pstSockCtx);
         return EXIT_FAILURE;
     }
 
-    /* === 2) event_base 생성 === */
-    stEventCtx.pstEventBase = event_base_new();
-    if (!stEventCtx.pstEventBase) {
-        fprintf(stderr, "[UDP Client] event_base_new() failed\n");
-        netClose(stEventCtx.iSockFd);
-        free(pstSockCtx);
-        return EXIT_FAILURE;
+    netSetNonblock(iSockFd);
+
+    eventSourceCreateWithBev(
+        &stEventEngine,
+        iSockFd,
+        TYPE_UDP,
+        ROLE_WORKER,
+        ioChannelHandleEvent
+    );
+
+    /* ------------------- */
+    /* stdin 이벤트 등록   */
+    /* ------------------- */
+    struct event* evStdin = event_new(
+        stEventEngine.pstEventBase,
+        STDIN_FILENO,
+        EV_READ | EV_PERSIST,
+        stdinReadCb,
+        stEventEngine.pstIoChannelList);
+    if (!evStdin) {
+        printf("[UDP-CLI] evStdin create failed\n");
+        event_base_free(stEventEngine.pstEventBase);
+        return -1;
     }
+    event_add(evStdin, NULL);
 
-    /* === 3) UDP FD를 bufferevent로 래핑 === */
-    pstSockCtx->pstBufferEvent =
-        bufferevent_socket_new(stEventCtx.pstEventBase,
-                               stEventCtx.iSockFd,
-                               BEV_OPT_CLOSE_ON_FREE);
-    if (!pstSockCtx->pstBufferEvent) {
-        fprintf(stderr, "[UDP Client] bufferevent_socket_new() failed\n");
-        event_base_free(stEventCtx.pstEventBase);
-        netClose(stEventCtx.iSockFd);
-        free(pstSockCtx);
-        return EXIT_FAILURE;
-    }
-
-    bufferevent_setcb(pstSockCtx->pstBufferEvent,
-                      appReadCb,
-                      NULL,
-                      appEventCb,
-                      pstSockCtx);
-
-    bufferevent_enable(pstSockCtx->pstBufferEvent,
-                       EV_READ | EV_WRITE);
-
-    /* === 4) STDIN 이벤트 등록 === */
-    stEventCtx.pstEvent = event_new(stEventCtx.pstEventBase,
-                                    fileno(stdin),
-                                    EV_READ | EV_PERSIST,
-                                    stdinReadCb,
-                                    pstSockCtx);
-    if (stEventCtx.pstEvent)
-        event_add(stEventCtx.pstEvent, NULL);
+    struct event   *pstSignalEvent;
+    /* SIGINT 처리 등록 */
+    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
+        SIGINT, signalCb, &stEventEngine);
+    event_add(pstSignalEvent, NULL);
 
     fprintf(stderr, "[UDP Client] Running %s:%d (local port %d)\n",
             SERVER_IP, UDP_SERVER_PORT, UDP_CLIENT_PORT);
 
-    /* === 5) 이벤트 루프 === */
-    event_base_dispatch(stEventCtx.pstEventBase);
+    event_base_dispatch(stEventEngine.pstEventBase);
 
-    /* === 6) 자원 정리 === */
-    closeAndFree(pstSockCtx);
-
-    if (stEventCtx.pstEvent)
-        event_free(stEventCtx.pstEvent);
-    if (stEventCtx.pstEventBase)
-        event_base_free(stEventCtx.pstEventBase);
+    if(evStdin){
+        event_del(evStdin);
+        event_free(evStdin);
+        evStdin =  NULL;
+    }
+    if(pstSignalEvent){
+        event_del(pstSignalEvent);
+        event_free(pstSignalEvent);
+        pstSignalEvent =  NULL;
+    }
+    
+    eventEngineCleanup(&stEventEngine);
+    event_base_free(stEventEngine.pstEventBase);
 
     return EXIT_SUCCESS;
 }

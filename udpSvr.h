@@ -20,14 +20,14 @@
  
  #include "netUdp.h"
  #include "netCore.h"
- #include "eventSession.h"
+ #include "eventSource.h"
  #include "frame.h"
 
 #define SERVER_IP         "127.0.0.1"
 #define CLIENT_IP         "127.0.0.1"
 #define UDP_SERVER_PORT   5001
 #define UDP_CLIENT_PORT   5002
- 
+
  #ifdef __cplusplus
  extern "C" {
  #endif

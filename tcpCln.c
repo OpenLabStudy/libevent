@@ -12,12 +12,9 @@
 
 #include <event2/event.h>
 
-#include "eventSource.h"
 #include "eventEngine.h"
-#include "netTcp.h"
-#include "netCore.h"
-#include "frame.h"
 #include "icdCommand.h"
+#include "tcpSvr.h"
 
 static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
