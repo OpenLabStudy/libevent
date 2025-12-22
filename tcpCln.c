@@ -18,47 +18,46 @@
 #include "netCore.h"
 #include "frame.h"
 #include "icdCommand.h"
- 
-/* ============================================================
-  * 서버 → 클라이언트 수신 콜백
-  * ============================================================ */
-static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
-{
-    unsigned char* puchRecvData;
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
-    size_t ulDataLen = evbuffer_get_length(pstInputBuffer);
-    fprintf(stderr, "[Client] Received %zu bytes\n", ulDataLen);
-    puchRecvData = (unsigned char*)malloc(ulDataLen);
-    if (!puchRecvData)
-        return;
 
-    evbuffer_copyout(pstInputBuffer, puchRecvData, ulDataLen);
-    MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
+static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
+{
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+    unsigned char auchRecvBuffer[2048];
     
-    responseFrame(puchRecvData, &stMsgId, ulDataLen);
+    switch (eEventType) {
+    case IO_EVT_RX_DATA:
+        /* protocol / packet 처리 */        
+        while (1) {
+            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+                break;
 
-    evbuffer_drain(pstInputBuffer, ulDataLen);
-    free(puchRecvData);
-}
- 
- /* ============================================================
-  * 서버 이벤트 콜백 (EOF / ERROR)
-  * ============================================================ */
-static void eventCallback(struct bufferevent* pstBufferEvent,
-    short nEvents, void* pvData)
-{
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    (void)pstBufferEvent;
+            if (tRecvLen > sizeof(auchRecvBuffer))
+                tRecvLen = sizeof(auchRecvBuffer);
 
-    if (nEvents & BEV_EVENT_EOF) {
-        fprintf(stderr, "[TCP-Client] Server disconnected\n");
-    } else if (nEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[TCP-Client] Client socket error\n");
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
+            MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
+            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen);
+
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+        }
+        break;
+
+    case IO_EVT_CHANNEL_CLOSED:
+        printf("[TCP-CLI] channel closed fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    case IO_EVT_ERROR:
+        printf("[TCP-CLI] channel error fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    default:
+        break;
     }
-    /* 이벤트 루프 종료 지시 */    
-    if (pstIoChannel->pstEventBase)
-        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
 /* ============================================================
@@ -67,42 +66,44 @@ static void eventCallback(struct bufferevent* pstBufferEvent,
 static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
     (void)nEvents;
+
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+
     char achInput[1024];
     unsigned char auSendBuf[1024];
     int iSendLen = 0;
     FRAME_ERR eErr;
 
     if (!fgets(achInput, sizeof(achInput), stdin)) {
-        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        event_active(pstIoChannel->pstLogicEvent, 0, 0);
         return;
     }
 
     achInput[strcspn(achInput, "\n")] = '\0';
-
     MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
 
     if (!strcmp(achInput, "keepalive")) {
-        fprintf(stderr,"[Client] REQ_KEEP_ALIVE\n");
+        fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
         eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
 
     } else if (!strcmp(achInput, "ibit")) {
-        fprintf(stderr,"[Client] REQ_IBIT\n");
+        fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
         eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
 
     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
-        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
-
     } else {
         fprintf(stderr, "Available commands:\n  keepalive\n  ibit\n  quit\n");
         return;
     }
 
     if (eErr == FRAME_OK && iSendLen > 0) {
-        bufferevent_write(pstIoChannel->pstBufferEvent, 
-            auSendBuf, (size_t)iSendLen);
-    }
+        evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, iSendLen);
+        event_add(pstIoChannel->pstWriteEvent, NULL); 
+    } 
 }
 
 /* ============================================================
@@ -112,7 +113,7 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
-    fprintf(stderr,"\n[TCP-SVR] SIGINT → shutdown\n");
+    fprintf(stderr,"\n[TCP-CLI] SIGINT → shutdown\n");
     if(pstEventEngine->pstEventBase)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
@@ -120,11 +121,9 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 int run()
 {
     EVENT_ENGINE   stEventEngine;
-    // baseContextInit(&stBaseCtx, TCP_CLN_ID);
-
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        printf("[CLI] event_base_new failed\n");
+        printf("[TCP-CLI] event_base_new failed\n");
         return -1;
     }
     eventEngineInit(&stEventEngine);
@@ -139,7 +138,7 @@ int run()
         return -1;
     }
 
-    printf("[CLI] Connecting to 127.0.0.1:5000...\n");
+    printf("[TCP-CLI] Connecting to 127.0.0.1:5000...\n");
 
     /* ------------------- */
     /* EVENT_SOURCE 생성   */
@@ -149,10 +148,9 @@ int run()
     eventSourceCreateWithBev(
         &stEventEngine,
         iClientSock,
-        SRC_TYPE_TCP,
-        SRC_ROLE_WORKER,
-        readCallback,
-        eventCallback
+        TYPE_TCP_CLI,
+        ROLE_WORKER,
+        ioChannelHandleEvent
     );
 
     /* ------------------- */
@@ -163,9 +161,9 @@ int run()
         STDIN_FILENO,
         EV_READ | EV_PERSIST,
         stdinReadCb,
-        stEventEngine.pstIoChannel);
+        stEventEngine.pstIoChannelList);
     if (!evStdin) {
-        printf("[CLI] evStdin create failed\n");
+        printf("[TCP-CLI] evStdin create failed\n");
         event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
@@ -177,22 +175,20 @@ int run()
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */
     event_base_dispatch(stEventEngine.pstEventBase);
-    netClose(iClientSock);
-    if(pstSignalEvent){
-        event_del(pstSignalEvent);
-        event_free(pstSignalEvent);
-        pstSignalEvent =  NULL;
-    }
 
     if(evStdin){
         event_del(evStdin);
         event_free(evStdin);
         evStdin =  NULL;
+    }
+    if(pstSignalEvent){
+        event_del(pstSignalEvent);
+        event_free(pstSignalEvent);
+        pstSignalEvent =  NULL;
     }
     
     eventEngineCleanup(&stEventEngine);

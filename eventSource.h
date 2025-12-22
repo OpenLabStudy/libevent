@@ -12,38 +12,51 @@ extern "C" {
 
 struct _EVENT_ENGINE;
 typedef struct _EVENT_ENGINE EVENT_ENGINE;
+typedef struct _IO_CHANNEL IO_CHANNEL;
 
 /* FD 타입 */
 typedef enum {
-    SRC_TYPE_TCP = 1,
-    SRC_TYPE_UDS,
-    SRC_TYPE_UDP,
-    SRC_TYPE_UART,    
-    SRC_TYPE_OTHER
+    TYPE_TCP_SVR = 1,
+    TYPE_TCP_CLI,
+    TYPE_UDS_SVR,
+    TYPE_UDS_CLI,
+    TYPE_UDP,
+    TYPE_UART,    
+    TYPE_OTHER
 } IO_TYPE;
 
 /* 역할 */
 typedef enum {
-    SRC_ROLE_NONE = 0,
-    SRC_ROLE_REQUESTER,
-    SRC_ROLE_WORKER
+    ROLE_NONE = 0,
+    ROLE_REQUESTER,
+    ROLE_WORKER
 } IO_ROLE;
 
-typedef struct _IO_CHANNEL IO_CHANNEL;
+typedef enum {
+    IO_EVENT_NONE = 0,
+    IO_EVT_RX_DATA,
+    IO_EVT_TX_READY,
+    IO_EVT_CHANNEL_CLOSED,
+    IO_EVT_ERROR
+} IO_EVENT_TYPE;
+
+
 typedef struct _IO_CHANNEL {
     int                 iFd;
-    char                chMyId;
+    char                chFdCloseSet;
     IO_TYPE             eType;
     IO_ROLE             eRole;
 
     struct event*       pstReadEvent;
     struct event*       pstWriteEvent;
     struct evbuffer*    pstReadBuffer;
-    struct evbuffer*    pstWriteBuffer;   
-    
+    struct evbuffer*    pstWriteBuffer;
+
+    struct event*       pstShutdownEvent;
+    struct event*       pstLogicEvent;
+    IO_EVENT_TYPE       ePendingLogicEvent;
     struct _IO_CHANNEL* pstNextIoChannel;
 } IO_CHANNEL;
-
 
 /**
  * @brief bufferevent 기반 EVENT_SOURCE 생성 (TCP/UDS)
@@ -51,10 +64,8 @@ typedef struct _IO_CHANNEL {
 IO_CHANNEL* eventSourceCreateWithBev(
     EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
-    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent);
-IO_CHANNEL* eventSourceCreateWithFd(EVENT_ENGINE* pstEventEngine, int iFd,
-    IO_TYPE eType, IO_ROLE eRole,
-    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent);
+    event_callback_fn pfEvent
+);
 void eventSourceDestroy(IO_CHANNEL* pstIoChannel);
 
 #ifdef __cplusplus

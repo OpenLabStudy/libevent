@@ -20,100 +20,103 @@
 #include "frame.h"
 #include "icdCommand.h"
 
-/* ========================================================================== */
-/* Application-level Read Callback (UDS Client)                               */
-/* ========================================================================== */
-static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
+static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
-    unsigned char* puchRecvData;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
-    size_t ulDataLen = evbuffer_get_length(pstInputBuffer);
-    fprintf(stderr, "[Client] Received %zu bytes\n", ulDataLen);
-    puchRecvData = (unsigned char*)malloc(ulDataLen);
-    if (!puchRecvData)
-        return;
-
-    evbuffer_copyout(pstInputBuffer, puchRecvData, ulDataLen);
-    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+    unsigned char auchRecvBuffer[2048];
     
-    responseFrame(puchRecvData, &stMsgId, ulDataLen);
+    switch (eEventType) {
+    case IO_EVT_RX_DATA:
+        /* protocol / packet 처리 */        
+        while (1) {
+            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+                break;
 
-    evbuffer_drain(pstInputBuffer, ulDataLen);
-    free(puchRecvData);
-}
+            if (tRecvLen > sizeof(auchRecvBuffer))
+                tRecvLen = sizeof(auchRecvBuffer);
 
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
+            MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen);
 
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+        }
+        break;
 
-/* ========================================================================== */
-/* Application-level Event Callback (UDS Client)                              */
-/* ========================================================================== */
-static void eventCallback(struct bufferevent* pstBufferEvent,
-    short nEvents, void* pvData)
-{
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    (void)pstBufferEvent;
+    case IO_EVT_CHANNEL_CLOSED:
+        printf("[UDS-CLI] channel closed fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
 
-    if (nEvents & BEV_EVENT_EOF) {
-        fprintf(stderr, "[TCP-Client] Server disconnected\n");
-    } else if (nEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[TCP-Client] Client socket error\n");
+    case IO_EVT_ERROR:
+        printf("[UDS-CLI] channel error fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    default:
+        break;
     }
-
-    /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
-    eventSourceDestroy(pstIoChannel);
-    /* 이벤트 루프 종료 지시 */
-    
-    if (pstIoChannel->pstEventBase)
-        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-
-
-/* ========================================================================== */
-/* STDIN → Request Frame builder                                             */
-/* ========================================================================== */
+/* ============================================================
+* stdin 이벤트 콜백
+* ============================================================ */
 static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
     (void)nEvents;
+
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+
     char achInput[1024];
     unsigned char auSendBuf[1024];
     int iSendLen = 0;
     FRAME_ERR eErr;
 
     if (!fgets(achInput, sizeof(achInput), stdin)) {
-        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        event_active(pstIoChannel->pstLogicEvent, 0, 0);
         return;
     }
 
     achInput[strcspn(achInput, "\n")] = '\0';
-
     MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
 
     if (!strcmp(achInput, "keepalive")) {
-        fprintf(stderr,"[Client] REQ_KEEP_ALIVE\n");
+        fprintf(stderr,"[UDS-CLI] REQ_KEEP_ALIVE\n");
         eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
 
     } else if (!strcmp(achInput, "ibit")) {
-        fprintf(stderr,"[Client] REQ_IBIT\n");
+        fprintf(stderr,"[UDS-CLI] REQ_IBIT\n");
         eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
 
     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
-        event_base_loopexit(pstIoChannel->pstEventBase, NULL);
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
-
     } else {
         fprintf(stderr, "Available commands:\n  keepalive\n  ibit\n  quit\n");
         return;
     }
 
     if (eErr == FRAME_OK && iSendLen > 0) {
-        bufferevent_write(pstIoChannel->pstBufferEvent, 
-            auSendBuf, (size_t)iSendLen);
-    }
+        evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, iSendLen);
+        event_add(pstIoChannel->pstWriteEvent, NULL); 
+    } 
 }
+/* ============================================================
+* SIGINT 콜백
+* ============================================================ */
+static void signalCb(evutil_socket_t sig, short events, void* pvArg)
+{
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
+    fprintf(stderr,"\n[UDS-CLI] SIGINT → shutdown\n");
+    if(pstEventEngine->pstEventBase)
+        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
+}
 
 /* ========================================================================== */
 /* Main Entry Point                                                           */
@@ -121,7 +124,6 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
 int run(int iId)
 {
     EVENT_ENGINE   stEventEngine;
-    // baseContextInit(&stBaseCtx, TCP_CLN_ID);    
     unsigned char uchMyId = 0x00;
     if(iId == 1)
         uchMyId = UDS_1_CLN1_ID;
@@ -134,18 +136,18 @@ int run(int iId)
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        printf("[CLI] event_base_new failed\n");
+        printf("[UDS-CLI] event_base_new failed\n");
         return -1;
     }
     eventEngineInit(&stEventEngine);
     
     int iClientSock = netUdsCreateClient(UDS_1_PATH);
     if (iClientSock < 0) {
-        fprintf(stderr, "[UDS-Client] Failed to create UDS client socket\n");
+        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
         return EXIT_FAILURE;
     }
 
-    printf("[CLI] Connecting to %s\n", UDS_1_PATH);
+    printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
 
     /* ------------------- */
     /* EVENT_SOURCE 생성   */
@@ -155,10 +157,9 @@ int run(int iId)
     eventSourceCreateWithBev(
         &stEventEngine,
         iClientSock,
-        SRC_TYPE_UDS,
-        SRC_ROLE_WORKER,
-        readCallback,
-        eventCallback
+        TYPE_TCP_CLI,
+        ROLE_WORKER,
+        ioChannelHandleEvent
     );
 
     /* ------------------- */
@@ -169,24 +170,37 @@ int run(int iId)
         STDIN_FILENO,
         EV_READ | EV_PERSIST,
         stdinReadCb,
-        stEventEngine.pstIoChannel);  // arg로 EVENT_SOURCE 전달
-
+        stEventEngine.pstIoChannelList);
     if (!evStdin) {
-        printf("[CLI] evStdin create failed\n");
-        // eventSourceDestroy(pstEventSrc);
+        printf("[TCP-CLI] evStdin create failed\n");
         event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
-
     event_add(evStdin, NULL);
+
+    struct event   *pstSignalEvent;
+    /* SIGINT 처리 등록 */
+    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
+        SIGINT, signalCb, &stEventEngine);
+    event_add(pstSignalEvent, NULL);
 
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */
     event_base_dispatch(stEventEngine.pstEventBase);
 
-    /* clean-up */
-    event_free(evStdin);
+    if(evStdin){
+        event_del(evStdin);
+        event_free(evStdin);
+        evStdin =  NULL;
+    }
+    if(pstSignalEvent){
+        event_del(pstSignalEvent);
+        event_free(pstSignalEvent);
+        pstSignalEvent =  NULL;
+    }
+
+    eventEngineCleanup(&stEventEngine);
     event_base_free(stEventEngine.pstEventBase);
 
     return 0;

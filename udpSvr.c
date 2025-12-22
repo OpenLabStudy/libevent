@@ -27,7 +27,7 @@
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 
-#include "eventSession.h"
+#include "eventEngine.h"
 #include "udpSvr.h"   // SERVER_IP / CLIENT_IP / UDP_SERVER_PORT / UDP_CLIENT_PORT
                       // netUdp.h, netCore.h, eventSession.h, frame.h 포함됨
 

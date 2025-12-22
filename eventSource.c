@@ -7,13 +7,93 @@
 #include <errno.h>
 #include <stdio.h>
 
+void readCallback(int iFd, short nEvent, void* pvData)
+{
+    unsigned char auchRecvBuffer[2048];
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+
+    if (pstIoChannel->chFdCloseSet == 0x01)
+        return;
+
+    memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
+    int iReadSize = read(pstIoChannel->iFd, auchRecvBuffer, sizeof(auchRecvBuffer));    
+    if (iReadSize == 0) {
+        /* ===== 상대 정상 종료 ===== */
+        pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+        pstIoChannel->chFdCloseSet = 0x01;
+    }else if (iReadSize < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return;   /* 아무 이벤트도 발생시키지 않음 */
+        }
+        /* ===== 에러 ===== */
+        pstIoChannel->chFdCloseSet = 0x01;
+        pstIoChannel->ePendingLogicEvent = IO_EVT_ERROR;
+    }else{
+        pstIoChannel->ePendingLogicEvent = IO_EVT_RX_DATA;
+        evbuffer_add(pstIoChannel->pstReadBuffer, auchRecvBuffer, iReadSize);
+    }
+    event_active(pstIoChannel->pstLogicEvent, 0, 0);
+}
+
+
+void writeCallback(int iFd, short nEvent, void* pvData)
+{
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    unsigned char auchWriteBuffer[2048];
+    int iWriteSize;
+
+    iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
+    if (iWriteSize == 0) {
+        event_del(pstIoChannel->pstWriteEvent);
+        return;
+    }    
+    iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));
+
+    iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
+    if (iWriteSize <= 0) {
+        perror("write");
+        return;
+    }
+
+    if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
+        event_del(pstIoChannel->pstWriteEvent);
+}
+
+
+void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
+{
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvData;
+
+    fprintf(stderr, "[ENGINE] shutdown requested\n");
+    event_base_loopexit(pstEventEngine->pstEventBase, NULL);
+}
+
+
+void eventEngineDispatchSrcCb(int iFd, short nEvent, void* pvData)
+{
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvData;
+    IO_CHANNEL** ppstIoChannelList = &pstEventEngine->pstIoChannelList;
+
+    while (*ppstIoChannelList) {
+        IO_CHANNEL* pstCurIoChannelList = *ppstIoChannelList;
+
+        if (pstCurIoChannelList->eType == TYPE_TCP_SVR) {
+            *ppstIoChannelList = pstCurIoChannelList->pstNextIoChannel;
+            eventSourceDestroy(pstCurIoChannelList);
+            return;
+        }
+        ppstIoChannelList = &pstCurIoChannelList->pstNextIoChannel;
+    }
+}
+
+
 /* --------------------------------------------------------- */
 /* bufferevent 기반 IO_CHANNEL 생성                        */
 /* --------------------------------------------------------- */
 IO_CHANNEL* eventSourceCreateWithBev(
     EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
-    event_callback_fn  pfRead, event_callback_fn pfWrite)
+    event_callback_fn pfEvent)
 {
     if (!pstEventEngine || !pstEventEngine->pstEventBase){
         fprintf(stderr, "[eventSource] pstEventEngine is NULL\n");
@@ -24,57 +104,36 @@ IO_CHANNEL* eventSourceCreateWithBev(
     if (!pstIoChannel) 
         return NULL;
 
-    pstIoChannel->iFd            = iFd;
-    pstIoChannel->eType          = eType;
-    pstIoChannel->eRole          = eRole;
+    pstIoChannel->iFd                   = iFd;
+    pstIoChannel->chFdCloseSet          = 0x00;
+    pstIoChannel->eType                 = eType;
+    pstIoChannel->eRole                 = eRole;
+    pstIoChannel->ePendingLogicEvent    = IO_EVENT_NONE; 
+    pstIoChannel->pstNextIoChannel      = NULL;
 
     pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
-        iFd, EV_READ|EV_PERSIST, pfRead, pstIoChannel);
+        iFd, EV_READ|EV_PERSIST, readCallback, pstIoChannel);
+    pstIoChannel->pstReadBuffer = evbuffer_new();
     event_add(pstIoChannel->pstReadEvent, NULL);
 
-    pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
-        iFd, EV_READ|EV_PERSIST, pfWrite, pstIoChannel);
-    event_add(pstIoChannel->pstWriteEvent, NULL);
+    pstIoChannel->pstWriteEvent = event_new(pstEventEngine->pstEventBase, 
+        iFd, EV_WRITE|EV_PERSIST, writeCallback, pstIoChannel);
+    pstIoChannel->pstWriteBuffer = evbuffer_new();
+
+    if(eType == TYPE_TCP_SVR){
+        pstIoChannel->pstShutdownEvent = event_new(pstEventEngine->pstEventBase, 
+                    -1, EV_PERSIST, eventEngineDispatchSrcCb, pstEventEngine);
+    }else{
+        pstIoChannel->pstShutdownEvent = event_new(pstEventEngine->pstEventBase, 
+            -1, EV_PERSIST, eventEngineShutdownCb, pstEventEngine);
+    }
+
+    pstIoChannel->pstLogicEvent = event_new(pstEventEngine->pstEventBase,
+    -1/* FD 없음 */,  EV_PERSIST, pfEvent,  pstIoChannel);
+
 
     eventEngineAttachSource(pstEventEngine, pstIoChannel);
 
-    return pstIoChannel;
-}
-
-/* --------------------------------------------------------- */
-/* raw FD 기반 IO_CHANNEL 생성                             */
-/* --------------------------------------------------------- */
-IO_CHANNEL* eventSourceCreateWithFd(EVENT_ENGINE* pstEventEngine, int iFd,
-    IO_TYPE eType, IO_ROLE eRole,
-    bufferevent_data_cb  pfRead, bufferevent_event_cb pfEvent)
-{
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    if (!pstEventEngine || !pstEventEngine->pstEventBase)
-        return NULL;
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL*)calloc(1, sizeof(IO_CHANNEL));
-    if (!pstIoChannel)
-        return NULL;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    pstIoChannel->iFd            = iFd;
-    pstIoChannel->eType          = eType;
-    pstIoChannel->eRole          = eRole;
-    pstIoChannel->pstEventBase  = pstEventEngine->pstEventBase;
-
-    // bev1 = bufferevent_new(pair[0], readcb, writecb, errorcb, NULL);
-    /* === 4) STDIN 이벤트 등록 === */
-    pstIoChannel->pstEvent = event_new(
-        pstEventEngine->pstEventBase,
-        iFd,
-        EV_READ | EV_PERSIST,
-        pfRead,
-        pstIoChannel);
-    if (pstIoChannel->pstEvent)
-        event_add(pstIoChannel->pstEvent, NULL);
-
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    eventEngineAttachSource(pstEventEngine, pstIoChannel);
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     return pstIoChannel;
 }
 
@@ -86,22 +145,37 @@ void eventSourceDestroy(IO_CHANNEL* pstIoChannel)
     if (!pstIoChannel) 
         return;
 
-    if (pstIoChannel->pstBufferEvent) {
-        bufferevent_free(pstIoChannel->pstBufferEvent);
-        pstIoChannel->pstBufferEvent = NULL;
-        /* fd는 BEV_OPT_CLOSE_ON_FREE로 닫힘 */
-        pstIoChannel->iFd = -1;
+    if (pstIoChannel->pstReadEvent) {
+        event_free(pstIoChannel->pstReadEvent);
+        pstIoChannel->pstReadEvent = NULL;
+    }
+    if (pstIoChannel->pstReadBuffer) {
+        evbuffer_free(pstIoChannel->pstReadBuffer);
+        pstIoChannel->pstReadBuffer = NULL;
     }
 
-    if (pstIoChannel->pstEvent) {
-        event_free(pstIoChannel->pstEvent);
-        pstIoChannel->pstEvent = NULL;
+    if (pstIoChannel->pstWriteEvent) {
+        event_free(pstIoChannel->pstWriteEvent);
+        pstIoChannel->pstWriteEvent = NULL;
+    }
+    if (pstIoChannel->pstWriteBuffer) {
+        evbuffer_free(pstIoChannel->pstWriteBuffer);
+        pstIoChannel->pstWriteBuffer = NULL;
+    }
+
+    if (pstIoChannel->pstShutdownEvent) {
+        event_free(pstIoChannel->pstShutdownEvent);
+        pstIoChannel->pstShutdownEvent = NULL;
+    }
+    if (pstIoChannel->pstLogicEvent) {
+        event_free(pstIoChannel->pstLogicEvent);
+        pstIoChannel->pstLogicEvent = NULL;
     }
 
     if (pstIoChannel->iFd >= 0) {
         close(pstIoChannel->iFd);
         pstIoChannel->iFd = -1;
     }
-
+    pstIoChannel->pstNextIoChannel = NULL;
     free(pstIoChannel);
 }

@@ -46,7 +46,8 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
             event_free(pstReqCtx->pstTimeoutEvent);
         free(pstReqCtx);
         pstReqCtx = pstNextReqCtx;
-    }    
+    }
+    
     pstEventEngine->pstReqList = NULL;
 
     /* 3. Flush event 정리 */
@@ -54,46 +55,27 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
         event_free(pstEventEngine->pstFlushEvent);
         pstEventEngine->pstFlushEvent = NULL;
     }
-
+    
     /* ===================================================== */
     /* 4. ★ IO_CHANNEL / EVENT_SOURCE 정리 (필수 추가) ★ */
     /* ===================================================== */
-    IO_CHANNEL* pstCh = pstEventEngine->pstIoChannel;
-    while (pstCh) {
-        IO_CHANNEL* pstNextCh = pstCh->pstNext;
-
-        /* 이 안에서
-         * - bufferevent_free
-         * - event_free
-         * - close(fd)
-         * - free(IO_CHANNEL)
-         */
-        eventSourceDestroy(pstCh);
-
-        pstCh = pstNextCh;
+    IO_CHANNEL* pstIoChannel = pstEventEngine->pstIoChannelList;
+    while (pstIoChannel) {
+        IO_CHANNEL* pstNextIoChannel = pstIoChannel->pstNextIoChannel;
+        eventSourceDestroy(pstIoChannel);
+        pstIoChannel = pstNextIoChannel;
     }
-    pstEventEngine->pstIoChannel = NULL;
+    pstEventEngine->pstIoChannelList = NULL;
 }
 
 
 /* ============================================================ */
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel)
 {
-    pstIoChannel->pstNextIoChannel  = pstEventEngine->;
-    pstEventEngine->pstIoChannel    = pstIoChannel;
+    pstIoChannel->pstNextIoChannel      = pstEventEngine->pstIoChannelList;
+    pstEventEngine->pstIoChannelList    = pstIoChannel;
 }
 
-void eventEngineDetachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel)
-{
-    IO_CHANNEL** ppstIoChannel = &pstEventEngine->pstIoChannel;
-    while (*ppstIoChannel) {
-        if (*ppstIoChannel == pstIoChannel) {
-            *ppstIoChannel = pstIoChannel->pstNext;
-            return;
-        }
-        ppstIoChannel = &((*ppstIoChannel)->pstNext);
-    }
-}
 
 /* ============================================================ */
 static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine, 
@@ -126,17 +108,6 @@ static void eventEngineFlushCb(int iFd, short nEvent, void* pvArg)
     IO_CHANNEL* pstIoChannel;
     int iLen;
 
-    while ((iLen = txQueuePop(&pstEventEngine->stTxQueue, 
-        &pstIoChannel, auchBuffer, sizeof(auchBuffer))) > 0) {
-
-        if (pstIoChannel->pstBufferEvent)
-            bufferevent_write(pstIoChannel->pstBufferEvent, auchBuffer, iLen);
-
-        else if (pstIoChannel->iFd >= 0)
-            if(write(pstIoChannel->iFd, auchBuffer, iLen) != iLen){
-                fprintf(stderr,"### %s():%d Error write ###\n",__func__,__LINE__);
-            }
-    }
 }
 
 /* ============================================================ */
@@ -155,96 +126,96 @@ void eventEngineHandleRequest(EVENT_ENGINE* pstEventEngine,
                              const unsigned char* puchData,
                              int iLen)
 {
-    IO_CHANNEL* pstCurrIoChannel;
-    if (iLen <= 0) 
-        return;
+    // IO_CHANNEL* pstCurrIoChannel;
+    // if (iLen <= 0) 
+    //     return;
 
-    unsigned int uiReqId = pstEventEngine->uiRequestSeq++;
-    if (pstEventEngine->uiRequestSeq == 0) 
-        pstEventEngine->uiRequestSeq = 1;  // 0은 사용 금지
+    // unsigned int uiReqId = pstEventEngine->uiRequestSeq++;
+    // if (pstEventEngine->uiRequestSeq == 0) 
+    //     pstEventEngine->uiRequestSeq = 1;  // 0은 사용 금지
 
-    /* RequestContext 생성 */
-    REQUEST_CONTEXT* pstReqCtx = calloc(1, sizeof(REQUEST_CONTEXT));
-    pstReqCtx->uiRequestId = uiReqId;
-    pstReqCtx->pstIoChannelRequest = pstIoChannel;
+    // /* RequestContext 생성 */
+    // REQUEST_CONTEXT* pstReqCtx = calloc(1, sizeof(REQUEST_CONTEXT));
+    // pstReqCtx->uiRequestId = uiReqId;
+    // pstReqCtx->pstIoChannelRequest = pstIoChannel;
 
-    /* Worker 개수 계산 */
-    int iWorkersCnt = 0;
-    pstCurrIoChannel = pstEventEngine->pstIoChannel;
-    for (; pstCurrIoChannel; pstCurrIoChannel = pstCurrIoChannel->pstNext)
-        if (pstCurrIoChannel->eRole == SRC_ROLE_WORKER)
-            iWorkersCnt++;
+    // /* Worker 개수 계산 */
+    // int iWorkersCnt = 0;
+    // pstCurrIoChannel = pstEventEngine->pstIoChannel;
+    // for (; pstCurrIoChannel; pstCurrIoChannel = pstCurrIoChannel->pstNext)
+    //     if (pstCurrIoChannel->eRole == SRC_ROLE_WORKER)
+    //         iWorkersCnt++;
 
-    pstReqCtx->iPending = iWorkersCnt;
+    // pstReqCtx->iPending = iWorkersCnt;
 
-    /* timeout 등록 */
-    if (pstEventEngine) {
-        pstReqCtx->pstTimeoutEvent = evtimer_new(
-            pstEventEngine->pstEventBase,
-            eventEngineReqTimeoutCb,
-            pstReqCtx);
-        struct timeval tv = { REQ_TIMEOUT_SEC, REQ_TIMEOUT_MSEC};
-        evtimer_add(pstReqCtx->pstTimeoutEvent, &tv);
-    }
+    // /* timeout 등록 */
+    // if (pstEventEngine) {
+    //     pstReqCtx->pstTimeoutEvent = evtimer_new(
+    //         pstEventEngine->pstEventBase,
+    //         eventEngineReqTimeoutCb,
+    //         pstReqCtx);
+    //     struct timeval tv = { REQ_TIMEOUT_SEC, REQ_TIMEOUT_MSEC};
+    //     evtimer_add(pstReqCtx->pstTimeoutEvent, &tv);
+    // }
 
-    /* RequestContext 리스트에 추가 */
-    pstReqCtx->pstNextReqCtx = pstEventEngine->pstReqList;
-    pstEventEngine->pstReqList = pstReqCtx;
+    // /* RequestContext 리스트에 추가 */
+    // pstReqCtx->pstNextReqCtx = pstEventEngine->pstReqList;
+    // pstEventEngine->pstReqList = pstReqCtx;
 
-    /* Worker들에게 브로드캐스트 */
-    unsigned char uchPacket[4096];
-    memcpy(uchPacket, &uiReqId, 4);
-    memcpy(uchPacket + 4, puchData, iLen);
+    // /* Worker들에게 브로드캐스트 */
+    // unsigned char uchPacket[4096];
+    // memcpy(uchPacket, &uiReqId, 4);
+    // memcpy(uchPacket + 4, puchData, iLen);
 
-    pstCurrIoChannel = pstEventEngine->pstIoChannel;
-    for (; pstCurrIoChannel; pstCurrIoChannel = pstCurrIoChannel->pstNext) {
-        if (pstCurrIoChannel->eRole == SRC_ROLE_WORKER && pstCurrIoChannel->pstBufferEvent)
-            bufferevent_write(pstCurrIoChannel->pstBufferEvent, uchPacket, iLen + 4);
-    }
+    // pstCurrIoChannel = pstEventEngine->pstIoChannel;
+    // for (; pstCurrIoChannel; pstCurrIoChannel = pstCurrIoChannel->pstNext) {
+    //     if (pstCurrIoChannel->eRole == SRC_ROLE_WORKER && pstCurrIoChannel->pstBufferEvent)
+    //         bufferevent_write(pstCurrIoChannel->pstBufferEvent, uchPacket, iLen + 4);
+    // }
 
-    printf("[DISP] RequestId=%u broadcast (workers=%d)\n", uiReqId, iWorkersCnt);
+    // printf("[DISP] RequestId=%u broadcast (workers=%d)\n", uiReqId, iWorkersCnt);
 }
 
 void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
                                     IO_CHANNEL* pstIoChannel,
                                     const unsigned char* puchData, int iLen)
 {
-    if (iLen < 4) 
-        return;
+    // if (iLen < 4) 
+    //     return;
 
-    unsigned int uiReqId;
-    memcpy(&uiReqId, puchData, 4);
+    // unsigned int uiReqId;
+    // memcpy(&uiReqId, puchData, 4);
 
-    REQUEST_CONTEXT* pstPrevReqCtx;
-    REQUEST_CONTEXT* pstReqCtx = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReqCtx);
-    if (!pstReqCtx) 
-        return;
+    // REQUEST_CONTEXT* pstPrevReqCtx;
+    // REQUEST_CONTEXT* pstReqCtx = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReqCtx);
+    // if (!pstReqCtx) 
+    //     return;
 
-    int iPayloadLen = iLen - 4;
+    // int iPayloadLen = iLen - 4;
 
-    memcpy(pstReqCtx->auchRespBuf + pstReqCtx->iRespLen, puchData + 4, iPayloadLen);
-    pstReqCtx->iRespLen += iPayloadLen;
+    // memcpy(pstReqCtx->auchRespBuf + pstReqCtx->iRespLen, puchData + 4, iPayloadLen);
+    // pstReqCtx->iRespLen += iPayloadLen;
 
-    pstReqCtx->iPending--;
+    // pstReqCtx->iPending--;
 
-    if (pstReqCtx->iPending <= 0) {
-        if (pstReqCtx->pstTimeoutEvent) {
-            evtimer_del(pstReqCtx->pstTimeoutEvent);
-            event_free(pstReqCtx->pstTimeoutEvent);
-        }
+    // if (pstReqCtx->iPending <= 0) {
+    //     if (pstReqCtx->pstTimeoutEvent) {
+    //         evtimer_del(pstReqCtx->pstTimeoutEvent);
+    //         event_free(pstReqCtx->pstTimeoutEvent);
+    //     }
 
-        /* Requester에 응답 보내기 (TxQueue 사용) */
-        txQueuePush(&pstEventEngine->stTxQueue, pstReqCtx->pstIoChannelRequest,
-            pstReqCtx->auchRespBuf, pstReqCtx->iRespLen);
+    //     /* Requester에 응답 보내기 (TxQueue 사용) */
+    //     txQueuePush(&pstEventEngine->stTxQueue, pstReqCtx->pstIoChannelRequest,
+    //         pstReqCtx->auchRespBuf, pstReqCtx->iRespLen);
 
-        event_active(pstEventEngine->pstFlushEvent, EV_TIMEOUT, 0);
+    //     event_active(pstEventEngine->pstFlushEvent, EV_TIMEOUT, 0);
 
-        /* 리스트에서 제거 */
-        if (!pstPrevReqCtx) 
-            pstEventEngine->pstReqList = pstReqCtx->pstNextReqCtx;
-        else       
-            pstPrevReqCtx->pstNextReqCtx = pstReqCtx->pstNextReqCtx;
+    //     /* 리스트에서 제거 */
+    //     if (!pstPrevReqCtx) 
+    //         pstEventEngine->pstReqList = pstReqCtx->pstNextReqCtx;
+    //     else       
+    //         pstPrevReqCtx->pstNextReqCtx = pstReqCtx->pstNextReqCtx;
 
-        free(pstReqCtx);
-    }
+    //     free(pstReqCtx);
+    // }
 }

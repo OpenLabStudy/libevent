@@ -20,90 +20,81 @@
  #include "eventEngine.h"
  #include "udsSvr.h"
 
-
-
 /* ========================================================================== */
 /* Application-Level Read Processing (UDS Server)                             */
 /* ========================================================================== */
 
-static void readCallback(struct bufferevent* pstBufferEvent, void* pvData)
+static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     unsigned char auchRecvBuffer[2048];    
-    unsigned char auCmdResult[1000];
-    unsigned char auSendBuf[1024];
+    unsigned char auchCmdResult[1000];
+    unsigned char auchSendBuf[1024];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     int iSendLen = 0;
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    
+    switch (eEventType) {
+    case IO_EVT_RX_DATA:
+        while (1) {
+            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+                break;
 
-    memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
-    struct evbuffer* pstInputBuffer = bufferevent_get_input(pstBufferEvent);
-    while (1) {    
-        size_t tRecvLen = evbuffer_get_length(pstInputBuffer);
-        if (tRecvLen < FRAME_HEADER_MIN_SIZE)
-            break;
+            if (tRecvLen > sizeof(auchRecvBuffer))
+                tRecvLen = sizeof(auchRecvBuffer);
 
-        if (tRecvLen > sizeof(auchRecvBuffer))
-            tRecvLen = sizeof(auchRecvBuffer);
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
+            int iFrameSize = getFrameSize(auchRecvBuffer);
+            if (iFrameSize <= 0) {
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
 
-        int iCopyLen = evbuffer_copyout(pstInputBuffer, auchRecvBuffer, tRecvLen);
-        int iFrameSize = getFrameSize(auchRecvBuffer);
-        if (iFrameSize <= 0) {
-            evbuffer_drain(pstInputBuffer, 1);
-            continue;
-        }
+            if (iCopyLen < iFrameSize)
+                break;
 
-        if (iCopyLen < iFrameSize)
-            break;
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            MSG_ID stMsgId = { UDS_1_SVR_ID, UDS_1_CLN1_ID };
 
-        evbuffer_drain(pstInputBuffer, iFrameSize);
-        MSG_ID stMsgId = { 0x01, 0x11 };
+            /* === 헤더 및 명령 추출 === */
+            eErr = requestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[UDS-SVR] requestFrame ERR: %s\n", frameErrToStr(eErr));
+                continue;
+            }
 
-        /* === 헤더 및 명령 추출 === */
-        eErr = requestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
-        if (eErr != FRAME_OK) {
-            fprintf(stderr, "[APP] requestFrame ERR: %s\n", frameErrToStr(eErr));
-            continue;
-        }
+            /* === 명령 처리 === */
+            eErr = commandHandler(auchRecvBuffer, &stMsgId, iFrameSize, auchCmdResult, &iSendLen);
+            if (eErr != FRAME_OK || iSendLen <= 0)
+                continue;
 
-        /* === 명령 처리 === */
-        eErr = commandHandler(auchRecvBuffer, &stMsgId, iFrameSize, auCmdResult, &iSendLen);
-        if (eErr != FRAME_OK || iSendLen <= 0)
-            continue;
+            /* === 응답 프레임 생성 === */
+            eErr = makeResFrame(unCmd, &stMsgId, auchCmdResult, auchSendBuf);
+            if (eErr != FRAME_OK)
+                continue;
 
-        /* === 응답 프레임 생성 === */
-        eErr = makeResFrame(unCmd, &stMsgId, auCmdResult, auSendBuf);
-        if (eErr != FRAME_OK)
-            continue;
+            fprintf(stderr, "[UDS-SVR] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iSendLen);
+            event_add(pstIoChannel->pstWriteEvent, NULL); 
+        }        
+        break;
 
-        fprintf(stderr, "[APP] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
+    case IO_EVT_CHANNEL_CLOSED:
+        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
 
-        if (bufferevent_write(pstBufferEvent, auSendBuf, iSendLen) < 0) {
-            fprintf(stderr, "[APP] bufferevent_write() failed\n");
-        }
+    case IO_EVT_ERROR:
+        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    default:
+        break;
     }
-}
-
-
-
-/* ========================================================================== */
-/* Application-Level Event Callback (UDS Server)                              */
-/* ========================================================================== */
-
-static void eventCallback(struct bufferevent* pstBufferEvent,
-    short nEvents, void* pvData)
-{
-    EVENT_SOURCE* pstEventSrc = (EVENT_SOURCE *)pvData;
-    (void)pstBufferEvent;
-
-    if (nEvents & BEV_EVENT_EOF) {
-        fprintf(stderr, "[TCP-Server] Client disconnected\n");
-    } else if (nEvents & BEV_EVENT_ERROR) {
-        fprintf(stderr, "[TCP-Server] Client socket error\n");
-    }
-
-    /* 실제 close/free 는 eventSession 의 eventCallbackWrapper 에서 수행 */
-    eventSourceDestroy(pstEventSrc);
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
 
@@ -121,23 +112,23 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
     int iClientSock = accept(iListenFd, (struct sockaddr*)&stClientAddr, &uiClientLen);
     if (iClientSock < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
-            perror("[TCP-SVR] accept");
+            perror("[UDS-SVR] accept");
         return;
     }
 
-    printf("[TCP-SVR] New client FD=%d\n", iClientSock);
+    printf("[UDS-SVR] New client FD=%d\n", iClientSock);
 
     netSetNonblock(iClientSock);
 
     eventSourceCreateWithBev(
         pstEventEngine,
         iClientSock,
-        SRC_TYPE_UDS,
-        SRC_ROLE_REQUESTER,
-        readCallback,
-        eventCallback
+        TYPE_TCP_SVR,
+        ROLE_REQUESTER,
+        ioChannelHandleEvent
     );
 }
+
 
 /* ============================================================
 * SIGINT 콜백
@@ -146,7 +137,7 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
-    fprintf(stderr,"\n[TCP-SVR] SIGINT → shutdown\n");
+    fprintf(stderr,"\n[UDS-SVR] SIGINT → shutdown\n");
     if(pstEventEngine->pstEventBase)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
@@ -155,14 +146,14 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 /* ========================================================================== */
 /* Main Entry Point                                                           */
 /* ========================================================================== */
-
 int run(void)
 {
     EVENT_ENGINE   stEventEngine;
     struct event   *pstSignalEvent;
+
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        fprintf(stderr, "[UDS-Server] event_base_new() failed\n");
+        fprintf(stderr, "[UDS-SVR] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
 
@@ -171,7 +162,7 @@ int run(void)
 
     int iListenFd = netUdsCreateServer(UDS_1_PATH);
     if (iListenFd < 0) {
-        fprintf(stderr, "[UDS-Server] netUdsCreateServer() failed\n");
+        fprintf(stderr, "[UDS-SVR] netUdsCreateServer() failed\n");
         return EXIT_FAILURE;
     }
 
@@ -186,15 +177,23 @@ int run(void)
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-    fprintf(stderr, "[UDS-Server] Listening at %s\n", UDS_1_PATH);
+    fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_1_PATH);
     
     event_base_dispatch(stEventEngine.pstEventBase);
+    if(pstSignalEvent){
+        event_del(pstSignalEvent);
+        event_free(pstSignalEvent);
+        pstSignalEvent =  NULL;
+    }
+
+    if(stEventAccept){
+        event_del(stEventAccept);
+        event_free(stEventAccept);
+        stEventAccept =  NULL;
+    }  
 
     /* === 종료 처리 === */
     eventEngineCleanup(&stEventEngine);
-
-    event_free(stEventAccept);
-    netClose(iListenFd);
     event_base_free(stEventEngine.pstEventBase);
 
     fprintf(stderr,"[UDS-SVR] Terminated.\n");

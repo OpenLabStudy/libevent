@@ -51,7 +51,6 @@ void eventEngineInit(EVENT_ENGINE* pstEventEngine);
 void eventEngineCleanup(EVENT_ENGINE* pstEventEngine);
 
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel);
-void eventEngineDetachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel);
 
 void eventEngineHandleRequest(EVENT_ENGINE* pstEventEngine,
                              IO_CHANNEL* pstIoChannel,
