@@ -19,7 +19,7 @@ FRAME2_OBJS = eventEngine.o txQueue.o eventSource.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln#gpsReceiver  tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver # tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 tcpUdsSvr: tcpUdsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
