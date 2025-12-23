@@ -21,6 +21,8 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     unsigned char auchRecvBuffer[2048];
+    unsigned char uchReult[sizeof(IPC_FRAME)];
+    IPC_FRAME *pstIpcFrame = uchReult;
     
     switch (eEventType) {
     case IO_EVT_RX_DATA:
@@ -35,8 +37,10 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
             MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
-            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen);
-
+            //todo
+            pstIpcFrame->unStx = STX_CONST;
+            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, pstIpcFrame->unCmd, pstIpcFrame->uchResult);
+            pstIpcFrame->unEtx = ETX_CONST;
             evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
         }
         break;
@@ -142,12 +146,9 @@ int run()
     /* ------------------- */
     netSetNonblock(iClientSock);
 
-    eventSourceCreateWithBev(
-        &stEventEngine,
-        iClientSock,
-        TYPE_TCP_CLI,
-        ROLE_WORKER,
-        ioChannelHandleEvent
+    eventSourceCreateWithBev(&stEventEngine, iClientSock,
+        TYPE_TCP_CLI, ROLE_WORKER,
+        NULL, NULL, ioChannelHandleEvent
     );
 
     /* ------------------- */

@@ -160,7 +160,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
         iClientSock,
         TYPE_TCP_SVR,
         ROLE_REQUESTER,
-        ioChannelHandleEvent
+        sensorFusionRead
     );
 }
 

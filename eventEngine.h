@@ -37,6 +37,13 @@ struct _REQUEST_CONTEXT {
     REQUEST_CONTEXT*    pstNextReqCtx;
 };
 
+typedef struct __attribute__((__packed__)) {
+    unsigned short  unStx;          /**< 프레임 시작(STX) 값 */   
+    unsigned short  unCmd;          /**< 명령 코드 */ 
+    unsigned char   uchResult;
+    unsigned short  unEtx;    /**< 프레임 종료(ETX) 값 */
+} IPC_FRAME;
+
 
 typedef struct _EVENT_ENGINE {
     struct event_base*  pstEventBase;
@@ -53,13 +60,11 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine);
 
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel);
 
-void eventEngineHandleRequest(EVENT_ENGINE* pstEventEngine,
-                             IO_CHANNEL* pstIoChannel,
-                             const unsigned char* puchData, int iLen);
+void eventEngineHandleRequest(int iFd, short nEvent, void* pvData);
 
-void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
-                                    IO_CHANNEL* pstIoChannel,
-                                    const unsigned char* puchData, int iLen);
+// void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
+//                                     IO_CHANNEL* pstIoChannel,
+//                                     const unsigned char* puchData, int iLen);
 
 #ifdef __cplusplus
 }

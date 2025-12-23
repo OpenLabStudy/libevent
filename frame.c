@@ -237,10 +237,6 @@ int getFrameSize(unsigned char *puchData)
     if (ntohs(pstHeader->unStx) != STX_CONST)
         return -1;
 
-    FRAME_ERR eErr = checkCmd(ntohs(pstHeader->unCmd));
-    if (eErr != FRAME_OK)
-        return -1;
-
     return sizeof(FRAME_HEADER) + ntohl(pstHeader->iDataLength) + sizeof(FRAME_TAIL);
 }
  
@@ -314,7 +310,7 @@ FRAME_ERR makeResFrame(unsigned short unCmd, MSG_ID *pstMsgId,
 /**
  * @brief 요청 프레임 검증 후 CMD 추출
  */
-FRAME_ERR requestFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
+FRAME_ERR chkRequestFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
                     size_t tDataLen, unsigned short *punOutCmd)
 {
     if (!puchRecvData || !pstMsgId || !punOutCmd)
@@ -375,8 +371,8 @@ FRAME_ERR commandHandler(unsigned char *puchRecvData, MSG_ID *pstMsgId,
 /**
  * @brief 응답(Response) 프레임 검증
  */
-FRAME_ERR responseFrame(unsigned char *puchRecvData,
-                        MSG_ID *pstMsgId, size_t tDataLen)
+FRAME_ERR responseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId, 
+    size_t tDataLen, unsigned short *punCmd, unsigned char *uchResult)
 {
     if (!puchRecvData || !pstMsgId)
         return FRAME_ERR_NULL_PTR;
@@ -397,6 +393,8 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData,
         case RES_CMD_ID_INFO:
         {
             RES_ID* pstResIdInfo = (RES_ID *)(puchRecvData+sizeof(FRAME_HEADER));
+            *punCmd = CMD_ID_INFO;
+            *uchResult = pstResIdInfo->chResult;
             fprintf(stderr,"Client Id  0x%02x\n", pstResIdInfo->chResult);
             break;
         }
@@ -404,6 +402,8 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData,
         case RES_CMD_KEEP_ALIVE:
         {
             RES_KEEP_ALIVE* pstResKeepAlive = (RES_KEEP_ALIVE *)(puchRecvData+sizeof(FRAME_HEADER));
+            *punCmd = CMD_KEEP_ALIVE;
+            *uchResult = pstResKeepAlive->chResult;
             fprintf(stderr,"keepalive %02x\n", pstResKeepAlive->chResult);
             break;
         }
@@ -411,6 +411,8 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData,
         case RES_CMD_IBIT:
         {
             RES_IBIT* pstResIBit = (RES_IBIT *)(puchRecvData+sizeof(FRAME_HEADER));
+            *punCmd = CMD_IBIT;
+            *uchResult = pstResIBit->chBitTotResult;
             fprintf(stderr,"iBit %02x %02x\n", pstResIBit->chBitTotResult, pstResIBit->chPositionResult);
             break;
         }
@@ -527,4 +529,21 @@ unsigned char getDstId(unsigned char *puchRecvData)
 
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
     return pstHeader->stMsgId.uchDstId;
+}
+
+PROCESS_PATH decideProcessingPath(unsigned char *puchRecvData)
+{
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
+    unsigned short unCmd = ntohs(pstHeader->unCmd);
+    switch (unCmd) {
+        case CMD_ID_INFO:
+            return PROCESS_LOCAL;
+        case CMD_KEEP_ALIVE:
+            return PROCESS_LOCAL;
+        case CMD_IBIT:
+            return PROCESS_VIA_IPC;;
+
+        default:
+            return PROCESS_UNKNOWN;
+    }
 }

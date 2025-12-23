@@ -42,7 +42,9 @@
 #include "r632Gps.h"
 #include "eventSource.h"
 #include "eventEngine.h"
-
+ #include "netUds.h"
+ #include "netCore.h"
+ #include "frame.h"
 /* ========================================================================== */
 /* UART Configuration                                                         */
 /* ========================================================================== */
@@ -204,6 +206,87 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
+
+static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
+{
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+    unsigned char auchRecvBuffer[2048];    
+    unsigned char auchCmdResult[1000];
+    unsigned char auchSendBuf[1024];
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
+    int iSendLen = 0;
+    
+    switch (eEventType) {
+    case IO_EVT_RX_DATA:
+        while (1) {
+            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            unsigned int uiRequestId=0;
+            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+                break;
+
+            if (tRecvLen > sizeof(auchRecvBuffer))
+                tRecvLen = sizeof(auchRecvBuffer);
+
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);            
+            int iFrameSize = getFrameSize(auchRecvBuffer);
+            if (iFrameSize <= 0) {
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+            if (iCopyLen < iFrameSize)
+                break;
+            if(iCopyLen - iFrameSize == 4){
+                memcpy(&uiRequestId ,auchRecvBuffer + iFrameSize, sizeof(unsigned int));
+            }
+            fprintf(stderr,"### %s():%d %d-%d ###\n",__func__,__LINE__, iCopyLen, iFrameSize);
+
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            MSG_ID stMsgId = { UDS_1_SVR_ID, UDS_1_CLN1_ID };
+
+            /* === 헤더 및 명령 추출 === */
+            eErr = chkRequestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[UDS-SVR] requestFrame ERR: %s\n", frameErrToStr(eErr));
+                continue;
+            }
+
+            /* === 명령 처리 === */
+            eErr = commandHandler(auchRecvBuffer, &stMsgId, iFrameSize, auchCmdResult, &iSendLen);
+            if (eErr != FRAME_OK || iSendLen <= 0)
+                continue;
+
+            /* === 응답 프레임 생성 === */
+            eErr = makeResFrame(unCmd, &stMsgId, auchCmdResult, auchSendBuf);
+            if (eErr != FRAME_OK)
+                continue;
+
+            fprintf(stderr, "[UDS-SVR] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
+            memcpy(auchSendBuf + iSendLen, &uiRequestId, sizeof(unsigned int));
+            fprintf(stderr,"### %s():%d %d-%d ###\n",__func__,__LINE__, iCopyLen, iFrameSize);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iSendLen+sizeof(unsigned int));
+            fprintf(stderr,"### %s():%d %d-%d ###\n",__func__,__LINE__, iCopyLen, iFrameSize);
+            event_add(pstIoChannel->pstWriteEvent, NULL); 
+        }        
+        break;
+
+    case IO_EVT_CHANNEL_CLOSED:
+        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    case IO_EVT_ERROR:
+        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    default:
+        break;
+    }
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
+}
+
 /* ============================================================
 * SIGINT 콜백
 * ============================================================ */
@@ -227,26 +310,46 @@ int run(int iId, char* pchUartPath)
     struct event*   pstSignalEvent;
     struct event*   pstEventAccept;
     UART_CTX stUartCtx = {0};
+    unsigned char uchMyId = 0x00;    
+    if(iId == 1)
+        uchMyId = UDS_1_CLN1_ID;
+    else if(iId == 2)
+        uchMyId = UDS_1_CLN2_ID;
+    else if(iId == 3)
+        uchMyId = UDS_1_CLN3_ID;
+    else if(iId == 4)
+        uchMyId = UDS_1_CLN4_ID;
+
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
         fprintf(stderr, "[UDS-Client] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
-    eventEngineInit(&stEventEngine);    
+    eventEngineInit(&stEventEngine);
+
     stUartCtx.pchDevPath = pchUartPath;
     stUartCtx.iBaudrate = 115200;
     stUartCtx.iFd = -1;
     stUartCtx.iBackoffMsec = 200;
-
     /* 초기 장치열기 */
     uartOpen(&stUartCtx);
-    eventSourceCreateWithBev(
-        &stEventEngine,
-        stUartCtx.iFd,
-        TYPE_UART,
-        ROLE_REQUESTER,
-        uartReadCallback
+    eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
+        TYPE_UART, ROLE_REQUESTER,
+        NULL, NULL, uartReadCallback
     );
+
+    int iClientSock = netUdsCreateClient(UDS_1_PATH);
+    if (iClientSock < 0) {
+        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
+        return EXIT_FAILURE;
+    }
+    printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
+    netSetNonblock(iClientSock);
+    eventSourceCreateWithBev(&stEventEngine, iClientSock,
+        TYPE_TCP_CLI, ROLE_WORKER,
+        NULL, NULL, ioChannelHandleEvent
+    );
+
 
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase,

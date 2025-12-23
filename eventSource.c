@@ -41,20 +41,17 @@ void writeCallback(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;
-
     iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
     if (iWriteSize == 0) {
         event_del(pstIoChannel->pstWriteEvent);
         return;
     }    
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));
-
     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
     if (iWriteSize <= 0) {
         perror("write");
         return;
     }
-
     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
         event_del(pstIoChannel->pstWriteEvent);
 }
@@ -97,6 +94,8 @@ void eventEngineDispatchSrcCb(evutil_socket_t iFd, short nEvent, void* pvData)
 IO_CHANNEL* eventSourceCreateWithBev(
     EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
+    event_callback_fn pfRead,
+    event_callback_fn pfWrite,
     event_callback_fn pfEvent)
 {
     if (!pstEventEngine || !pstEventEngine->pstEventBase){
@@ -116,13 +115,24 @@ IO_CHANNEL* eventSourceCreateWithBev(
     pstIoChannel->pstNextIoChannel      = NULL;
     pstIoChannel->pstEventEngine        = pstEventEngine;
 
-    pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
-        iFd, EV_READ|EV_PERSIST, readCallback, pstIoChannel);
+    if(pfRead == NULL){
+        pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
+            iFd, EV_READ|EV_PERSIST, readCallback, pstIoChannel);
+    }else{
+        pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
+            iFd, EV_READ|EV_PERSIST, pfRead, pstIoChannel);
+    }
+    
     pstIoChannel->pstReadBuffer = evbuffer_new();
     event_add(pstIoChannel->pstReadEvent, NULL);
 
-    pstIoChannel->pstWriteEvent = event_new(pstEventEngine->pstEventBase, 
-        iFd, EV_WRITE|EV_PERSIST, writeCallback, pstIoChannel);
+    if(pfWrite == NULL){
+        pstIoChannel->pstWriteEvent = event_new(pstEventEngine->pstEventBase, 
+            iFd, EV_WRITE|EV_PERSIST, writeCallback, pstIoChannel);
+    }else{
+        pstIoChannel->pstWriteEvent = event_new(pstEventEngine->pstEventBase, 
+            iFd, EV_WRITE|EV_PERSIST, pfWrite, pstIoChannel);
+    }
     pstIoChannel->pstWriteBuffer = evbuffer_new();
 
     if(eType == TYPE_TCP_SVR || eType == TYPE_UDS_SVR ){
@@ -134,7 +144,15 @@ IO_CHANNEL* eventSourceCreateWithBev(
     }
 
     pstIoChannel->pstLogicEvent = event_new(pstEventEngine->pstEventBase,
-    -1/* FD 없음 */,  EV_PERSIST, pfEvent,  pstIoChannel);
+        -1/* FD 없음 */,  EV_PERSIST, pfEvent,  pstIoChannel);
+    if(eRole == ROLE_REQUESTER){
+        pstIoChannel->pstRequestEvent = event_new(pstEventEngine->pstEventBase,
+            -1/* FD 없음 */,  EV_PERSIST, eventEngineHandleRequest,  pstIoChannel);
+        pstIoChannel->pstRequestBuffer = evbuffer_new();
+    }else{
+        pstIoChannel->pstRequestBuffer = NULL;
+        pstIoChannel->pstRequestEvent = NULL;
+    }
 
 
     eventEngineAttachSource(pstEventEngine, pstIoChannel);
@@ -166,6 +184,15 @@ void eventSourceDestroy(IO_CHANNEL* pstIoChannel)
     if (pstIoChannel->pstWriteBuffer) {
         evbuffer_free(pstIoChannel->pstWriteBuffer);
         pstIoChannel->pstWriteBuffer = NULL;
+    }
+
+    if (pstIoChannel->pstRequestEvent) {
+        event_free(pstIoChannel->pstRequestEvent);
+        pstIoChannel->pstRequestEvent = NULL;
+    }
+    if (pstIoChannel->pstRequestBuffer) {
+        evbuffer_free(pstIoChannel->pstRequestBuffer);
+        pstIoChannel->pstRequestBuffer = NULL;
     }
 
     if (pstIoChannel->pstShutdownEvent) {

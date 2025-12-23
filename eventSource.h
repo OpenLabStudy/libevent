@@ -53,6 +53,9 @@ typedef struct _IO_CHANNEL {
     struct evbuffer*    pstReadBuffer;
     struct evbuffer*    pstWriteBuffer;
 
+    struct event*       pstRequestEvent;
+    struct evbuffer*    pstRequestBuffer;
+
     struct event*       pstShutdownEvent;
     struct event*       pstLogicEvent;
     IO_EVENT_TYPE       ePendingLogicEvent;
@@ -63,11 +66,12 @@ typedef struct _IO_CHANNEL {
 /**
  * @brief bufferevent 기반 EVENT_SOURCE 생성 (TCP/UDS)
  */
-IO_CHANNEL* eventSourceCreateWithBev(
-    EVENT_ENGINE* pstEventEngine, int iFd,
+IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
-    event_callback_fn pfEvent
-);
+    event_callback_fn pfRead,
+    event_callback_fn pfWrite,
+    event_callback_fn pfEvent);
+    
 void eventSourceDestroy(IO_CHANNEL* pstIoChannel);
 
 #ifdef __cplusplus

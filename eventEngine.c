@@ -1,5 +1,6 @@
 #include "eventEngine.h"
 #include "eventSource.h"
+#include "frame.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -122,101 +123,118 @@ static void eventEngineReqTimeoutCb(int iFd, short nEvent, void* pvArg)
 }
 
 /* ============================================================ */
-void eventEngineHandleRequest(EVENT_ENGINE* pstEventEngine,
-                             IO_CHANNEL* pstIoChannel,
-                             const unsigned char* puchData,
-                             int iLen)
+void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 {
-    // IO_CHANNEL* pstCurrIoChannel;
-    // if (iLen <= 0) 
-    //     return;
+    (void)iFd;
+    (void)nEvent;    
 
-    // unsigned int uiReqId = pstEventEngine->uiRequestSeq++;
-    // if (pstEventEngine->uiRequestSeq == 0) 
-    //     pstEventEngine->uiRequestSeq = 1;  // 0은 사용 금지
+    IO_CHANNEL* pstRequester = (IO_CHANNEL*)pvData;
+    EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
 
-    // /* RequestContext 생성 */
-    // REQUEST_CONTEXT* pstReqCtx = calloc(1, sizeof(REQUEST_CONTEXT));
-    // pstReqCtx->uiRequestId = uiReqId;
-    // pstReqCtx->pstIoChannelRequest = pstIoChannel;
+    while (1) {
+        unsigned int iLen = evbuffer_get_length(pstRequester->pstRequestBuffer);
+        if (iLen < FRAME_HEADER_MIN_SIZE)
+            break;
 
-    // /* Worker 개수 계산 */
-    // int iWorkersCnt = 0;
-    // pstCurrIoChannel = pstEventEngine->pstIoChannel;
-    // for (; pstCurrIoChannel; pstCurrIoChannel = pstCurrIoChannel->pstNext)
-    //     if (pstCurrIoChannel->eRole == SRC_ROLE_WORKER)
-    //         iWorkersCnt++;
+        unsigned char auchBuf[2048];
+        unsigned int uiCopySize = evbuffer_copyout(pstRequester->pstRequestBuffer,
+            auchBuf, sizeof(auchBuf));
 
-    // pstReqCtx->iPending = iWorkersCnt;
+        int iFrameSize = getFrameSize(auchBuf);
+        if (iFrameSize <= 0 || uiCopySize < (size_t)iFrameSize)
+            break;
 
-    // /* timeout 등록 */
-    // if (pstEventEngine) {
-    //     pstReqCtx->pstTimeoutEvent = evtimer_new(
-    //         pstEventEngine->pstEventBase,
-    //         eventEngineReqTimeoutCb,
-    //         pstReqCtx);
-    //     struct timeval tv = { REQ_TIMEOUT_SEC, REQ_TIMEOUT_MSEC};
-    //     evtimer_add(pstReqCtx->pstTimeoutEvent, &tv);
-    // }
+        evbuffer_drain(pstRequester->pstRequestBuffer, iFrameSize);
 
-    // /* RequestContext 리스트에 추가 */
-    // pstReqCtx->pstNextReqCtx = pstEventEngine->pstReqList;
-    // pstEventEngine->pstReqList = pstReqCtx;
+        /* === REQUEST_CONTEXT 생성 === */
+        REQUEST_CONTEXT* pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
+        pstReq->uiRequestId = pstEventEngine->uiRequestSeq++;
+        pstReq->eState = REQ_STATE_WAITING;
+        pstReq->pstIoReqList = pstRequester;
+        pstReq->pstRespEvBuffer = evbuffer_new();
 
-    // /* Worker들에게 브로드캐스트 */
-    // unsigned char uchPacket[4096];
-    // memcpy(uchPacket, &uiReqId, 4);
-    // memcpy(uchPacket + 4, puchData, iLen);
+        /* === Worker 수 계산 === */
+        int iWorkerCnt = 0;
+        IO_CHANNEL* pstIoChannel = pstEventEngine->pstIoChannelList;
+        while (pstIoChannel) {
+            if (pstIoChannel->eRole == ROLE_WORKER)
+                iWorkerCnt++;
+            pstIoChannel = pstIoChannel->pstNextIoChannel;
+        }
+        pstReq->iPendingCount = iWorkerCnt;
 
-    // pstCurrIoChannel = pstEventEngine->pstIoChannel;
-    // for (; pstCurrIoChannel; pstCurrIoChannel = pstCurrIoChannel->pstNext) {
-    //     if (pstCurrIoChannel->eRole == SRC_ROLE_WORKER && pstCurrIoChannel->pstBufferEvent)
-    //         bufferevent_write(pstCurrIoChannel->pstBufferEvent, uchPacket, iLen + 4);
-    // }
+        /* === Timeout 등록 === */
+        pstReq->pstTimeoutEvent = evtimer_new(
+            pstEventEngine->pstEventBase,
+            eventEngineReqTimeoutCb,
+            pstReq);
+        
+        /* === Request 리스트 연결 === */
+        pstReq->pstNextReqCtx = pstEventEngine->pstReqList;
+        pstEventEngine->pstReqList = pstReq;
 
-    // printf("[DISP] RequestId=%u broadcast (workers=%d)\n", uiReqId, iWorkersCnt);
+        /* === Worker 브로드캐스트 === */
+        unsigned char uchaSendBuf[4096];        
+        memcpy(uchaSendBuf, auchBuf, iFrameSize);
+        memcpy(uchaSendBuf + iFrameSize, &pstReq->uiRequestId, sizeof(unsigned int));
+
+        pstIoChannel = pstEventEngine->pstIoChannelList;
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        struct timeval stTimeOut = { 0, 500 * 1000 };
+        evtimer_add(pstReq->pstTimeoutEvent, &stTimeOut);
+        while (pstIoChannel) {
+            if (pstIoChannel->eRole == ROLE_WORKER && pstIoChannel->pstWriteBuffer) {
+                evbuffer_add(pstIoChannel->pstWriteBuffer,
+                             uchaSendBuf, iFrameSize + sizeof(unsigned int));
+                event_add(pstIoChannel->pstWriteEvent, NULL);
+                usleep(10);//UDS수신데이터의 병목현상을 피하기 위해서 약간의 시간 지연을 통해 수신데이터 처리를 할수있는 시간을 준다.
+            }
+            pstIoChannel = pstIoChannel->pstNextIoChannel;
+        }
+    }
 }
 
 void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
                                     IO_CHANNEL* pstIoChannel,
                                     const unsigned char* puchData, int iLen)
-{
-    // if (iLen < 4) 
-    //     return;
+{    
+    if (iLen < sizeof(unsigned int))
+        return;
 
-    // unsigned int uiReqId;
-    // memcpy(&uiReqId, puchData, 4);
+    unsigned int uiReqId;
+    memcpy(&uiReqId, puchData+iLen-sizeof(unsigned int), sizeof(unsigned int));
+    fprintf(stderr,"### %s():%d %d###\n",__func__,__LINE__, uiReqId);
 
-    // REQUEST_CONTEXT* pstPrevReqCtx;
-    // REQUEST_CONTEXT* pstReqCtx = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReqCtx);
-    // if (!pstReqCtx) 
-    //     return;
+    REQUEST_CONTEXT* pstPrevReq = NULL;
+    REQUEST_CONTEXT* pstRequest = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReq);    
+    if (!pstRequest)
+        return;  // 이미 timeout / unknown
+        
+    /* === 응답 누적 === */
+    evbuffer_add(pstRequest->pstRespEvBuffer,
+                 puchData + sizeof(unsigned int),
+                 iLen - sizeof(unsigned int));
+    pstRequest->iPendingCount--;
 
-    // int iPayloadLen = iLen - 4;
+    /* === 모든 Worker 응답 수신 === */
+    if (pstRequest->iPendingCount <= 0) {
+        /* timeout 해제 */
+        if (pstRequest->pstTimeoutEvent) {
+            evtimer_del(pstRequest->pstTimeoutEvent);
+            event_free(pstRequest->pstTimeoutEvent);
+        }
 
-    // memcpy(pstReqCtx->auchRespBuf + pstReqCtx->iRespLen, puchData + 4, iPayloadLen);
-    // pstReqCtx->iRespLen += iPayloadLen;
+        /* TCP requester에게 전달 */
+        IO_CHANNEL* tcpCh = pstRequest->pstIoReqList;
+        evbuffer_add_buffer(tcpCh->pstWriteBuffer, pstRequest->pstRespEvBuffer);
+        event_add(tcpCh->pstWriteEvent, NULL);
+        /* 리스트에서 제거 */
+        if (pstPrevReq)
+            pstPrevReq->pstNextReqCtx = pstRequest->pstNextReqCtx;
+        else
+            pstEventEngine->pstReqList = pstRequest->pstNextReqCtx;
 
-    // pstReqCtx->iPending--;
-
-    // if (pstReqCtx->iPending <= 0) {
-    //     if (pstReqCtx->pstTimeoutEvent) {
-    //         evtimer_del(pstReqCtx->pstTimeoutEvent);
-    //         event_free(pstReqCtx->pstTimeoutEvent);
-    //     }
-
-    //     /* Requester에 응답 보내기 (TxQueue 사용) */
-    //     txQueuePush(&pstEventEngine->stTxQueue, pstReqCtx->pstIoChannelRequest,
-    //         pstReqCtx->auchRespBuf, pstReqCtx->iRespLen);
-
-    //     event_active(pstEventEngine->pstFlushEvent, EV_TIMEOUT, 0);
-
-    //     /* 리스트에서 제거 */
-    //     if (!pstPrevReqCtx) 
-    //         pstEventEngine->pstReqList = pstReqCtx->pstNextReqCtx;
-    //     else       
-    //         pstPrevReqCtx->pstNextReqCtx = pstReqCtx->pstNextReqCtx;
-
-    //     free(pstReqCtx);
-    // }
+        evbuffer_free(pstRequest->pstRespEvBuffer);
+        free(pstRequest);
+    }
 }

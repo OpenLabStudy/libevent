@@ -56,6 +56,12 @@ typedef enum {
 } FRAME_ERR;
 
 
+typedef enum {
+    PROCESS_UNKNOWN=0,
+    PROCESS_LOCAL,
+    PROCESS_VIA_IPC
+} PROCESS_PATH;
+
 /* ========================================================================== */
 /*  Structures                                                                */
 /* ========================================================================== */
@@ -165,8 +171,8 @@ FRAME_ERR makeReqFrame(unsigned short unCmd, MSG_ID *pstMsgId,
  *
  * @return FRAME_ERR (성공 시 FRAME_OK)
  */
-FRAME_ERR responseFrame(unsigned char *puchRecvData,
-                        MSG_ID *pstMsgId, size_t tDataLen);
+FRAME_ERR responseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId, 
+    size_t tDataLen, unsigned short *punCmd, unsigned char *uchResult);
 
 
 FRAME_ERR udsResponseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId, 
@@ -182,7 +188,7 @@ FRAME_ERR udsResponseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
  *
  * @return FRAME_ERR (성공 시 FRAME_OK)
  */
-FRAME_ERR requestFrame(unsigned char *puchRecvData,
+FRAME_ERR chkRequestFrame(unsigned char *puchRecvData,
                     MSG_ID *pstMsgId, size_t tDataLen, unsigned short *punOutCmd);
 
 
@@ -210,6 +216,7 @@ const char* frameErrToStr(FRAME_ERR eErr);
 
 unsigned char getSrcId(unsigned char *puchRecvData);
 unsigned char getDstId(unsigned char *puchRecvData);
+PROCESS_PATH decideProcessingPath(unsigned char *puchRecvData);
 
 #endif /* FRAME_H */
  
