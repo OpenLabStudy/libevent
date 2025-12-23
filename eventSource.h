@@ -20,7 +20,8 @@ typedef enum {
     TYPE_TCP_CLI,
     TYPE_UDS_SVR,
     TYPE_UDS_CLI,
-    TYPE_UDP,
+    TYPE_UDP_SVR,
+    TYPE_UDP_CLI,
     TYPE_UART,    
     TYPE_OTHER
 } IO_TYPE;
@@ -55,8 +56,8 @@ typedef struct _IO_CHANNEL {
     struct event*       pstShutdownEvent;
     struct event*       pstLogicEvent;
     IO_EVENT_TYPE       ePendingLogicEvent;
-    void*               pvSharedData;
     struct _IO_CHANNEL* pstNextIoChannel;
+    EVENT_ENGINE*       pstEventEngine;
 } IO_CHANNEL;
 
 /**

@@ -69,21 +69,25 @@ void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
 }
 
 
-void eventEngineDispatchSrcCb(int iFd, short nEvent, void* pvData)
+void eventEngineDispatchSrcCb(evutil_socket_t iFd, short nEvent, void* pvData)
 {
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvData;
-    IO_CHANNEL** ppstIoChannelList = &pstEventEngine->pstIoChannelList;
+    (void)iFd;
+    (void)nEvent;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL*)pvData;
+    EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
 
-    while (*ppstIoChannelList) {
-        IO_CHANNEL* pstCurIoChannelList = *ppstIoChannelList;
+    IO_CHANNEL** ppCurIoChannel = &pstEventEngine->pstIoChannelList;
 
-        if (pstCurIoChannelList->eType == TYPE_TCP_SVR) {
-            *ppstIoChannelList = pstCurIoChannelList->pstNextIoChannel;
-            eventSourceDestroy(pstCurIoChannelList);
-            return;
+    fprintf(stderr, "[DISPATCH] enter destroy fd=%d\n", pstIoChannel->iFd);
+    while (*ppCurIoChannel) {
+        if (*ppCurIoChannel == pstIoChannel) {
+            *ppCurIoChannel = pstIoChannel->pstNextIoChannel;
+            pstIoChannel->pstNextIoChannel = NULL;
+            break;
         }
-        ppstIoChannelList = &pstCurIoChannelList->pstNextIoChannel;
+        ppCurIoChannel = &(*ppCurIoChannel)->pstNextIoChannel;
     }
+    eventSourceDestroy(pstIoChannel);
 }
 
 
@@ -110,7 +114,7 @@ IO_CHANNEL* eventSourceCreateWithBev(
     pstIoChannel->eRole                 = eRole;
     pstIoChannel->ePendingLogicEvent    = IO_EVENT_NONE; 
     pstIoChannel->pstNextIoChannel      = NULL;
-    pstIoChannel->pvSharedData          = pstEventEngine->pvSharedData;
+    pstIoChannel->pstEventEngine        = pstEventEngine;
 
     pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
         iFd, EV_READ|EV_PERSIST, readCallback, pstIoChannel);
@@ -121,9 +125,9 @@ IO_CHANNEL* eventSourceCreateWithBev(
         iFd, EV_WRITE|EV_PERSIST, writeCallback, pstIoChannel);
     pstIoChannel->pstWriteBuffer = evbuffer_new();
 
-    if(eType == TYPE_TCP_SVR){
+    if(eType == TYPE_TCP_SVR || eType == TYPE_UDS_SVR ){
         pstIoChannel->pstShutdownEvent = event_new(pstEventEngine->pstEventBase, 
-                    -1, EV_PERSIST, eventEngineDispatchSrcCb, pstEventEngine);
+                    -1, EV_PERSIST, eventEngineDispatchSrcCb, pstIoChannel);
     }else{
         pstIoChannel->pstShutdownEvent = event_new(pstEventEngine->pstEventBase, 
             -1, EV_PERSIST, eventEngineShutdownCb, pstEventEngine);
