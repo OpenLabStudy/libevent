@@ -91,8 +91,7 @@ void eventEngineDispatchSrcCb(evutil_socket_t iFd, short nEvent, void* pvData)
 /* --------------------------------------------------------- */
 /* bufferevent 기반 IO_CHANNEL 생성                        */
 /* --------------------------------------------------------- */
-IO_CHANNEL* eventSourceCreateWithBev(
-    EVENT_ENGINE* pstEventEngine, int iFd,
+IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
     IO_TYPE eType, IO_ROLE eRole,
     event_callback_fn pfRead,
     event_callback_fn pfWrite,
