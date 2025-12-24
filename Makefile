@@ -12,14 +12,14 @@ LIBS_COMMON = -levent
 
 HDRS1       = frame.h icdCommand.h netCore.h netTcp.h netUds.h netUdp.h
 FRAME1_OBJS = frame.o icdCommand.o netCore.o netTcp.o netUds.o netUdp.o
-HDRS2       = eventEngine.h txQueue.h eventSource.h 
-FRAME2_OBJS = eventEngine.o txQueue.o eventSource.o 
+HDRS2       = eventEngine.h eventSource.h 
+FRAME2_OBJS = eventEngine.o eventSource.o 
 
 # === Phony targets ===
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: trackingController tcpCln udsCln gpsReceiver# tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: trackingController tcpCln #udsCln gpsReceiver# tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 trackingController: trackingController.o $(FRAME1_OBJS) $(FRAME2_OBJS)

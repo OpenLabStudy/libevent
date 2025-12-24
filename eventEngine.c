@@ -133,14 +133,14 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 
     while (1) {
         unsigned int iLen = evbuffer_get_length(pstRequester->pstRequestBuffer);
-        if (iLen < FRAME_HEADER_MIN_SIZE)
+        if (iLen < sizeof(FRAME_HEADER))
             break;
 
         unsigned char auchBuf[2048];
         unsigned int uiCopySize = evbuffer_copyout(pstRequester->pstRequestBuffer,
             auchBuf, sizeof(auchBuf));
 
-        int iFrameSize = getFrameSize(auchBuf);
+        int iFrameSize = getFrameSizeWithData(auchBuf, FRAME_TYPE_REQUEST);
         if (iFrameSize <= 0 || uiCopySize < (size_t)iFrameSize)
             break;
 

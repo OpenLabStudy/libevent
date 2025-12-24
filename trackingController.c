@@ -16,7 +16,6 @@
 
 #define SERVER_PORT 5000
 
-
 void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
@@ -32,10 +31,10 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
     }
     iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));    
     IPC_FRAME *pstIpcFrame = auchWriteBuffer;
-    iWriteSize = getResposeDataSize(pstIpcFrame->unCmd) + sizeof(FRAME_HEADER) + sizeof(FRAME_TAIL);
+    iWriteSize = getFrameSizeWithCmd(pstIpcFrame->unCmd, FRAME_TYPE_RESPONSE);
     fprintf(stderr, "[TCP-SVR] CMD=%04X, size=%d,%d,%d FD:%d\n", pstIpcFrame->unCmd, iDataSize, pstIpcFrame->uiResultSize, iWriteSize, pstIoChannel->iFd);
     MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-    eErr = makeResFrame(pstIpcFrame->unCmd, &stMsgId, pstIpcFrame->auchResult, auchSendBuf);
+    eErr = makeResponseFrame(pstIpcFrame->unCmd, &stMsgId, pstIpcFrame->auchResult, auchSendBuf);
 
     iWriteSize = write(pstIoChannel->iFd, auchSendBuf, iWriteSize);
     if (iWriteSize <= 0) {
@@ -50,22 +49,42 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+
     unsigned char auchRecvBuffer[2048];
-    unsigned char auchCmdResult[1000];
-    unsigned char auchSendBuf[1024];
+    unsigned char auchCmdResult[1024];
+    unsigned char auchSendBuf[2048];
+
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     int iSendLen = 0;
+
     switch (eEventType) {
+
     case IO_EVT_RX_DATA:
         while (1) {
             unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            if (uiRecvLen < FRAME_HEADER_MIN_SIZE)
+
+            /* 최소 헤더도 안 왔으면 중단 */
+            if (uiRecvLen < sizeof(FRAME_HEADER))
                 break;
-                
-            memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
-            int iFrameSize = getFrameSize(auchRecvBuffer);
+
+            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
+                                            auchRecvBuffer,
+                                            uiRecvLen);
+
+            /* === CMD 먼저 추출 (가벼운 파싱) === */
+            eErr = getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
+            if (eErr == FRAME_ERR_NEED_MORE_DATA)
+                break;
+
+            if (eErr != FRAME_OK) {
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
+
             if (iFrameSize <= 0) {
                 evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
                 continue;
@@ -73,38 +92,42 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
             if (iCopyLen < iFrameSize)
                 break;
-                
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);            
-            
+
+            /* === 프레임 하나 소비 === */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+
             MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-            /* === 헤더 및 명령 추출 === */
-            eErr = chkRequestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
+
+            /* === 전체 프레임 검증 === */
+            eErr = frameDecode(auchRecvBuffer, iFrameSize, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[TCP-SVR] chkRequestFrame ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 continue;
             }
-            //만약 제어PC에서의 연속적인 명령이 들어올 경우 문제가 있을수 있다.
-            //하지만 제어PC는 연속적인 명령을 던질수 없다. 처음 보낸 명령에 대해서 응답이 없으면 두번째 명령을 보내지 않는 구조이기 때문에 그렇다.
+
+            /* === 처리 경로 결정 === */
             PROCESS_PATH eProcPath = decideProcessingPath(auchRecvBuffer);
-            if(eProcPath == PROCESS_LOCAL){
+
+            if (eProcPath == PROCESS_LOCAL) {
                 /* === 명령 처리 === */
-                eErr = commandHandler(auchRecvBuffer, &stMsgId, iFrameSize, auchCmdResult, &iSendLen);
+                eErr = commandHandler(auchRecvBuffer, auchCmdResult, &iSendLen);
                 if (eErr != FRAME_OK || iSendLen <= 0)
                     continue;
 
                 /* === 응답 프레임 생성 === */
-                eErr = makeResFrame(unCmd, &stMsgId, auchCmdResult, auchSendBuf);
+                eErr = makeResponseFrame(unCmd, &stMsgId, auchCmdResult, auchSendBuf);
                 if (eErr != FRAME_OK)
                     continue;
 
-                evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iSendLen);
-                event_add(pstIoChannel->pstWriteEvent, NULL); 
-            }else if(eProcPath == PROCESS_VIA_IPC){
-                FRAME_HEADER *pstHeader = (FRAME_HEADER *)auchRecvBuffer;
+                evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf,
+                             getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE));
+                event_add(pstIoChannel->pstWriteEvent, NULL);
+            } else if (eProcPath == PROCESS_VIA_IPC) {
+                /* === IPC 전달 === */
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
-            }    
-        }        
+            }
+        }
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
@@ -120,41 +143,84 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     default:
         break;
     }
+
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
-
 
 static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+
     unsigned char auchRecvBuffer[2048];
-    unsigned char uchReult[sizeof(IPC_FRAME)];
-    IPC_FRAME *pstIpcFrame = uchReult;
-    
+    unsigned char auchIpcBuf[sizeof(IPC_FRAME)];
+    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)auchIpcBuf;
+
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
+
     switch (eEventType) {
+
     case IO_EVT_RX_DATA:
-        /* protocol / packet 처리 */
         while (1) {
             size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+            /* 최소 헤더도 없으면 중단 */
+            if (tRecvLen < sizeof(FRAME_HEADER))
                 break;
+
             if (tRecvLen > sizeof(auchRecvBuffer))
                 tRecvLen = sizeof(auchRecvBuffer);
-                
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
-            int iFrameSize = getFrameSize(auchRecvBuffer);
-            MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-            pstIpcFrame->unStx = STX_CONST;            
-            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, &pstIpcFrame->unCmd, pstIpcFrame->auchResult);
-            fprintf(stderr,"### %s():%d [%d,%d]###\n",__func__,__LINE__, iCopyLen, iFrameSize, pstIpcFrame->unCmd);
-            pstIpcFrame->uiResultSize = getResposeDataSize(pstIpcFrame->unCmd);
-            pstIpcFrame->uiResultSize = 1;
-            memcpy(&pstIpcFrame->uiRequestId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
+
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
+                                            auchRecvBuffer, tRecvLen);
+
+            /* === CMD 먼저 추출 (가벼운 파싱) === */
+            eErr = getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
+            if (eErr == FRAME_ERR_NEED_MORE_DATA)
+                break;
+
+            if (eErr != FRAME_OK) {
+                /* STX 불일치 → garbage 1바이트 드롭 */
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+
+            if (iFrameSize <= 0) {
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+
+            /* Response Frame + RequestId(4B) */
+            if (iCopyLen < iFrameSize + sizeof(unsigned int))
+                break;
+
+            /* === 프레임 소비 === */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
+
+            MSG_ID stMsgId = { UDS_1_SVR_ID, UDS_1_CLN1_ID };
+
+            /* === Response Frame 검증 === */
+            eErr = frameDecode(auchRecvBuffer, iFrameSize, FRAME_TYPE_RESPONSE, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                continue;
+            }
+
+            /* === IPC_FRAME 구성 === */
+            memset(pstIpcFrame, 0x00, sizeof(IPC_FRAME));
+
+            pstIpcFrame->unStx = STX_CONST;
+            pstIpcFrame->unCmd = unCmd;
+            pstIpcFrame->uiResultSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
+            memcpy(pstIpcFrame->auchResult, auchRecvBuffer + sizeof(FRAME_HEADER), pstIpcFrame->uiResultSize);
+            memcpy(&pstIpcFrame->uiRequestId, auchRecvBuffer + iFrameSize, sizeof(unsigned int));
             pstIpcFrame->unEtx = ETX_CONST;
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize+4);
-            eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine,
-                pstIoChannel, uchReult, sizeof(IPC_FRAME));
+
+            /* === EVENT_ENGINE에 응답 전달 === */
+            eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
+                                            (unsigned char *)pstIpcFrame, sizeof(IPC_FRAME));
         }
         break;
 
@@ -171,8 +237,10 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     default:
         break;
     }
+
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
+
 
 
 /* ============================================================

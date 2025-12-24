@@ -20,29 +20,67 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+
     unsigned char auchRecvBuffer[2048];
-    unsigned char uchReult[sizeof(IPC_FRAME)];
-    IPC_FRAME *pstIpcFrame = uchReult;
+    unsigned char uchResult[sizeof(IPC_FRAME)];
+    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)uchResult;
+
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
+
     switch (eEventType) {
+
     case IO_EVT_RX_DATA:
-        /* protocol / packet 처리 */        
         while (1) {
             size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+            /* 최소 헤더 */
+            if (tRecvLen < sizeof(FRAME_HEADER))
                 break;
 
             if (tRecvLen > sizeof(auchRecvBuffer))
                 tRecvLen = sizeof(auchRecvBuffer);
 
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
-            MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
-            //todo
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
+                                            auchRecvBuffer, tRecvLen);
+
+            /* === CMD 추출 === */
+            eErr = getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
+            if (eErr == FRAME_ERR_NEED_MORE_DATA)
+                break;
+
+            if (eErr != FRAME_OK) {
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            if (iFrameSize <= 0) {
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+
+            if (iCopyLen < iFrameSize)
+                break;
+
+            /* === 프레임 소비 === */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+
+            /* === 프레임 검증 === */
+            eErr = frameDecode(auchRecvBuffer, iFrameSize, FRAME_TYPE_RESPONSE, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[TCP-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                continue;
+            }
+            parseAndDumpResponse(auchRecvBuffer, pstIpcFrame->auchResult);
+
+            /* === IPC_FRAME 구성 === */
+            memset(pstIpcFrame, 0x00, sizeof(IPC_FRAME));
             pstIpcFrame->unStx = STX_CONST;
-            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, &pstIpcFrame->unCmd, pstIpcFrame->auchResult);
-            pstIpcFrame->uiResultSize = getDataSize(pstIpcFrame->unCmd);-sizeof(FRAME_HEADER)-sizeof(FRAME_TAIL);
+            pstIpcFrame->unCmd = unCmd;
+            pstIpcFrame->uiResultSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
+            memcpy(pstIpcFrame->auchResult, auchRecvBuffer + sizeof(FRAME_HEADER), pstIpcFrame->uiResultSize);
             pstIpcFrame->unEtx = ETX_CONST;
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+
         }
         break;
 
@@ -59,8 +97,10 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     default:
         break;
     }
+
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
+
 
 /* ============================================================
 * stdin 이벤트 콜백
@@ -73,7 +113,6 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
 
     char achInput[1024];
     unsigned char auSendBuf[1024];
-    int iSendLen = 0;
     FRAME_ERR eErr;
 
     if (!fgets(achInput, sizeof(achInput), stdin)) {
@@ -87,26 +126,31 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
 
     if (!strcmp(achInput, "keepalive")) {
         fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
-        eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
+        eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
 
     } else if (!strcmp(achInput, "ibit")) {
         fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
-        eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
+        eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
 
     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
     } else {
-        fprintf(stderr, "Available commands:\n  keepalive\n  ibit\n  quit\n");
+        fprintf(stderr, "Available commands:\n" 
+            " keepalive\n"
+            "  ibit\n"
+            "  quit\n");
         return;
     }
 
-    if (eErr == FRAME_OK && iSendLen > 0) {
+    if (eErr == FRAME_OK) {
+        int iSendLen = getFrameSizeWithData(auSendBuf, FRAME_TYPE_REQUEST);
         evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, iSendLen);
-        event_add(pstIoChannel->pstWriteEvent, NULL); 
-    } 
+        event_add(pstIoChannel->pstWriteEvent, NULL);
+    }
 }
+
 
 /* ============================================================
 * SIGINT 콜백

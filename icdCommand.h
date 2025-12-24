@@ -33,31 +33,6 @@ enum COMMAND_ID
     CMD_IBIT                  /**< 초기 Built-In-Test */
 };
 
-/**
- * @enum REQUEST_CMD_ID
- * @brief 요청(Request) 프레임에서 사용되는 명령 ID (REQ_CMD_OFFSET 적용)
- */
-enum REQUEST_CMD_ID
-{
-    REQ_CMD_OFFSET       = 0x8000, /**< REQ Bit Mask */
-
-    REQ_CMD_ID_INFO,              /**< 장비 정보 Request */
-    REQ_CMD_KEEP_ALIVE,           /**< Keep-Alive Request */
-    REQ_CMD_IBIT                  /**< IBIT Request */
-};
-
-/**
- * @enum RESPONSE_CMD_ID
- * @brief 응답(Response) 프레임에서 사용되는 명령 ID (RES_CMD_OFFSET 적용)
- */
-enum RESPONSE_CMD_ID
-{
-    RES_CMD_OFFSET       = 0x4000, /**< RES Bit Mask */
-
-    RES_CMD_ID_INFO,              /**< 장비 정보 Response */
-    RES_CMD_KEEP_ALIVE,           /**< Keep-Alive Response */
-    RES_CMD_IBIT                  /**< IBIT Response */
-};
 
 
 /* ========================================================================== */

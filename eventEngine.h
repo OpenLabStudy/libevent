@@ -9,7 +9,6 @@ extern "C" {
 #include <event2/event.h>
 #include "eventSource.h"
 
-#include "txQueue.h"
 
 struct _REQUEST_CONTEXT;
 typedef struct _REQUEST_CONTEXT REQUEST_CONTEXT;
