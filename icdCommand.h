@@ -135,5 +135,8 @@ int keepAlive(unsigned char* puchRecvData, unsigned char* puchCmdResult);
  */
 int iBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
+
+
+
 #endif /* ICD_COMMAND_H */
  
