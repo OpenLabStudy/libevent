@@ -114,6 +114,8 @@ typedef struct __attribute__((__packed__)) {
  * @return 페이로드 크기(바이트)
  */
 int getDataSize(unsigned short unCmd);
+int getRequeestDataSize(unsigned short unCmd);
+int getResposeDataSize(unsigned short unCmd);
 
 
 /**

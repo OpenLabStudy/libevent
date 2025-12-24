@@ -194,28 +194,22 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
     }
 }
 
-void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
-                                    IO_CHANNEL* pstIoChannel,
+void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel,
                                     const unsigned char* puchData, int iLen)
-{    
+{
+    IPC_FRAME *pstIpcFrame = puchData;
     if (iLen < sizeof(unsigned int))
         return;
 
-    unsigned int uiReqId;
-    memcpy(&uiReqId, puchData+iLen-sizeof(unsigned int), sizeof(unsigned int));
-    fprintf(stderr,"### %s():%d %d###\n",__func__,__LINE__, uiReqId);
-
     REQUEST_CONTEXT* pstPrevReq = NULL;
-    REQUEST_CONTEXT* pstRequest = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReq);    
+    REQUEST_CONTEXT* pstRequest = eventEngineFindReq(pstEventEngine, pstIpcFrame->uiRequestId, &pstPrevReq);    
     if (!pstRequest)
         return;  // 이미 timeout / unknown
         
     /* === 응답 누적 === */
-    evbuffer_add(pstRequest->pstRespEvBuffer,
-                 puchData + sizeof(unsigned int),
-                 iLen - sizeof(unsigned int));
+    fprintf(stderr,"### %s():%d %d %d %d Result:%02x###\n",__func__,__LINE__, pstIpcFrame->uiResultSize, pstIpcFrame->uiRequestId, pstIpcFrame->unCmd, pstIpcFrame->auchResult[0]);
+    evbuffer_add(pstRequest->pstRespEvBuffer, pstIpcFrame->auchResult, pstIpcFrame->uiResultSize);
     pstRequest->iPendingCount--;
-
     /* === 모든 Worker 응답 수신 === */
     if (pstRequest->iPendingCount <= 0) {
         /* timeout 해제 */
@@ -223,10 +217,35 @@ void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
             evtimer_del(pstRequest->pstTimeoutEvent);
             event_free(pstRequest->pstTimeoutEvent);
         }
+        unsigned char uchFinalResult = 0x01;  /* 기본값: 정상 */
+        unsigned char uchResult;
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        while (evbuffer_get_length(pstRequest->pstRespEvBuffer) > 0) {
+            /* 1바이트씩 꺼냄 */
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            if (evbuffer_remove(pstRequest->pstRespEvBuffer, &uchResult, 1) != 1) {
+                uchFinalResult = 0x00;
+                break;
+            }
+            fprintf(stderr,"### %s():%d Result:%02x###\n",__func__,__LINE__, uchResult);
+
+            if (uchResult == 0x00) {
+                uchFinalResult = 0x00;
+                break;
+            }
+        }
+        
 
         /* TCP requester에게 전달 */
         IO_CHANNEL* tcpCh = pstRequest->pstIoReqList;
-        evbuffer_add_buffer(tcpCh->pstWriteBuffer, pstRequest->pstRespEvBuffer);
+        IPC_FRAME stIpcFrame;
+        stIpcFrame.unStx = STX_CONST;
+        stIpcFrame.uiRequestId = 0;
+        stIpcFrame.uiResultSize = pstIpcFrame->uiResultSize;
+        memcpy(stIpcFrame.auchResult, &uchFinalResult, stIpcFrame.uiResultSize);
+        stIpcFrame.unCmd = pstIpcFrame->unCmd;
+        stIpcFrame.unEtx = ETX_CONST;
+        evbuffer_add(tcpCh->pstWriteBuffer, &stIpcFrame, sizeof(stIpcFrame));
         event_add(tcpCh->pstWriteEvent, NULL);
         /* 리스트에서 제거 */
         if (pstPrevReq)

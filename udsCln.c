@@ -43,7 +43,8 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
             //todo
             pstIpcFrame->unStx = STX_CONST;
-            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, pstIpcFrame->unCmd, pstIpcFrame->uchResult);
+            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, &pstIpcFrame->unCmd, pstIpcFrame->auchResult);
+            pstIpcFrame->uiResultSize = getDataSize(pstIpcFrame->unCmd);-sizeof(FRAME_HEADER)-sizeof(FRAME_TAIL);
             pstIpcFrame->unEtx = ETX_CONST;
             evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
         }

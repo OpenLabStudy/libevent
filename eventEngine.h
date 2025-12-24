@@ -38,9 +38,11 @@ struct _REQUEST_CONTEXT {
 };
 
 typedef struct __attribute__((__packed__)) {
-    unsigned short  unStx;          /**< 프레임 시작(STX) 값 */   
+    unsigned short  unStx;          /**< 프레임 시작(STX) 값 */
+    unsigned int    uiRequestId;
     unsigned short  unCmd;          /**< 명령 코드 */ 
-    unsigned char   uchResult;
+    unsigned char   auchResult[64];
+    unsigned int    uiResultSize;
     unsigned short  unEtx;    /**< 프레임 종료(ETX) 값 */
 } IPC_FRAME;
 

@@ -23,7 +23,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     unsigned char auchRecvBuffer[2048];
     unsigned char uchReult[sizeof(IPC_FRAME)];
     IPC_FRAME *pstIpcFrame = uchReult;
-    
     switch (eEventType) {
     case IO_EVT_RX_DATA:
         /* protocol / packet 처리 */        
@@ -39,7 +38,9 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
             //todo
             pstIpcFrame->unStx = STX_CONST;
-            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, pstIpcFrame->unCmd, pstIpcFrame->uchResult);
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, &pstIpcFrame->unCmd, pstIpcFrame->auchResult);
+            pstIpcFrame->uiResultSize = getDataSize(pstIpcFrame->unCmd);-sizeof(FRAME_HEADER)-sizeof(FRAME_TAIL);
             pstIpcFrame->unEtx = ETX_CONST;
             evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
         }

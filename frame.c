@@ -153,7 +153,7 @@ static FRAME_ERR checkFrameHeader(unsigned short unCmd, MSG_ID *pstMsgId,
         
     if (tDataLen < sizeof(FRAME_HEADER))
         return FRAME_ERR_NEED_MORE_DATA;
-
+        
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchData;    
     if (ntohs(pstHeader->unStx) != STX_CONST)
         return FRAME_ERR_INVALID_STX;
@@ -163,13 +163,12 @@ static FRAME_ERR checkFrameHeader(unsigned short unCmd, MSG_ID *pstMsgId,
     FRAME_ERR eErr = checkCmd(unCmd);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
     if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd))
         return FRAME_ERR_INVALID_LENGTH;
         
     int iNeedSize =
         sizeof(FRAME_HEADER) + getDataSize(unCmd) + sizeof(FRAME_TAIL);
-
     if ((int)tDataLen < iNeedSize)
         return FRAME_ERR_NEED_MORE_DATA;
         
@@ -211,7 +210,6 @@ static FRAME_ERR checkFrameTail(unsigned short unCmd, unsigned char *puchData)
 int getDataSize(unsigned short unCmd)
 {
     switch (unCmd) {
-
         case REQ_CMD_ID_INFO:    return sizeof(REQ_ID);
         case RES_CMD_ID_INFO:    return sizeof(RES_ID);
 
@@ -220,6 +218,24 @@ int getDataSize(unsigned short unCmd)
 
         case REQ_CMD_IBIT:       return sizeof(REQ_IBIT);
         case RES_CMD_IBIT:       return sizeof(RES_IBIT);
+    }
+    return 0;
+}
+int getRequeestDataSize(unsigned short unCmd)
+{
+    switch (unCmd) {
+        case CMD_ID_INFO:    return sizeof(REQ_ID);
+        case CMD_KEEP_ALIVE: return sizeof(REQ_KEEP_ALIVE);
+        case CMD_IBIT:       return sizeof(REQ_IBIT);
+    }
+    return 0;
+}
+int getResposeDataSize(unsigned short unCmd)
+{
+    switch (unCmd) {
+        case CMD_ID_INFO:    return sizeof(RES_ID);
+        case CMD_KEEP_ALIVE: return sizeof(RES_KEEP_ALIVE);
+        case CMD_IBIT:       return sizeof(RES_IBIT);
     }
     return 0;
 }
@@ -383,18 +399,16 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
 
     FRAME_ERR eErr = checkFrameHeader(unCmd, pstMsgId, puchRecvData, tDataLen);
     if (eErr != FRAME_OK)
-        return eErr;
-
+        return eErr; 
     eErr = checkFrameTail(unCmd, puchRecvData);
     if (eErr != FRAME_OK)
         return eErr;
-
     switch (unCmd) {
         case RES_CMD_ID_INFO:
         {
             RES_ID* pstResIdInfo = (RES_ID *)(puchRecvData+sizeof(FRAME_HEADER));
             *punCmd = CMD_ID_INFO;
-            *uchResult = pstResIdInfo->chResult;
+            uchResult[0] = pstResIdInfo->chResult;
             fprintf(stderr,"Client Id  0x%02x\n", pstResIdInfo->chResult);
             break;
         }
@@ -403,7 +417,7 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
         {
             RES_KEEP_ALIVE* pstResKeepAlive = (RES_KEEP_ALIVE *)(puchRecvData+sizeof(FRAME_HEADER));
             *punCmd = CMD_KEEP_ALIVE;
-            *uchResult = pstResKeepAlive->chResult;
+            uchResult[0] = pstResKeepAlive->chResult;
             fprintf(stderr,"keepalive %02x\n", pstResKeepAlive->chResult);
             break;
         }
@@ -412,12 +426,13 @@ FRAME_ERR responseFrame(unsigned char *puchRecvData, MSG_ID *pstMsgId,
         {
             RES_IBIT* pstResIBit = (RES_IBIT *)(puchRecvData+sizeof(FRAME_HEADER));
             *punCmd = CMD_IBIT;
-            *uchResult = pstResIBit->chBitTotResult;
+            uchResult[0] = pstResIBit->chBitTotResult;
             fprintf(stderr,"iBit %02x %02x\n", pstResIBit->chBitTotResult, pstResIBit->chPositionResult);
             break;
         }
 
         default:
+            fprintf(stderr,"ICD %02x\n", pstHeader->unCmd);
             return FRAME_ERR_INVALID_CMD;
     }
 
