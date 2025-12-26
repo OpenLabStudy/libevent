@@ -47,6 +47,13 @@ void writeCallback(int iFd, short nEvent, void* pvData)
         return;
     }    
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));
+    fprintf(stderr,"\n### %s():%d ###\n",__func__,__LINE__);
+    for(int i=1; i<=iWriteSize; i++){
+        fprintf(stderr,"%02X ", auchWriteBuffer[i-1]);
+        if(i%16==0)
+            fprintf(stderr,"\n");
+    }
+
     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
     if (iWriteSize <= 0) {
         perror("write");

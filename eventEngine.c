@@ -1,6 +1,7 @@
 #include "eventEngine.h"
 #include "eventSource.h"
 #include "frame.h"
+#include "udsFrame.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -172,20 +173,31 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         /* === Request 리스트 연결 === */
         pstReq->pstNextReqCtx = pstEventEngine->pstReqList;
         pstEventEngine->pstReqList = pstReq;
-
-        /* === Worker 브로드캐스트 === */
-        unsigned char uchaSendBuf[4096];        
-        memcpy(uchaSendBuf, auchBuf, iFrameSize);
-        memcpy(uchaSendBuf + iFrameSize, &pstReq->uiRequestId, sizeof(unsigned int));
-
+        unsigned char uchaSendBuf[UDS_MAX_SIZE];
+        unsigned int uiSendSize;
+        udsFrameBuildRequest(pstReq->uiRequestId, auchBuf, iFrameSize, 
+            uchaSendBuf, sizeof(uchaSendBuf), &uiSendSize);
         pstIoChannel = pstEventEngine->pstIoChannelList;
         fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        for(int i=1; i<=iFrameSize; i++){
+            fprintf(stderr,"%02X ", auchBuf[i-1]);
+            if(i%16==0)
+                fprintf(stderr,"\n");
+        }
+        fprintf(stderr,"\n### %s():%d ###\n",__func__,__LINE__);
+        for(int i=1; i<=uiSendSize; i++){
+            fprintf(stderr,"%02X ", uchaSendBuf[i-1]);
+            if(i%16==0)
+                fprintf(stderr,"\n");
+        }
+
+
         struct timeval stTimeOut = { 0, 500 * 1000 };
         evtimer_add(pstReq->pstTimeoutEvent, &stTimeOut);
         while (pstIoChannel) {
             if (pstIoChannel->eRole == ROLE_WORKER && pstIoChannel->pstWriteBuffer) {
                 evbuffer_add(pstIoChannel->pstWriteBuffer,
-                             uchaSendBuf, iFrameSize + sizeof(unsigned int));
+                             uchaSendBuf, uiSendSize);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
                 usleep(10);//UDS수신데이터의 병목현상을 피하기 위해서 약간의 시간 지연을 통해 수신데이터 처리를 할수있는 시간을 준다.
             }
@@ -207,8 +219,8 @@ void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* p
         return;  // 이미 timeout / unknown
         
     /* === 응답 누적 === */
-    fprintf(stderr,"### %s():%d %d %d %d Result:%02x###\n",__func__,__LINE__, pstIpcFrame->uiResultSize, pstIpcFrame->uiRequestId, pstIpcFrame->unCmd, pstIpcFrame->auchResult[0]);
-    evbuffer_add(pstRequest->pstRespEvBuffer, pstIpcFrame->auchResult, pstIpcFrame->uiResultSize);
+    fprintf(stderr,"### %s():%d %d %d %d Result:%02x###\n",__func__,__LINE__, pstIpcFrame->iResultSize, pstIpcFrame->uiRequestId, pstIpcFrame->unCmd, pstIpcFrame->auchResult[0]);
+    evbuffer_add(pstRequest->pstRespEvBuffer, pstIpcFrame->auchResult, pstIpcFrame->iResultSize);
     pstRequest->iPendingCount--;
     /* === 모든 Worker 응답 수신 === */
     if (pstRequest->iPendingCount <= 0) {
@@ -241,8 +253,8 @@ void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* p
         IPC_FRAME stIpcFrame;
         stIpcFrame.unStx = STX_CONST;
         stIpcFrame.uiRequestId = 0;
-        stIpcFrame.uiResultSize = pstIpcFrame->uiResultSize;
-        memcpy(stIpcFrame.auchResult, &uchFinalResult, stIpcFrame.uiResultSize);
+        stIpcFrame.iResultSize = pstIpcFrame->iResultSize;
+        memcpy(stIpcFrame.auchResult, &uchFinalResult, stIpcFrame.iResultSize);
         stIpcFrame.unCmd = pstIpcFrame->unCmd;
         stIpcFrame.unEtx = ETX_CONST;
         evbuffer_add(tcpCh->pstWriteBuffer, &stIpcFrame, sizeof(stIpcFrame));

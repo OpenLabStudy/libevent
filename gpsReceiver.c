@@ -45,6 +45,7 @@
  #include "netUds.h"
  #include "netCore.h"
  #include "frame.h"
+ #include "udsFrame.h"
 /* ========================================================================== */
 /* UART Configuration                                                         */
 /* ========================================================================== */
@@ -211,63 +212,65 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    unsigned char auchRecvBuffer[2048];    
-    unsigned char auchCmdResult[1000];
-    unsigned char auchSendBuf[1024];
+    unsigned char auchRecvBuffer[2048];
+    unsigned char uchResult[sizeof(IPC_FRAME)];
+    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)uchResult;    
+
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
-    int iSendLen = 0;
     
     switch (eEventType) {
     case IO_EVT_RX_DATA:
         while (1) {
-            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            unsigned int uiRequestId=0;
-            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+            unsigned int uiRequestId;
+            unsigned char *auchPayload=NULL;
+            unsigned int uiPayloadLen;
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            /* 최소 헤더도 안 왔으면 중단 */
+            if (uiRecvLen < sizeof(FRAME_HEADER))
                 break;
 
-            if (tRecvLen > sizeof(auchRecvBuffer))
-                tRecvLen = sizeof(auchRecvBuffer);
+            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);            
+            udsFrameDecode(auchRecvBuffer, iCopyLen, &uiRequestId,
+                &auchPayload, &uiPayloadLen);
+                /*추후 evbuffer에 삭제 크기 알 필요 있음*/
 
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);            
-            int iFrameSize = getFrameSize(auchRecvBuffer);
-            if (iFrameSize <= 0) {
+            eErr = frameDecode(auchPayload, uiPayloadLen, FRAME_TYPE_REQUEST, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
                 continue;
             }
+            fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
+
+            /* === CMD 먼저 추출 (가벼운 파싱) === */
+            getCmdFromFrame(auchPayload, uiPayloadLen, &unCmd);
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             if (iCopyLen < iFrameSize)
                 break;
-            if(iCopyLen - iFrameSize == 4){
-                memcpy(&uiRequestId ,auchRecvBuffer + iFrameSize, sizeof(unsigned int));
-            }
-            fprintf(stderr,"### %s():%d %d-%d ###\n",__func__,__LINE__, iCopyLen, iFrameSize);
-
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
-            MSG_ID stMsgId = { UDS_1_SVR_ID, UDS_1_CLN1_ID };
-
-            /* === 헤더 및 명령 추출 === */
-            eErr = chkRequestFrame(auchRecvBuffer, &stMsgId, iFrameSize, &unCmd);
-            if (eErr != FRAME_OK) {
-                fprintf(stderr, "[UDS-SVR] requestFrame ERR: %s\n", frameErrToStr(eErr));
-                continue;
-            }
-
+fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
+            /* === 프레임 하나 소비 === */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+            unsigned char uchaSendBuf[UDS_MAX_SIZE];
+            unsigned char auchResult[UDS_MAX_SIZE];
+            unsigned int uiSendSize;
+            int iResultSize;
+            fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
             /* === 명령 처리 === */
-            eErr = commandHandler(auchRecvBuffer, &stMsgId, iFrameSize, auchCmdResult, &iSendLen);
-            if (eErr != FRAME_OK || iSendLen <= 0)
+            eErr = commandHandler(auchPayload, auchResult, &iResultSize);
+            if (eErr != FRAME_OK || iResultSize <= 0)
                 continue;
+            makeResponseFrame();    
 
-            /* === 응답 프레임 생성 === */
-            eErr = makeResFrame(unCmd, &stMsgId, auchCmdResult, auchSendBuf);
-            if (eErr != FRAME_OK)
-                continue;
+            fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
+            
+            udsFrameBuildRequest(uiRequestId, auchResult, iResultSize, 
+                uchaSendBuf, sizeof(uchaSendBuf), &uiSendSize);
 
-            fprintf(stderr, "[UDS-SVR] Send CMD=%04X, size=%d\n", unCmd, iSendLen);
-            memcpy(auchSendBuf + iSendLen, &uiRequestId, sizeof(unsigned int));
-            fprintf(stderr,"### %s():%d %d-%d ###\n",__func__,__LINE__, iCopyLen, iFrameSize);
-            evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iSendLen+sizeof(unsigned int));
-            fprintf(stderr,"### %s():%d %d-%d ###\n",__func__,__LINE__, iCopyLen, iFrameSize);
-            event_add(pstIoChannel->pstWriteEvent, NULL); 
+            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize);
+            event_add(pstIoChannel->pstWriteEvent, NULL);
         }        
         break;
 
@@ -346,8 +349,8 @@ int run(int iId, char* pchUartPath)
     printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
     netSetNonblock(iClientSock);
     eventSourceCreateWithBev(&stEventEngine, iClientSock,
-        TYPE_TCP_CLI, ROLE_WORKER,
-        NULL, NULL, ioChannelHandleEvent
+        TYPE_UDS_CLI, ROLE_WORKER,
+        NULL, udsWriteCallback, ioChannelHandleEvent
     );
 
 

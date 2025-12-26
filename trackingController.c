@@ -13,11 +13,13 @@
 #include "eventEngine.h"
 #include "tcpSvr.h"
 #include "udsSvr.h"
+#include "udsFrame.h"
 
 #define SERVER_PORT 5000
 
 void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     unsigned char auchSendBuf[1024];
@@ -32,7 +34,7 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
     iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));    
     IPC_FRAME *pstIpcFrame = (IPC_FRAME *)auchWriteBuffer;
     iWriteSize = getFrameSizeWithCmd(pstIpcFrame->unCmd, FRAME_TYPE_RESPONSE);
-    fprintf(stderr, "[TCP-SVR] CMD=%04X, size=%d,%d,%d FD:%d\n", pstIpcFrame->unCmd, iDataSize, pstIpcFrame->uiResultSize, iWriteSize, pstIoChannel->iFd);
+    fprintf(stderr, "[TCP-SVR] CMD=%04X, size=%d,%d,%d FD:%d\n", pstIpcFrame->unCmd, iDataSize, pstIpcFrame->iResultSize, iWriteSize, pstIoChannel->iFd);
     MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
     eErr = makeResponseFrame(pstIpcFrame->unCmd, &stMsgId, pstIpcFrame->auchResult, auchSendBuf);
 
@@ -47,6 +49,7 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
@@ -65,8 +68,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 break;
 
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
-                                            auchRecvBuffer, uiRecvLen);
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
@@ -75,7 +77,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             }            
             /* === CMD 먼저 추출 (가벼운 파싱) === */
             getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
-
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             if (iCopyLen < iFrameSize)
                 break;
@@ -92,14 +93,15 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 stIpcFrame.unCmd        = unCmd;
                 stIpcFrame.unEtx        = ETX_CONST;
                 /* === 명령 처리 === */
-                eErr = commandHandler(auchRecvBuffer, stIpcFrame.auchResult, &stIpcFrame.uiResultSize);
-                if (eErr != FRAME_OK || stIpcFrame.uiResultSize <= 0)
+                eErr = commandHandler(auchRecvBuffer, stIpcFrame.auchResult, &stIpcFrame.iResultSize);
+                if (eErr != FRAME_OK || stIpcFrame.iResultSize <= 0)
                     continue;                
 
                 evbuffer_add(pstIoChannel->pstWriteBuffer, &stIpcFrame, sizeof(IPC_FRAME));
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             } else if (eProcPath == PROCESS_VIA_IPC) {
                 /* === IPC 전달 === */
+                fprintf(stderr,"### %s():%d %d ###\n",__func__,__LINE__, iFrameSize);
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
             }
@@ -139,6 +141,9 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
     case IO_EVT_RX_DATA:
         while (1) {
+            unsigned int uiRequestId;
+            unsigned char *auchPayload=NULL;
+            unsigned int uiPayloadLen;
             size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
             /* 최소 헤더도 없으면 중단 */
             if (tRecvLen < sizeof(FRAME_HEADER))
@@ -147,31 +152,45 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
                                             auchRecvBuffer, tRecvLen);
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+            fprintf(stderr,"### %s():%d %d###\n",__func__,__LINE__, iCopyLen);
+            udsFrameDecode(auchRecvBuffer, iCopyLen, &uiRequestId,
+                &auchPayload, &uiPayloadLen);
+            fprintf(stderr,"### %s():%d %d###\n",__func__,__LINE__, uiPayloadLen);
+            eErr = frameDecode(auchPayload, uiPayloadLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
+                for(int i=1; i<=uiPayloadLen; i++){
+                    fprintf(stderr,"%02X ", auchPayload[i-1]);
+                    if(i%16==0)
+                        fprintf(stderr,"\n");
+                }
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
                 continue;
             }     
             /* === CMD 먼저 추출 (가벼운 파싱) === */
-            getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);            
+            getCmdFromFrame(auchPayload, uiPayloadLen, &unCmd);            
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
             /* Response Frame + RequestId(4B) */
             if (iCopyLen < iFrameSize + sizeof(unsigned int))
                 break;
 
             /* === 프레임 소비 === */
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
-            pstIpcFrame->unStx = STX_CONST;
-            pstIpcFrame->unCmd = unCmd;
-            pstIpcFrame->uiResultSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
-            memcpy(pstIpcFrame->auchResult, auchRecvBuffer + sizeof(FRAME_HEADER), pstIpcFrame->uiResultSize);
-            memcpy(&pstIpcFrame->uiRequestId, auchRecvBuffer + iFrameSize, sizeof(unsigned int));
-            pstIpcFrame->unEtx = ETX_CONST;
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);            
+
+            unsigned char uchaSendBuf[UDS_MAX_SIZE];
+            unsigned char auchResult[UDS_MAX_SIZE];
+            unsigned int uiSendSize;
+            int iResultSize;
+            parseAndDumpResponse(auchPayload, auchResult);
+            iResultSize = getFrameSizeWithData(auchPayload, FRAME_TYPE_RESPONSE);
+
+            udsFrameBuildRequest(uiRequestId, auchResult, iResultSize, 
+                uchaSendBuf, sizeof(uchaSendBuf), &uiSendSize);
+            
 
             /* === EVENT_ENGINE에 응답 전달 === */
             eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
-                                            (unsigned char *)pstIpcFrame, sizeof(IPC_FRAME));
+                                            uchaSendBuf, uiSendSize);
         }
         break;
 

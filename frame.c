@@ -204,15 +204,18 @@ static FRAME_ERR frameCheckHeader(unsigned short unCmd,
     FRAME_ERR eErr;
 
     eErr = frameCheckBasic(puchData, iFrameSize);
-    if (eErr != FRAME_OK) return eErr;
+    if (eErr != FRAME_OK)
+        return eErr;
 
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchData;
 
     eErr = frameCheckHeaderFields(pstHeader, eFrameType);
-    if (eErr != FRAME_OK) return eErr;
+    if (eErr != FRAME_OK)
+        return eErr;
 
     eErr = frameCheckDataLength(pstHeader, eFrameType);
-    if (eErr != FRAME_OK) return eErr;
+    if (eErr != FRAME_OK)
+        return eErr;
 
     return frameCheckCompleteSize(unCmd, iFrameSize, eFrameType);
 }
@@ -250,10 +253,11 @@ FRAME_ERR frameDecode(unsigned char *puchBuf,
         return FRAME_ERR_NULL_PTR;
 
     FRAME_ERR eErr;
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     eErr = frameCheckBasic(puchBuf, iFrameSize);
     if (eErr != FRAME_OK)
         return eErr;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchBuf;
     unsigned short unCmd = ntohs(pstHeader->unCmd);

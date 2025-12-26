@@ -20,7 +20,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-
     unsigned char auchRecvBuffer[2048];
     unsigned char uchResult[sizeof(IPC_FRAME)];
     IPC_FRAME *pstIpcFrame = (IPC_FRAME *)uchResult;
@@ -29,7 +28,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     FRAME_ERR eErr;
 
     switch (eEventType) {
-
     case IO_EVT_RX_DATA:
         while (1) {
             size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
@@ -40,8 +38,7 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             if (tRecvLen > sizeof(auchRecvBuffer))
                 tRecvLen = sizeof(auchRecvBuffer);
 
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
-                                            auchRecvBuffer, tRecvLen);
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
 
             /* === CMD 추출 === */
             eErr = getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
@@ -77,8 +74,8 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             memset(pstIpcFrame, 0x00, sizeof(IPC_FRAME));
             pstIpcFrame->unStx = STX_CONST;
             pstIpcFrame->unCmd = unCmd;
-            pstIpcFrame->uiResultSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
-            memcpy(pstIpcFrame->auchResult, auchRecvBuffer + sizeof(FRAME_HEADER), pstIpcFrame->uiResultSize);
+            pstIpcFrame->iResultSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
+            memcpy(pstIpcFrame->auchResult, auchRecvBuffer + sizeof(FRAME_HEADER), pstIpcFrame->iResultSize);
             pstIpcFrame->unEtx = ETX_CONST;
 
         }
@@ -107,6 +104,7 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 * ============================================================ */
 static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
+    fprintf(stderr, "[TCP-CLI] stdin fired\n");
     (void)nEvents;
 
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
@@ -114,12 +112,17 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     char achInput[1024];
     unsigned char auSendBuf[1024];
     FRAME_ERR eErr;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!fgets(achInput, sizeof(achInput), stdin)) {
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
         event_active(pstIoChannel->pstLogicEvent, 0, 0);
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         return;
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     achInput[strcspn(achInput, "\n")] = '\0';
     MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
@@ -167,6 +170,7 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 int run()
 {
     EVENT_ENGINE   stEventEngine;
+    fprintf(stderr, "[TCP-CLI] isatty(stdin)=%d\n", isatty(STDIN_FILENO));
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
         printf("[TCP-CLI] event_base_new failed\n");
@@ -190,11 +194,12 @@ int run()
     /* EVENT_SOURCE 생성   */
     /* ------------------- */
     netSetNonblock(iClientSock);
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     eventSourceCreateWithBev(&stEventEngine, iClientSock,
         TYPE_TCP_CLI, ROLE_WORKER,
         NULL, NULL, ioChannelHandleEvent
     );
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     /* ------------------- */
     /* stdin 이벤트 등록   */
@@ -210,14 +215,16 @@ int run()
         event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     event_add(evStdin, NULL);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     struct event   *pstSignalEvent;
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
-
+fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */

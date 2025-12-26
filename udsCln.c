@@ -25,28 +25,42 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     unsigned char auchRecvBuffer[2048];
+    unsigned char auchResultBuffer[64];
     unsigned char uchReult[sizeof(IPC_FRAME)];
-    IPC_FRAME *pstIpcFrame = uchReult;
+    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)uchReult;
+
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
     
     switch (eEventType) {
     case IO_EVT_RX_DATA:
         /* protocol / packet 처리 */        
         while (1) {
             size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+            /* 최소 헤더 */
+            if (tRecvLen < sizeof(FRAME_HEADER))
                 break;
 
             if (tRecvLen > sizeof(auchRecvBuffer))
                 tRecvLen = sizeof(auchRecvBuffer);
 
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
+            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+            /* === CMD 먼저 추출 (가벼운 파싱) === */
+            getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
+            if (iCopyLen < iFrameSize)
+                break;
             MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-            //todo
-            pstIpcFrame->unStx = STX_CONST;
-            responseFrame(auchRecvBuffer, &stMsgId, iCopyLen, &pstIpcFrame->unCmd, pstIpcFrame->auchResult);
-            pstIpcFrame->uiResultSize = getDataSize(pstIpcFrame->unCmd);-sizeof(FRAME_HEADER)-sizeof(FRAME_TAIL);
-            pstIpcFrame->unEtx = ETX_CONST;
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+
+            /* === 프레임 하나 소비 === */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            parseAndDumpResponse(auchRecvBuffer, auchResultBuffer);
         }
         break;
 
@@ -72,12 +86,10 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
     (void)nEvents;
-
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
     char achInput[1024];
     unsigned char auSendBuf[1024];
-    int iSendLen = 0;
     FRAME_ERR eErr;
 
     if (!fgets(achInput, sizeof(achInput), stdin)) {
@@ -90,27 +102,32 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
 
     if (!strcmp(achInput, "keepalive")) {
-        fprintf(stderr,"[UDS-CLI] REQ_KEEP_ALIVE\n");
-        eErr = makeReqFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf, &iSendLen);
+        fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
+        eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
 
     } else if (!strcmp(achInput, "ibit")) {
-        fprintf(stderr,"[UDS-CLI] REQ_IBIT\n");
-        eErr = makeReqFrame(CMD_IBIT, &stMsgId, auSendBuf, &iSendLen);
+        fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
+        eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
 
     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
     } else {
-        fprintf(stderr, "Available commands:\n  keepalive\n  ibit\n  quit\n");
+        fprintf(stderr, "Available commands:\n" 
+            " keepalive\n"
+            "  ibit\n"
+            "  quit\n");
         return;
     }
 
-    if (eErr == FRAME_OK && iSendLen > 0) {
+    if (eErr == FRAME_OK) {
+        int iSendLen = getFrameSizeWithData(auSendBuf, FRAME_TYPE_REQUEST);
         evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, iSendLen);
-        event_add(pstIoChannel->pstWriteEvent, NULL); 
-    } 
+        event_add(pstIoChannel->pstWriteEvent, NULL);
+    }
 }
+
 /* ============================================================
 * SIGINT 콜백
 * ============================================================ */
