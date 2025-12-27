@@ -39,7 +39,7 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 tRecvLen = sizeof(auchRecvBuffer);
 
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
-
+            fprintf(stderr,"### %s():%d %d ###\n",__func__,__LINE__, iCopyLen);
             /* === CMD 추출 === */
             eErr = getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
             if (eErr == FRAME_ERR_NEED_MORE_DATA)

@@ -233,43 +233,41 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);            
-            udsFrameDecode(auchRecvBuffer, iCopyLen, &uiRequestId,
-                &auchPayload, &uiPayloadLen);
-                /*추후 evbuffer에 삭제 크기 알 필요 있음*/
-
-            eErr = frameDecode(auchPayload, uiPayloadLen, FRAME_TYPE_REQUEST, &unCmd);
+            
+            /*추후 evbuffer에 삭제 크기 알 필요 있음*/
+            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
                 continue;
             }
             fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
 
             /* === CMD 먼저 추출 (가벼운 파싱) === */
-            getCmdFromFrame(auchPayload, uiPayloadLen, &unCmd);
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             if (iCopyLen < iFrameSize)
                 break;
-fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
             /* === 프레임 하나 소비 === */
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+            unsigned int uiReqId;
+            memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize+sizeof(unsigned int));
             unsigned char uchaSendBuf[UDS_MAX_SIZE];
             unsigned char auchResult[UDS_MAX_SIZE];
             unsigned int uiSendSize;
             int iResultSize;
             fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
             /* === 명령 처리 === */
-            eErr = commandHandler(auchPayload, auchResult, &iResultSize);
+            eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
             if (eErr != FRAME_OK || iResultSize <= 0)
                 continue;
-            makeResponseFrame(unCmd, );    
+                MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
+            makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
+            memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
 
             fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
-            
-            udsFrameBuildRequest(uiRequestId, auchResult, iResultSize, 
-                uchaSendBuf, sizeof(uchaSendBuf), &uiSendSize);
 
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize+sizeof(unsigned int));
             event_add(pstIoChannel->pstWriteEvent, NULL);
         }        
         break;
@@ -350,7 +348,7 @@ int run(int iId, char* pchUartPath)
     netSetNonblock(iClientSock);
     eventSourceCreateWithBev(&stEventEngine, iClientSock,
         TYPE_UDS_CLI, ROLE_WORKER,
-        NULL, udsWriteCallback, ioChannelHandleEvent
+        NULL, NULL, ioChannelHandleEvent
     );
 
 
