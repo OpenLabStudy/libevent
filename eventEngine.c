@@ -174,13 +174,6 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         pstReq->pstNextReqCtx = pstEventEngine->pstReqList;
         pstEventEngine->pstReqList = pstReq;
         pstIoChannel = pstEventEngine->pstIoChannelList;
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-        for(int i=1; i<=iFrameSize; i++){
-            fprintf(stderr,"%02X ", auchBuf[i-1]);
-            if(i%16==0)
-                fprintf(stderr,"\n");
-        }
-
 
         struct timeval stTimeOut = { 0, 500 * 1000 };
         evtimer_add(pstReq->pstTimeoutEvent, &stTimeOut);
@@ -195,17 +188,16 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         }
     }
 }
-
-void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel,
-                                    const unsigned char* puchData, int iLen)
+void eventEngineHandleWorkerResponse(int iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+// void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel,
+//                                     const unsigned char* puchData, int iLen)
+// {
     if (iLen < sizeof(unsigned int))
         return;
         
     unsigned int uiReqId;
     memcpy(&uiReqId, puchData+iLen, sizeof(unsigned int));    
-    fprintf(stderr,"### %s():%d req id : %d###\n",__func__,__LINE__, uiReqId);
     REQUEST_CONTEXT* pstPrevReq = NULL;
     REQUEST_CONTEXT* pstRequest = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReq);    
     if (!pstRequest)

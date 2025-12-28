@@ -225,7 +225,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             unsigned int uiRequestId;
             unsigned char *auchPayload=NULL;
             unsigned int uiPayloadLen;
-            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
             /* 최소 헤더도 안 왔으면 중단 */
             if (uiRecvLen < sizeof(FRAME_HEADER))
@@ -241,7 +240,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
                 continue;
             }
-            fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
 
             /* === CMD 먼저 추출 (가벼운 파싱) === */
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
@@ -255,7 +253,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             unsigned char auchResult[UDS_MAX_SIZE];
             unsigned int uiSendSize;
             int iResultSize;
-            fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
             /* === 명령 처리 === */
             eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
             if (eErr != FRAME_OK || iResultSize <= 0)
@@ -264,8 +261,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
             makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
             memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
-
-            fprintf(stderr,"\n### %s():%d###\n",__func__,__LINE__);
 
             evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize+sizeof(unsigned int));
             event_add(pstIoChannel->pstWriteEvent, NULL);

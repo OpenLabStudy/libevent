@@ -112,17 +112,12 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     char achInput[1024];
     unsigned char auSendBuf[1024];
     FRAME_ERR eErr;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!fgets(achInput, sizeof(achInput), stdin)) {
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
         event_active(pstIoChannel->pstLogicEvent, 0, 0);
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         return;
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     achInput[strcspn(achInput, "\n")] = '\0';
     MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
@@ -194,12 +189,10 @@ int run()
     /* EVENT_SOURCE 생성   */
     /* ------------------- */
     netSetNonblock(iClientSock);
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     eventSourceCreateWithBev(&stEventEngine, iClientSock,
         TYPE_TCP_CLI, ROLE_WORKER,
         NULL, NULL, ioChannelHandleEvent
     );
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     /* ------------------- */
     /* stdin 이벤트 등록   */
@@ -215,16 +208,13 @@ int run()
         event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     event_add(evStdin, NULL);
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     struct event   *pstSignalEvent;
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
-fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     /* ------------------- */
     /* 이벤트 루프 실행    */
     /* ------------------- */
