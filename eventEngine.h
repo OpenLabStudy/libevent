@@ -18,23 +18,51 @@ typedef struct event_base       EVENT_BASE;
 /* 요청 상태                                                         */
 /* ================================================================ */
 typedef enum {
-    REQ_STATE_WAITING = 0,     /* UDS 응답 대기 중 */
-    REQ_STATE_COMPLETED,       /* 응답 수신 완료 */
-    REQ_STATE_TIMEOUT          /* 타임아웃 발생 */
-} REQ_STATE;
+    WORKER_NONE = 0,
+    WORKER_GPS,
+    WORKER_IMU,
+    WORKER_SP,
+    WORKER_EXTERN,
+    WORKER_MAX
+} WORKER_ID;
+
+#define WORKER_MASK(id) (1u << (id))
+
 
 /* ============================================================
  * Request Context
  * ============================================================ */
-struct _REQUEST_CONTEXT {
-    REQ_STATE           eState;
-    unsigned int        uiRequestId;
-    int                 iPendingCount;
-    IO_CHANNEL*         pstIoReqList;
-    struct event*       pstTimeoutEvent;
-    struct evbufer*     pstRespEvBuffer;    
-    REQUEST_CONTEXT*    pstNextReqCtx;
-};
+// struct _REQUEST_CONTEXT {
+//     REQ_STATE           eState;
+//     unsigned int        uiRequestId;
+//     int                 iPendingCount;
+//     IO_CHANNEL*         pstIoReqList;
+//     struct event*       pstTimeoutEvent;
+//     struct evbufer*     pstRespEvBuffer;    
+//     REQUEST_CONTEXT*    pstNextReqCtx;
+// };
+typedef struct _REQUEST_CONTEXT {
+    unsigned int uiRequestId;
+    IO_CHANNEL* pstTcpIoChannel;
+
+    unsigned int uiExpectedMask;
+    unsigned int uiReceivedMask;
+
+    struct evbuffer* apstWorkerBuf[WORKER_MAX];
+
+    /* finalize 분리용 */
+    struct event* pstFinalizeEvent;
+    int iFinalizeQueued;
+
+    /* timeout용 */
+    struct event* pstTimeoutEvent;
+    int iTimedOut;
+
+    struct _REQUEST_CONTEXT* pstNextReqCtx;
+} REQUEST_CONTEXT;
+
+
+
 
 typedef struct __attribute__((__packed__)) {
     unsigned short  unStx;          /**< 프레임 시작(STX) 값 */

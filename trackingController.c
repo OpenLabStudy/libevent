@@ -39,7 +39,8 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 
     iWriteSize = write(pstIoChannel->iFd, auchSendBuf, iWriteSize);
     if (iWriteSize <= 0) {
-        perror("write");
+        perror("[TCP-SVR] write");
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
     }
     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
@@ -98,7 +99,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE));
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             } else if (eProcPath == PROCESS_VIA_IPC) {
-                /* === IPC 전달 === */
+                /* === IPC 전달 (Fan-out 진입점) === */
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
             }
@@ -128,9 +129,6 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
     unsigned char auchRecvBuffer[2048];
-    unsigned char auchIpcBuf[sizeof(IPC_FRAME)];
-    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)auchIpcBuf;
-
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
 
@@ -138,9 +136,6 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
     case IO_EVT_RX_DATA:
         while (1) {
-            unsigned int uiRequestId;
-            unsigned char *auchPayload=NULL;
-            unsigned int uiPayloadLen;
             size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
             /* 최소 헤더도 없으면 중단 */
             if (tRecvLen < sizeof(FRAME_HEADER))
@@ -157,31 +152,20 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 continue;
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-            /* Response Frame + RequestId(4B) */
-            if (iCopyLen < iFrameSize + sizeof(unsigned int))
-                break;
-            memcpy(&uiRequestId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
             /* === 프레임 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
-            REQUEST_CONTEXT* pstPrevReq = NULL;
-            REQUEST_CONTEXT* pstRequest = eventEngineFindReq(pstIoChannel->pstEventEngine, 
-                uiRequestId, &pstPrevReq);    
-            if (!pstRequest){
-                return;  // 이미 timeout / unknown
+            if(unCmd == 0x0001){
+                //CMD_ID_INFO
+                pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer);
+                fprintf(stderr,"ID is %d\n", pstIoChannel->iWorkerId);
+            }else{
+                /* Response Frame + RequestId(4B) */
+                if (iCopyLen < iFrameSize + sizeof(unsigned int))
+                    break;
+                /* === Fan-in: 엔진에 위임 (저장만) === */
+                eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
+                    auchRecvBuffer, iFrameSize);
             }
-            evbuffer_add(pstRequest->pstRespEvBuffer, pstIpcFrame->auchResult, pstIpcFrame->iResultSize);                
-            /* === 응답 누적 === */
-            pstRequest->iPendingCount--;
-            /* === 모든 Worker 응답 수신 === */
-            if (pstRequest->iPendingCount <= 0) {
-            }
-            unsigned char uchaSendBuf[UDS_MAX_SIZE];
-            unsigned char auchResult[UDS_MAX_SIZE];
-            unsigned int uiSendSize;
-            int iResultSize;
-            parseAndDumpResponse(auchRecvBuffer, auchResult);
-            eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
-                auchRecvBuffer, iFrameSize);
         }
         break;
 
@@ -234,7 +218,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
         if (stSockAddrStorage.ss_family == AF_INET || stSockAddrStorage.ss_family == AF_INET6) {
             fprintf(stderr, "[TCP-SVR] New client FD=%d\n", iClientSock);
             eventSourceCreateWithBev(pstEventEngine, iClientSock,
-                    TYPE_TCP_SVR, ROLE_REQUESTER, 
+                    TYPE_TCP_SVR, ROLE_REQUESTER,
                     NULL, NULL, tcpIoChannelHandleEvent);
         } else if (stSockAddrStorage.ss_family == AF_UNIX) {
             fprintf(stderr, "[UDS-SVR] New client FD=%d\n", iClientSock);

@@ -99,10 +99,8 @@ void eventEngineDispatchSrcCb(evutil_socket_t iFd, short nEvent, void* pvData)
 /* bufferevent 기반 IO_CHANNEL 생성                        */
 /* --------------------------------------------------------- */
 IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
-    IO_TYPE eType, IO_ROLE eRole,
-    event_callback_fn pfRead,
-    event_callback_fn pfWrite,
-    event_callback_fn pfEvent)
+    IO_TYPE eType, IO_ROLE eRole, 
+    event_callback_fn pfRead, event_callback_fn pfWrite, event_callback_fn pfEvent)
 {
     if (!pstEventEngine || !pstEventEngine->pstEventBase){
         fprintf(stderr, "[eventSource] pstEventEngine is NULL\n");
@@ -115,6 +113,7 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
 
     pstIoChannel->iFd                   = iFd;
     pstIoChannel->chFdCloseSet          = 0x00;
+    pstIoChannel->iWorkerId             = 0;
     pstIoChannel->eType                 = eType;
     pstIoChannel->eRole                 = eRole;
     pstIoChannel->ePendingLogicEvent    = IO_EVENT_NONE; 

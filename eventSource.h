@@ -45,6 +45,7 @@ typedef enum {
 typedef struct _IO_CHANNEL {
     int                 iFd;
     char                chFdCloseSet;
+    int                 iWorkerId;
     IO_TYPE             eType;
     IO_ROLE             eRole;
 
@@ -67,10 +68,8 @@ typedef struct _IO_CHANNEL {
  * @brief bufferevent 기반 EVENT_SOURCE 생성 (TCP/UDS)
  */
 IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
-    IO_TYPE eType, IO_ROLE eRole,
-    event_callback_fn pfRead,
-    event_callback_fn pfWrite,
-    event_callback_fn pfEvent);
+    IO_TYPE eType, IO_ROLE eRole, 
+    event_callback_fn pfRead, event_callback_fn pfWrite, event_callback_fn pfEvent);
     
 void eventSourceDestroy(IO_CHANNEL* pstIoChannel);
 

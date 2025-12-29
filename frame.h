@@ -168,4 +168,7 @@ FRAME_ERR commandHandler(unsigned char *puchRecvData,
 
 FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchResult);
 
+
+char getIdInfo(unsigned char *puchData);
+
 #endif /* FRAME_H */

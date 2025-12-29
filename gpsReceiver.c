@@ -46,6 +46,7 @@
  #include "netCore.h"
  #include "frame.h"
  #include "udsFrame.h"
+ #include "icdCommand.h"
 /* ========================================================================== */
 /* UART Configuration                                                         */
 /* ========================================================================== */
@@ -59,6 +60,19 @@ typedef struct {
     int                 iBackoffMsec;
     int                 iBaudrate;
 } UART_CTX;
+
+
+typedef struct {
+    double dLatitude;
+    double dLongitude;
+    double dAltitude;
+} GPS_DATA;
+
+ typedef struct {
+    char            chValid;
+    unsigned long   ulUsec;
+    GPS_DATA        stGps;
+} GPS_STATE;
 
 int uartMakeNonblocking(int iFd)
 {
@@ -151,6 +165,16 @@ void uartClose(UART_CTX* pstUartCtx)
         pstUartCtx->iFd = -1;
     }
 }
+static IO_CHANNEL* findIoChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerId)
+{
+    IO_CHANNEL* pstCur = pstEngine->pstIoChannelList;
+    while (pstCur) {
+        if (pstCur->iWorkerId == iWorkerId)
+            return pstCur;
+        pstCur = pstCur->pstNextIoChannel;
+    }
+    return NULL;
+}
 
 /**
  * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
@@ -165,6 +189,7 @@ void uartClose(UART_CTX* pstUartCtx)
 static void uartReadCallback(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_CHANNEL* pstIoChannelList = pstIoChannel->pstEventEngine->pstIoChannelList;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     SGpsDataInfo            stGpsInfo;
     switch (eEventType) {
@@ -187,6 +212,26 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     printf("Alt   : %.3f m\n", stGpsInfo.m_stMsg3.m_fHeight);
                     printf("Sat   : %u\n", stGpsInfo.m_stMsg3.m_wNumSatsUsed);
                 }
+                // UDS#2의 클라이언트를 찾기
+                IO_CHANNEL* pstGpsTxIo = findIoChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN1_ID);
+                if (pstGpsTxIo) {
+                    unsigned char uchaSendBuf[UDS_MAX_SIZE];
+                    /* === Payload 구성 === */
+                    GPS_DATA stGpsData;
+                    stGpsData.dAltitude = stGpsInfo.m_stMsg3.m_fHeight;
+                    stGpsData.dLatitude = stGpsInfo.m_stMsg3.m_dLatitude;
+                    stGpsData.dLongitude = stGpsInfo.m_stMsg3.m_dLongitude;
+
+                    /* === Frame 생성 === */
+                    MSG_ID stMsgId = { UDS_2_CLN1_ID, UDS_2_SVR_ID };
+
+                    makeResponseFrame(CDM_GPS_DATA, &stMsgId, &stGpsData, uchaSendBuf);
+                    /* === Write buffer에 적재 === */
+                    evbuffer_add(pstGpsTxIo->pstWriteBuffer, uchaSendBuf, getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE));
+
+                    /* === Write 이벤트 발생 === */
+                    event_add(pstGpsTxIo->pstWriteEvent, NULL);
+                }
                 evbuffer_drain(pstIoChannel->pstReadBuffer, tRecvLen);
             }        
         break;
@@ -207,6 +252,23 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
+static void udsSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerId)
+{
+    unsigned char auchSendBuf[128];
+    RES_ID stReg = {
+        .chResult = uchWorkerId
+    };
+
+    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+
+    if (makeResponseFrame( CMD_ID_INFO, &stMsgId, (void *)&stReg, auchSendBuf ) != FRAME_OK)
+        return;
+
+    int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
+
+    evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
+    event_add(pstIoChannel->pstWriteEvent, NULL);
+}
 
 static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
@@ -300,21 +362,12 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 /* Main Entry                                                                 */
 /* ========================================================================== */
 
-int run(int iId, char* pchUartPath)
+int run(char* pchUartPath)
 {    
     EVENT_ENGINE   stEventEngine;
     struct event*   pstSignalEvent;
     struct event*   pstEventAccept;
     UART_CTX stUartCtx = {0};
-    unsigned char uchMyId = 0x00;    
-    if(iId == 1)
-        uchMyId = UDS_1_CLN1_ID;
-    else if(iId == 2)
-        uchMyId = UDS_1_CLN2_ID;
-    else if(iId == 3)
-        uchMyId = UDS_1_CLN3_ID;
-    else if(iId == 4)
-        uchMyId = UDS_1_CLN4_ID;
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -334,23 +387,45 @@ int run(int iId, char* pchUartPath)
         NULL, NULL, uartReadCallback
     );
 
-    int iClientSock = netUdsCreateClient(UDS_1_PATH);
-    if (iClientSock < 0) {
+    int iCmdClnSock = netUdsCreateClient(UDS_1_PATH);
+    if (iCmdClnSock < 0) {
         fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
         return EXIT_FAILURE;
     }
     printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
-    netSetNonblock(iClientSock);
-    eventSourceCreateWithBev(&stEventEngine, iClientSock,
+    netSetNonblock(iCmdClnSock);
+    IO_CHANNEL* pstUdsIo = eventSourceCreateWithBev(&stEventEngine, iCmdClnSock,
         TYPE_UDS_CLI, ROLE_WORKER,
         NULL, NULL, ioChannelHandleEvent
     );
+    // pstUdsIo->iWorkerId = ;
+
+    int iGpsSndSock = netUdsCreateClient(UDS_2_PATH);
+    if (iGpsSndSock < 0) {
+        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
+        return EXIT_FAILURE;
+    }
+    printf("[UDS-CLI] Connecting to %s\n", UDS_2_PATH);
+    netSetNonblock(iGpsSndSock);
+    IO_CHANNEL* pstGpsTxIo = eventSourceCreateWithBev(
+        &stEventEngine,
+        iGpsSndSock,
+        TYPE_UDS_CLI,
+        ROLE_REQUESTER,
+        NULL,
+        NULL,
+        NULL   // 송신 전용이면 read cb 없어도 됨
+    );
+    pstGpsTxIo->iWorkerId = UDS_2_CLN1_ID;
 
 
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase,
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
+
+    /* === ADD: connect 직후 자신의 WORKER ID 등록 === */
+    udsSendWorkerRegister(pstUdsIo, WORKER_GPS);
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
@@ -377,11 +452,11 @@ int run(int iId, char* pchUartPath)
 #ifndef GOOGLE_TEST
 int main(int argc, char* argv[])
 {
-    if (argc < 3)
+    if (argc < 2)
     {
-        fprintf(stderr, "Usage: %s /dev/ttyUSB0 UDS_ID\n", argv[0]);
+        fprintf(stderr, "Usage: %s /dev/ttyUSB0\n", argv[0]);
         return EXIT_FAILURE;
     }
-    run(atoi(argv[2]), argv[1]);
+    run(argv[1]);
 }
 #endif

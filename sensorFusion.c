@@ -16,20 +16,16 @@
  #include <signal.h>
  #include <unistd.h>
  #include <errno.h>
- 
+
+ #include "icdCommand.h"
  #include "eventEngine.h"
  #include "udsSvr.h"
 
- typedef struct {
-    double dLatitude;
-    double dLongitude;
-    double dAltitude;
-} GPS_DATA;
 
  typedef struct {
     char            chValid;
     unsigned long   ulUsec;
-    GPS_DATA        stGps;
+    RES_GPS_DATA    stGps;
 } GPS_STATE;
 
 typedef struct {
@@ -106,14 +102,50 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     int iSendLen = 0;
-    
+    SENSOR_STATE* pstSharedState;
+    pstSharedState = (SENSOR_STATE *)pstIoChannel->pstEventEngine->pvSharedData;
     switch (eEventType) {
     case IO_EVT_RX_DATA:
         while (1) {
-            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            if (tRecvLen < FRAME_HEADER_MIN_SIZE)
+            unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            /* 최소 헤더도 안 왔으면 중단 */
+            if (uiRecvLen < sizeof(FRAME_HEADER))
                 break;
-        }        
+
+            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
+            fprintf(stderr,"\n### %s():%d ###\n",__func__,__LINE__);
+            for(int i=1; i<=iCopyLen; i++){
+                fprintf(stderr,"%02X ", auchRecvBuffer[i-1]);
+                if(i%16==0)
+                    fprintf(stderr,"\n");
+            }
+
+            
+            /*추후 evbuffer에 삭제 크기 알 필요 있음*/
+            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                continue;
+            }
+
+            /* === CMD 먼저 추출 (가벼운 파싱) === */
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            if (iCopyLen < iFrameSize)
+                break;                
+            /* === 프레임 하나 소비 === */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            if(unCmd == CDM_GPS_DATA){
+                RES_GPS_DATA* pstGpsData = (RES_GPS_DATA *)(auchRecvBuffer+sizeof(FRAME_HEADER));
+                pstSharedState->stGpsState.stGps.dLatitude = pstGpsData->dLatitude;
+                pstSharedState->stGpsState.stGps.dLongitude = pstGpsData->dLongitude;
+                pstSharedState->stGpsState.stGps.dAltitude = pstGpsData->dAltitude;
+                fprintf(stderr,"LATITUDE %lf\n", pstGpsData->dLatitude);
+                fprintf(stderr,"LONGITUDE %lf\n", pstGpsData->dLongitude);
+                fprintf(stderr,"ALTITUDE %lf\n", pstGpsData->dAltitude);
+            }
+        }
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
@@ -155,13 +187,9 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 
     netSetNonblock(iClientSock);
 
-    eventSourceCreateWithBev(
-        pstEventEngine,
-        iClientSock,
-        TYPE_TCP_SVR,
-        ROLE_REQUESTER,
-        sensorFusionRead
-    );
+    eventSourceCreateWithBev(pstEventEngine, iClientSock,
+        TYPE_TCP_SVR, ROLE_REQUESTER,
+        NULL, NULL, sensorFusionRead);
 }
 
 
@@ -196,7 +224,7 @@ int run(void)
     eventEngineInit(&stEventEngine);
     stEventEngine.pvSharedData = (SENSOR_STATE *)malloc(sizeof(SENSOR_STATE));
 
-    int iListenFd = netUdsCreateServer(UDS_1_PATH);
+    int iListenFd = netUdsCreateServer(UDS_2_PATH);
     if (iListenFd < 0) {
         fprintf(stderr, "[UDS-SVR] netUdsCreateServer() failed\n");
         return EXIT_FAILURE;
@@ -212,7 +240,7 @@ int run(void)
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-    fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_1_PATH);
+    fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_2_PATH);
     
     event_base_dispatch(stEventEngine.pstEventBase);
     if(pstSignalEvent){

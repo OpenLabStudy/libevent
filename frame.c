@@ -42,6 +42,7 @@ static FRAME_ERR checkCmd(unsigned short unCmd)
         case CMD_ID_INFO:
         case CMD_KEEP_ALIVE:
         case CMD_IBIT:
+        case CDM_GPS_DATA:
             return FRAME_OK;
         default:
             return FRAME_ERR_INVALID_CMD;
@@ -253,11 +254,9 @@ FRAME_ERR frameDecode(unsigned char *puchBuf,
         return FRAME_ERR_NULL_PTR;
 
     FRAME_ERR eErr;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     eErr = frameCheckBasic(puchBuf, iFrameSize);
     if (eErr != FRAME_OK)
         return eErr;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchBuf;
     unsigned short unCmd = ntohs(pstHeader->unCmd);
@@ -291,6 +290,10 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
         case CMD_IBIT:
             return (eFrameType == FRAME_TYPE_REQUEST) ?
                 sizeof(REQ_IBIT) : sizeof(RES_IBIT);
+
+        case CDM_GPS_DATA:
+            return (eFrameType == FRAME_TYPE_REQUEST) ?
+                0 : sizeof(RES_GPS_DATA);
 
         default:
             return 0;
@@ -491,4 +494,10 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
 
 
     return FRAME_OK;
+}
+
+char getIdInfo(unsigned char *puchData)
+{
+    RES_ID *pstResId = (RES_ID *)(puchData+sizeof(FRAME_HEADER));
+    return pstResId->chResult;
 }

@@ -15,8 +15,29 @@
 /* forward declarations */
 static void eventEngineFlushCb(int iFd, short nEvent, void* pvArg);
 static void eventEngineReqTimeoutCb(int iFd, short nEvent, void* pvArg);
-static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine, 
-    unsigned int uiRequestId, REQUEST_CONTEXT** ppstPrevReqCtx);
+static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine, unsigned int uiRequestId);
+static void eventEngineFreeReq(REQUEST_CONTEXT* pstReqCtx)
+{
+    if (!pstReqCtx)
+        return;
+
+    if (pstReqCtx->pstTimeoutEvent) {
+        evtimer_del(pstReqCtx->pstTimeoutEvent);
+        event_free(pstReqCtx->pstTimeoutEvent);
+    }
+
+    if (pstReqCtx->pstFinalizeEvent) {
+        event_free(pstReqCtx->pstFinalizeEvent);
+    }
+
+    for (int i = 0; i < WORKER_MAX; i++) {
+        if (pstReqCtx->apstWorkerBuf[i]) {
+            evbuffer_free(pstReqCtx->apstWorkerBuf[i]);
+        }
+    }
+
+    free(pstReqCtx);
+}
 
 /* ============================================================
  * 초기화
@@ -45,9 +66,7 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
     REQUEST_CONTEXT* pstReqCtx = pstEventEngine->pstReqList;
     while (pstReqCtx) {
         REQUEST_CONTEXT* pstNextReqCtx = pstReqCtx->pstNextReqCtx;
-        if (pstReqCtx->pstTimeoutEvent)
-            event_free(pstReqCtx->pstTimeoutEvent);
-        free(pstReqCtx);
+        eventEngineFreeReq(pstReqCtx);
         pstReqCtx = pstNextReqCtx;
     }
     
@@ -81,26 +100,20 @@ void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChan
 
 
 /* ============================================================ */
-static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine, 
-    unsigned int uiRequestId, REQUEST_CONTEXT** ppstPrevReqCtx)
+static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine,
+                   unsigned int uiRequestId)
 {
-    if (ppstPrevReqCtx) 
-        *ppstPrevReqCtx = NULL;
-
     REQUEST_CONTEXT* pstReqCtx = pstEventEngine->pstReqList;
-    REQUEST_CONTEXT* pstPrevReqCtx = NULL;
 
     while (pstReqCtx) {
-        if (pstReqCtx->uiRequestId == uiRequestId) {
-            if (ppstPrevReqCtx) 
-                *ppstPrevReqCtx = pstPrevReqCtx;
+        if (pstReqCtx->uiRequestId == uiRequestId)
             return pstReqCtx;
-        }
-        pstPrevReqCtx = pstReqCtx;
+
         pstReqCtx = pstReqCtx->pstNextReqCtx;
     }
     return NULL;
 }
+
 
 /* ============================================================ */
 static void eventEngineFlushCb(int iFd, short nEvent, void* pvArg)
@@ -118,110 +131,298 @@ static void eventEngineReqTimeoutCb(int iFd, short nEvent, void* pvArg)
 {
     (void)iFd;
     (void)nEvent;
-
     REQUEST_CONTEXT* pstReqCtx = (REQUEST_CONTEXT*)pvArg;
+    if (pstReqCtx->iFinalizeQueued)
+        return;
+
     fprintf(stderr, "[DISP] RequestId=%u TIMEOUT\n", pstReqCtx->uiRequestId);
+
+    pstReqCtx->iTimedOut = 1;
+    pstReqCtx->iFinalizeQueued = 1;
+
+    if (pstReqCtx->pstFinalizeEvent)
+        event_active(pstReqCtx->pstFinalizeEvent, 0, 0);
+}
+
+static void eventEngineRemoveReq(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT* pstReq)
+{
+    REQUEST_CONTEXT** ppReqCtx = &pstEventEngine->pstReqList;
+
+    while (*ppReqCtx) {
+        if (*ppReqCtx == pstReq) {
+            *ppReqCtx = pstReq->pstNextReqCtx;
+            pstReq->pstNextReqCtx = NULL;
+            return;
+        }
+        ppReqCtx = &((*ppReqCtx)->pstNextReqCtx);
+    }
+}
+
+/* ============================================================
+ * Fan-in 결과를 하나의 TCP 응답으로 통합
+ * ============================================================ */
+/* ============================================================
+ * Fan-in 결과를 하나의 TCP 응답으로 통합 (goto 없는 버전)
+ * ============================================================ */
+void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT* pstReqCtx)
+{
+    (void)pstEventEngine;
+    IO_CHANNEL* pstTcpCh = pstReqCtx->pstTcpIoChannel;
+
+    unsigned char auchResult[1024];
+    int iResultLen = 0;
+
+    unsigned char auchSendBuf[2048];
+    MSG_ID stMsgId = { 0x77, 0x55 };
+
+    /* TODO: 요청 시점에 저장해둔 cmd를 사용하는 것이 이상적 */
+    unsigned short unCmd = 0x0003;
+
+    /* ========================================================
+     * 1. TIMEOUT 처리
+     * ======================================================== */
+    if (pstReqCtx->iTimedOut) {
+        /* 예시: timeout 결과 코드 */
+        auchResult[0] = 0x01;   /* RESULT_TIMEOUT */
+        iResultLen = 1;
+
+    } else {
+        /* ====================================================
+         * 2. Worker 응답 통합
+         * ==================================================== */
+        for (int wid = 0; wid < WORKER_MAX; wid++) {
+
+            /* 이 요청에 포함되지 않은 worker */
+            if (!(pstReqCtx->uiExpectedMask & (1u << wid)))
+                continue;
+
+            /* 응답 미수신 worker */
+            if (!(pstReqCtx->uiReceivedMask & (1u << wid))) {
+                /* 정책 예: partial failure 표시 */
+                auchResult[iResultLen++] = 0x02; /* RESULT_PARTIAL */
+                continue;
+            }
+
+            struct evbuffer* pstWb = pstReqCtx->apstWorkerBuf[wid];
+            if (!pstWb)
+                continue;
+
+            unsigned char buf[512];
+            int len = evbuffer_remove(pstWb, buf, sizeof(buf));
+            if (len <= 0)
+                continue;
+
+            /*
+             * buf 구성:
+             * [UDS_FRAME_HEADER][payload][UDS_FRAME_TAIL][requestId(4B)]
+             */
+            const unsigned char* pPayload = NULL;
+            unsigned int uiPayloadLen = 0;
+
+            if (udsFrameDecode(
+                    buf,
+                    len,
+                    NULL,
+                    &pPayload,
+                    &uiPayloadLen
+                ) != UDS_FRAME_OK)
+                continue;
+
+            if (iResultLen + (int)uiPayloadLen > (int)sizeof(auchResult))
+                break;
+
+            memcpy(auchResult + iResultLen, pPayload, uiPayloadLen);
+            iResultLen += uiPayloadLen;
+        }
+    }
+
+    /* ========================================================
+     * 3. TCP Response Frame 생성 및 Queue
+     * ======================================================== */
+    if (makeResponseFrame(unCmd, &stMsgId, auchResult, auchSendBuf) != FRAME_OK) {
+        return;
+    }
+
+    int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+
+    evbuffer_add(
+        pstTcpCh->pstWriteBuffer,
+        auchSendBuf,
+        iFrameSize
+    );
+}
+
+void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
+{
+    (void)iFd;
+    (void)nEvent;
+    REQUEST_CONTEXT* pstReqCtx = (REQUEST_CONTEXT *)pvArg;
+    EVENT_ENGINE* pstEventEngine = pstReqCtx->pstTcpIoChannel->pstEventEngine; // 또는 req에 저장
+
+    /* 무거운 분석/통합은 여기서 */
+    buildFinalResponseAndQueueTcp(pstEventEngine, pstReqCtx);
+
+    /* TCP write 트리거 */
+    event_active(pstReqCtx->pstTcpIoChannel->pstWriteEvent, 0, 0);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+
+    /* req 제거/정리 */
+    eventEngineRemoveReq(pstEventEngine, pstReqCtx);
+
+    /* === ADD: 리소스 정리 === */
+    eventEngineFreeReq(pstReqCtx);
 }
 
 /* ============================================================ */
 void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
-    (void)nEvent;    
+    (void)nEvent;
 
     IO_CHANNEL* pstRequester = (IO_CHANNEL*)pvData;
     EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
 
     while (1) {
-        unsigned int iLen = evbuffer_get_length(pstRequester->pstRequestBuffer);
-        if (iLen < sizeof(FRAME_HEADER))
+        unsigned int uiBufLen = evbuffer_get_length(pstRequester->pstRequestBuffer);
+        if (uiBufLen < sizeof(FRAME_HEADER))
             break;
 
         unsigned char auchBuf[2048];
-        unsigned int uiCopySize = evbuffer_copyout(pstRequester->pstRequestBuffer,
-            auchBuf, sizeof(auchBuf));
+        unsigned int uiCopySize =
+            evbuffer_copyout(pstRequester->pstRequestBuffer, auchBuf, sizeof(auchBuf));
 
         int iFrameSize = getFrameSizeWithData(auchBuf, FRAME_TYPE_REQUEST);
-        if (iFrameSize <= 0 || uiCopySize < (size_t)iFrameSize)
+        if (iFrameSize <= 0 || uiCopySize < (unsigned int)iFrameSize)
             break;
 
+        /* 요청 프레임 제거 */
         evbuffer_drain(pstRequester->pstRequestBuffer, iFrameSize);
 
-        /* === REQUEST_CONTEXT 생성 === */
+        /* =========================================================
+         * REQUEST_CONTEXT 생성
+         * ========================================================= */
         REQUEST_CONTEXT* pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
-        pstReq->uiRequestId = pstEventEngine->uiRequestSeq++;
-        pstReq->eState = REQ_STATE_WAITING;
-        pstReq->pstIoReqList = pstRequester;
-        pstReq->pstRespEvBuffer = evbuffer_new();
+        if (!pstReq)
+            return;
 
-        /* === Worker 수 계산 === */
-        int iWorkerCnt = 0;
-        IO_CHANNEL* pstIoChannel = pstEventEngine->pstIoChannelList;
-        while (pstIoChannel) {
-            if (pstIoChannel->eRole == ROLE_WORKER)
-                iWorkerCnt++;
-            pstIoChannel = pstIoChannel->pstNextIoChannel;
+        pstReq->uiRequestId      = pstEventEngine->uiRequestSeq++;
+        pstReq->pstTcpIoChannel = pstRequester;
+        pstReq->uiExpectedMask  = 0;
+        pstReq->uiReceivedMask  = 0;
+        pstReq->iFinalizeQueued = 0;
+        pstReq->iTimedOut       = 0;
+        /* === ADD: finalize event 생성 === */
+        pstReq->pstFinalizeEvent = event_new(pstEventEngine->pstEventBase, -1, 0,
+            eventEngineFinalizeRequestCb, pstReq );
+        if (!pstReq->pstFinalizeEvent) {
+            free(pstReq);
+            return;
         }
-        pstReq->iPendingCount = iWorkerCnt;
 
-        /* === Timeout 등록 === */
+        /* =========================================================
+         * Worker 대상 결정 (Fan-out 대상 계산)
+         * ========================================================= */
+        IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
+        while (pstIo) {
+            if (pstIo->eRole == ROLE_WORKER) {
+                int iWorkerId = pstIo->iWorkerId;
+                if (iWorkerId >= 0 && iWorkerId < WORKER_MAX) {
+                    pstReq->uiExpectedMask |= (1u << iWorkerId);
+                }
+            }
+            pstIo = pstIo->pstNextIoChannel;
+        }
+
+        /* Worker가 하나도 없으면 즉시 finalize 대상으로 넘겨도 됨 */
+        if (pstReq->uiExpectedMask == 0) {
+            /* 바로 finalize 큐에 넣는 것도 가능 */
+        }
+
+        /* =========================================================
+         * Timeout 이벤트 등록
+         * ========================================================= */
         pstReq->pstTimeoutEvent = evtimer_new(
             pstEventEngine->pstEventBase,
             eventEngineReqTimeoutCb,
             pstReq);
-        
-        /* === Request 리스트 연결 === */
+
+        struct timeval stTimeout = {
+            .tv_sec  = REQ_TIMEOUT_SEC,
+            .tv_usec = REQ_TIMEOUT_MSEC
+        };
+        evtimer_add(pstReq->pstTimeoutEvent, &stTimeout);
+
+        /* =========================================================
+         * Request 리스트에 연결
+         * ========================================================= */
         pstReq->pstNextReqCtx = pstEventEngine->pstReqList;
         pstEventEngine->pstReqList = pstReq;
-        pstIoChannel = pstEventEngine->pstIoChannelList;
 
-        struct timeval stTimeOut = { 0, 500 * 1000 };
-        evtimer_add(pstReq->pstTimeoutEvent, &stTimeOut);
-        while (pstIoChannel) {
-            if (pstIoChannel->eRole == ROLE_WORKER && pstIoChannel->pstWriteBuffer) {
-                memcpy(auchBuf+iFrameSize, &pstReq->uiRequestId, sizeof(unsigned int) );
-                evbuffer_add(pstIoChannel->pstWriteBuffer, auchBuf, iFrameSize+sizeof(unsigned int));
-                event_add(pstIoChannel->pstWriteEvent, NULL);
-                usleep(10);//UDS수신데이터의 병목현상을 피하기 위해서 약간의 시간 지연을 통해 수신데이터 처리를 할수있는 시간을 준다.
+        /* =========================================================
+         * Fan-out: 모든 대상 Worker에게 전송
+         * ========================================================= */
+        pstIo = pstEventEngine->pstIoChannelList;
+        while (pstIo) {
+            if (pstIo->eRole == ROLE_WORKER &&
+                pstIo->pstWriteBuffer &&
+                (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))) {                    
+                if ((size_t)iFrameSize + sizeof(unsigned int) > sizeof(auchBuf))
+                    continue;
+                /* requestId를 프레임 끝에 부착 */
+                memcpy(auchBuf + iFrameSize, &pstReq->uiRequestId, sizeof(unsigned int));
+                evbuffer_add(pstIo->pstWriteBuffer, auchBuf, iFrameSize + sizeof(unsigned int));
+                /* write 이벤트 트리거 */
+                event_add(pstIo->pstWriteEvent, NULL);
             }
-            pstIoChannel = pstIoChannel->pstNextIoChannel;
+            pstIo = pstIo->pstNextIoChannel;
         }
     }
 }
-void eventEngineHandleWorkerResponse(int iFd, short nEvent, void* pvData)
-{
-// void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel,
-//                                     const unsigned char* puchData, int iLen)
-// {
-    if (iLen < sizeof(unsigned int))
-        return;
-        
-    unsigned int uiReqId;
-    memcpy(&uiReqId, puchData+iLen, sizeof(unsigned int));    
-    REQUEST_CONTEXT* pstPrevReq = NULL;
-    REQUEST_CONTEXT* pstRequest = eventEngineFindReq(pstEventEngine, uiReqId, &pstPrevReq);    
-    if (!pstRequest)
-        return;  // 이미 timeout / unknown
-        
-    /* === 응답 누적 === */
-    pstRequest->iPendingCount--;
-    /* === 모든 Worker 응답 수신 === */
-    if (pstRequest->iPendingCount <= 0) {
-        /* timeout 해제 */
-        if (pstRequest->pstTimeoutEvent) {
-            evtimer_del(pstRequest->pstTimeoutEvent);
-            event_free(pstRequest->pstTimeoutEvent);
-        }
-        /* TCP requester에게 전달 */
-        IO_CHANNEL* tcpCh = pstRequest->pstIoReqList;
-        evbuffer_add(tcpCh->pstWriteBuffer, puchData, iLen);
-        event_add(tcpCh->pstWriteEvent, NULL);
-        /* 리스트에서 제거 */
-        if (pstPrevReq)
-            pstPrevReq->pstNextReqCtx = pstRequest->pstNextReqCtx;
-        else
-            pstEventEngine->pstReqList = pstRequest->pstNextReqCtx;
 
-        free(pstRequest);
+
+static inline int isReqAllDone(const REQUEST_CONTEXT* pstReqCtx) {
+    return (
+        (pstReqCtx->uiReceivedMask & pstReqCtx->uiExpectedMask) == 
+        pstReqCtx->uiExpectedMask
+    );
+}
+
+void eventEngineHandleWorkerResponse(
+    EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstUdsIoCh,
+    const unsigned char* data, int iLen)
+{
+    unsigned int iReqId;
+    if (iLen < (int)sizeof(unsigned int))
+        return;
+
+    memcpy(&iReqId, data + iLen, sizeof(unsigned int));
+    fprintf(stderr,"### %s():%d Request ID : %d###\n",__func__,__LINE__, iReqId);
+    REQUEST_CONTEXT* pstReqCtx = eventEngineFindReq(pstEventEngine, iReqId);
+    if (!pstReqCtx)
+        return;
+
+    int iWorkerId = pstUdsIoCh->iWorkerId;
+    if (iWorkerId < 0 || iWorkerId >= WORKER_MAX)
+        return;
+    fprintf(stderr,"### %s():%d Worker ID:%d###\n",__func__,__LINE__, iWorkerId);
+    unsigned int uiWorkerMask = WORKER_MASK(iWorkerId);
+    if (!(pstReqCtx->uiExpectedMask & uiWorkerMask))
+        return;
+    
+    if (pstReqCtx->uiReceivedMask & uiWorkerMask)
+        return;
+    
+    if (!pstReqCtx->apstWorkerBuf[iWorkerId])
+        pstReqCtx->apstWorkerBuf[iWorkerId] = evbuffer_new();
+
+    evbuffer_add(pstReqCtx->apstWorkerBuf[iWorkerId], data, iLen);
+    pstReqCtx->uiReceivedMask |= uiWorkerMask;
+
+    /* 여기서 finalize를 직접 하지 않고 "예약"만 */
+    if (isReqAllDone(pstReqCtx) && !pstReqCtx->iFinalizeQueued) {
+        pstReqCtx->iFinalizeQueued = 1;
+        if (pstReqCtx->pstTimeoutEvent)
+            evtimer_del(pstReqCtx->pstTimeoutEvent);
+        event_active(pstReqCtx->pstFinalizeEvent, 0, 0);
     }
 }
