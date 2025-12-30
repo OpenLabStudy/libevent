@@ -3,7 +3,7 @@
  * @brief libevent 기반 UART 자동 재연결 + Hemisphere R632 GNSS ($BIN) 파서
  *
  * 기능 요약:
- * - UART를 비동기로 읽어 GPS Binary 프레임을 수신
+ * - UART를 비동기로 읽어 IMU Binary 프레임을 수신
  * - evbuffer로 수신한 데이터에서 GNSS Frame 파싱 (R632Feed)
  * - UART 연결이 끊어지면 자동 재연결 (exponential backoff)
  * - SIGINT 시 안전 종료
@@ -39,7 +39,7 @@
 /* ========================================================================== */
 /* Project includes                                                           */
 /* ========================================================================== */
-#include "r632Gps.h"
+#include "mti670Imu.h"
 #include "eventEngine.h"
  #include "icdCommand.h"
  #include "netUds.h"
@@ -162,7 +162,7 @@ static IO_CHANNEL* findIoChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerI
  * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
  *
  * - bufferevent 입력 버퍼(evbuffer)에서 데이터를 가져온다.
- * - GPS 파서(R632Feed)에 데이터를 전달하여 유효 프레임 검사.
+ * - IMU 파서(MTi670Feed)에 데이터를 전달하여 유효 프레임 검사.
  * - 파싱 성공 시 시간/좌표 출력.
  *
  * @param pstBev    bufferevent 객체
@@ -173,7 +173,8 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_CHANNEL* pstIoChannelList = pstIoChannel->pstEventEngine->pstIoChannelList;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    SGpsDataInfo            stGpsInfo;
+    static MTI670_PARSER_CTX   stImuParser;
+    static IMU_FORMAT          stImuFormat;
     switch (eEventType) {
         case IO_EVT_RX_DATA:
             while (1) {
@@ -185,44 +186,47 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                 if (!puchBuf)
                     break;
 
-                if (R632Feed(puchBuf, (int)tRecvLen, &stGpsInfo))
+                /* === MTi-670 Feed === */
+                if (mti670Feed(&stImuParser, puchBuf, (int)tRecvLen, &stImuFormat))
                 {
-                    printf("\n===== R632 GNSS FRAME RECEIVED =====\n");
-                    printf("Time  : %s\n", stGpsInfo.m_szTime);
-                    printf("Lat   : %.8lf\n", stGpsInfo.m_stMsg3.m_dLatitude);
-                    printf("Lon   : %.8lf\n", stGpsInfo.m_stMsg3.m_dLongitude);
-                    printf("Alt   : %.3f m\n", stGpsInfo.m_stMsg3.m_fHeight);
-                    printf("Sat   : %u\n", stGpsInfo.m_stMsg3.m_wNumSatsUsed);
-                }
-                // UDS#2의 클라이언트를 찾기
-                IO_CHANNEL* pstGpsTxIo = findIoChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN1_ID);
-                if (pstGpsTxIo) {
-                    unsigned char uchaSendBuf[UDS_MAX_SIZE];
-                    /* === Payload 구성 === */
-                    RES_LLA_DATA stGpsData;
-                    stGpsData.dAltitude = stGpsInfo.m_stMsg3.m_fHeight;
-                    stGpsData.dLatitude = stGpsInfo.m_stMsg3.m_dLatitude;
-                    stGpsData.dLongitude = stGpsInfo.m_stMsg3.m_dLongitude;
+                    /* Euler Angle 추출 */
+                    float fRoll  = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chRoll);
+                    float fPitch = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chPitch);
+                    float fYaw   = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chYaw);
 
-                    /* === Frame 생성 === */
-                    MSG_ID stMsgId = { UDS_2_CLN1_ID, UDS_2_SVR_ID };
-                    makeResponseFrame(CDM_GPS_DATA, &stMsgId, &stGpsData, uchaSendBuf);
-                    /* === Write buffer에 적재 === */
-                    evbuffer_add(pstGpsTxIo->pstWriteBuffer, uchaSendBuf, getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE));
-                    /* === Write 이벤트 발생 === */
-                    event_add(pstGpsTxIo->pstWriteEvent, NULL);
+                    fprintf(stderr,"\n[IMU] R=%.3f P=%.3f Y=%.3f\n", fRoll, fPitch, fYaw);
+
+                    /* === UDS#2 (sensorFusion) 전송 === */
+                    IO_CHANNEL* pstImuTxIo = findIoChannelByWorkerId(
+                            pstIoChannel->pstEventEngine, UDS_2_CLN2_ID);
+                    if (pstImuTxIo) {
+                        unsigned char auchSendBuf[UDS_MAX_SIZE];
+                        RES_RPY_DATA stImuData;
+
+                        stImuData.dRoll  = fRoll;
+                        stImuData.dPitch = fPitch;
+                        stImuData.dYaw   = fYaw;
+
+                        MSG_ID stMsgId = {UDS_2_CLN2_ID, UDS_2_SVR_ID};
+                        makeResponseFrame(CDM_IMU_DATA, &stMsgId, &stImuData, auchSendBuf);
+                        evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf,
+                            getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE));
+                        event_add(pstImuTxIo->pstWriteEvent, NULL);
+                        break;
+                    }
                 }
                 evbuffer_drain(pstIoChannel->pstReadBuffer, tRecvLen);
-            }        
+            }
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);  
         break;
     
         case IO_EVT_CHANNEL_CLOSED:
-            printf("[GPS] channel closed fd=%d\n", pstIoChannel->iFd);
+            printf("[IMU] channel closed fd=%d\n", pstIoChannel->iFd);
             event_active(pstIoChannel->pstShutdownEvent, 0, 0);
             break;
     
         case IO_EVT_ERROR:
-            printf("[GPS] channel error fd=%d\n", pstIoChannel->iFd);
+            printf("[IMU] channel error fd=%d\n", pstIoChannel->iFd);
             event_active(pstIoChannel->pstShutdownEvent, 0, 0);
             break;
     
@@ -239,7 +243,7 @@ static void udsSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWor
         .chResult = uchWorkerId
     };
 
-    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+    MSG_ID stMsgId = { UDS_1_CLN2_ID, UDS_1_SVR_ID };
 
     if (makeResponseFrame( CMD_ID_INFO, &stMsgId, (void *)&stReg, auchSendBuf ) != FRAME_OK)
         return;
@@ -305,7 +309,7 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
             if (eErr != FRAME_OK || iResultSize <= 0)
                 continue;
-                MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+                MSG_ID stMsgId = { UDS_1_CLN2_ID, UDS_1_SVR_ID };
             uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
             makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
             memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
@@ -386,24 +390,24 @@ int run(char* pchUartPath)
     );
     pstUdsIo->iWorkerId = UDS_1_CLN1_ID;
 
-    int iGpsSndSock = netUdsCreateClient(UDS_2_PATH);
-    if (iGpsSndSock < 0) {
+    int iImuSndSock = netUdsCreateClient(UDS_2_PATH);
+    if (iImuSndSock < 0) {
         fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
         return EXIT_FAILURE;
     }
     printf("[UDS-CLI] Connecting to %s\n", UDS_2_PATH);
-    netSetNonblock(iGpsSndSock);
-    IO_CHANNEL* pstGpsTxIo = eventSourceCreateWithBev(&stEventEngine, iGpsSndSock,
+    netSetNonblock(iImuSndSock);
+    IO_CHANNEL* pstImuTxIo = eventSourceCreateWithBev(&stEventEngine, iImuSndSock,
         TYPE_UDS_CLI, ROLE_REQUESTER, NULL, NULL, NULL);
-    pstGpsTxIo->iWorkerId = UDS_2_CLN1_ID;
+    pstImuTxIo->iWorkerId = UDS_2_CLN2_ID;
 
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
     /* === ADD: connect 직후 자신의 WORKER ID 등록 === */
-    udsSendWorkerRegister(pstUdsIo, WORKER_GPS);
-    udsSendWorkerRegister(pstGpsTxIo, WORKER_GPS);
+    udsSendWorkerRegister(pstUdsIo, WORKER_IMU);
+    udsSendWorkerRegister(pstImuTxIo, WORKER_IMU);
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);

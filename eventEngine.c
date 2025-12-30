@@ -1,7 +1,6 @@
 #include "eventEngine.h"
 #include "eventSource.h"
 #include "frame.h"
-#include "udsFrame.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -218,15 +217,6 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
              */
             const unsigned char* pPayload = NULL;
             unsigned int uiPayloadLen = 0;
-
-            if (udsFrameDecode(
-                    buf,
-                    len,
-                    NULL,
-                    &pPayload,
-                    &uiPayloadLen
-                ) != UDS_FRAME_OK)
-                continue;
 
             if (iResultLen + (int)uiPayloadLen > (int)sizeof(auchResult))
                 break;

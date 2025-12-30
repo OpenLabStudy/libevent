@@ -19,7 +19,7 @@ FRAME2_OBJS = eventEngine.o eventSource.o udsFrame.o
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: trackingController tcpCln udsCln gpsReceiver sensorFusion # tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: trackingController tcpCln udsCln gpsReceiver imuReceiver sensorFusion # tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 sensorFusion: sensorFusion.o $(FRAME1_OBJS) $(FRAME2_OBJS)
@@ -104,6 +104,12 @@ gpsReceiver: gpsReceiver.o r632Gps.o $(FRAME1_OBJS) $(FRAME2_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
 gpsReceiver.o: gpsReceiver.c $(HDRS1) $(HDRS2)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+imuReceiver: imuReceiver.o mti670Imu.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
+
+imuReceiver.o: imuReceiver.c $(HDRS1) $(HDRS2)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 uartRx: uartRx.o r632Gps.o
@@ -224,4 +230,5 @@ gpsUartRxGtest.o: ./gtest/gpsUartRxGtest.cc r632Gps.c
 clean:
 	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
 		udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest \
-		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest tcpUdsSvr gpsReceiver trackingController
+		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest tcpUdsSvr gpsReceiver \
+		trackingController sensorFusion imuReceiver

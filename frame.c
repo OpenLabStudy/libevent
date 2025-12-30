@@ -12,11 +12,9 @@
 static unsigned char frameCalcCrc(const unsigned char *puchBuf, int iTotalSize)
 {
     unsigned char uchCrc = 0x00;
-
     int iOffset =
         sizeof(((FRAME_HEADER *)0)->unStx) +
         sizeof(((FRAME_HEADER *)0)->iDataLength);
-
     for (int i = iOffset; i < iTotalSize - sizeof(FRAME_TAIL); i++) {
         uchCrc += puchBuf[i];
     }
@@ -43,6 +41,7 @@ static FRAME_ERR checkCmd(unsigned short unCmd)
         case CMD_KEEP_ALIVE:
         case CMD_IBIT:
         case CDM_GPS_DATA:
+        case CDM_IMU_DATA:
             return FRAME_OK;
         default:
             return FRAME_ERR_INVALID_CMD;
@@ -83,11 +82,7 @@ static void frameMakeTail(unsigned short unCmd,
                           FRAME_TYPE eFrameType)
 {
     FRAME_TAIL *pstTail = frameGetTailPtr(puchBuf, unCmd, eFrameType);
-
-    pstTail->uchCrc = frameCalcCrc(
-        puchBuf,
-        getFrameSizeWithCmd(unCmd, eFrameType));
-
+    pstTail->uchCrc = frameCalcCrc(puchBuf, getFrameSizeWithCmd(unCmd, eFrameType));
     pstTail->unEtx = htons(ETX_CONST);
 }
 
@@ -154,13 +149,11 @@ FRAME_ERR makeResponseFrame(unsigned short unCmd,
 {
     if (!pstMsgId || !puchCmdResult || !puchSendData)
         return FRAME_ERR_NULL_PTR;
-
+    
     frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
-
     memcpy(puchSendData + sizeof(FRAME_HEADER),
            puchCmdResult,
            getDataSize(unCmd, FRAME_TYPE_RESPONSE));
-
     frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
     return FRAME_OK;
 }
@@ -317,6 +310,9 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
             return (eFrameType == FRAME_TYPE_REQUEST) ?
                 0 : sizeof(RES_LLA_DATA);
 
+        case CDM_IMU_DATA:
+            return (eFrameType == FRAME_TYPE_REQUEST) ?
+                0 : sizeof(RES_RPY_DATA);
         default:
             return 0;
     }

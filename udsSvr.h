@@ -19,8 +19,8 @@
  #include "netCore.h"
  #include "eventSource.h"
  #include "frame.h"
- 
- #ifdef __cplusplus
+
+  #ifdef __cplusplus
  extern "C" {
  #endif
  

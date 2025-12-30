@@ -93,6 +93,7 @@ typedef struct {
 
     /* 🔹 fusion 계산용 이벤트 */
     struct event*   pstFusionEvent;
+    struct event*   pstCommandEvent;
     char            chFusionPending;
 } SENSOR_FUSION_CTX;
 
@@ -139,9 +140,7 @@ static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned
         return TRIG_EXTERN;
 
     /* 4. GPS + IMU */
-    if (pstSensorState->stGpsState.chValid && 
-        pstSensorState->stImuState.chValid) {
-
+    if (pstSensorState->stGpsState.chValid && pstSensorState->stImuState.chValid) {
         unsigned long dt =
             (pstSensorState->stGpsState.ulUsec > pstSensorState->stImuState.ulUsec) ?
             (pstSensorState->stGpsState.ulUsec - pstSensorState->stImuState.ulUsec) :
@@ -204,6 +203,60 @@ static void fusionDispatch(SENSOR_STATE* pstSensorState)
 /* ========================================================================== */
 /* Fusion Event Callback                                                      */
 /* ========================================================================== */
+static void commandEventCb(int iFd, short nEvent, void* pvData)
+{
+    (void)iFd;
+    (void)nEvent;
+    unsigned char auchRecvBuffer[2048];
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
+    SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pvData;
+    int iRecvSize = read(iFd, auchRecvBuffer, sizeof(auchRecvBuffer));
+    if(iRecvSize == 0){
+
+    }else if(iRecvSize < 0){
+
+    }else{
+        while(1){
+            if (iRecvSize < sizeof(FRAME_HEADER))
+                break;
+            eErr = frameDecode(auchRecvBuffer, iRecvSize, FRAME_TYPE_REQUEST, &unCmd);
+            if (eErr != FRAME_OK) {
+                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                int iOffset = findFrameHeader(auchRecvBuffer, iRecvSize);
+                if (iOffset >= 0) {
+                    /* 앞부분 garbage 제거 */
+                    fprintf(stderr,"[UDS-CLI] resync: drop %d bytes, retry decode\n", iOffset);
+                } else if (iOffset == -2) {
+                    /* STX half-match: 데이터 더 수신 */
+                    fprintf(stderr,"[UDS-CLI] STX half match, wait more data\n");
+                } else {
+                    /* STX 자체가 없음 → 전부 드랍 */
+                    fprintf(stderr, "[UDS-CLI] no STX, drop all\n");
+                    break;
+                }
+            }else{
+                /* === CMD 먼저 추출 (가벼운 파싱) === */
+                int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
+                if (iRecvSize < iFrameSize)
+                    break;
+                unsigned char uchaSendBuf[UDS_MAX_SIZE];
+                unsigned char auchResult[UDS_MAX_SIZE];
+                unsigned int uiSendSize;
+                int iResultSize;
+                /* === 명령 처리 === */
+                eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
+                if (eErr != FRAME_OK || iResultSize <= 0)
+                    continue;
+                    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+                uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
+                makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
+                write(iFd, uchaSendBuf, uiSendSize);
+            }
+        }
+    }
+}
+
 static void fusionEventCb(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
@@ -317,6 +370,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                 event_active(pstSensorFusionCtx->pstFusionEvent, 0, 0);
             }
         }
+        break;
 
     case IO_EVT_CHANNEL_CLOSED:
         printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
@@ -398,6 +452,16 @@ int run(void)
     /* fusion 계산 이벤트 생성 */
     pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase,
         -1, 0, fusionEventCb, pstSensorFusionCtx);
+
+    int iCmdClnSock = netUdsCreateClient(UDS_1_PATH);
+    if (iCmdClnSock < 0) {
+        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
+        return EXIT_FAILURE;
+    }
+    printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
+    netSetNonblock(iCmdClnSock);    
+    pstSensorFusionCtx->pstCommandEvent = event_new(stEventEngine.pstEventBase,
+        iCmdClnSock, EV_READ|EV_PERSIST, commandEventCb, pstSensorFusionCtx);
 
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
     if (iListenFd < 0) {
