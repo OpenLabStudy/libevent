@@ -31,7 +31,11 @@ enum COMMAND_ID
     CMD_ID_INFO     = 0x0001, /**< 장비 정보 요청 */
     CMD_KEEP_ALIVE,           /**< 통신 상태 유지 */
     CMD_IBIT,                  /**< 초기 Built-In-Test */
-    CDM_GPS_DATA = 0x7001
+    CDM_GPS_DATA = 0x7001,
+    CDM_IMU_DATA,
+    CDM_SP_DATA,
+    CDM_EXTERN_DATA,
+    CDM_KEYBOARD_DATA
 };
 
 
@@ -98,13 +102,26 @@ typedef struct PACKED
     char chPositionResult;
 } RES_IBIT;
 
+
 typedef struct PACKED
 {
     double dLatitude;
     double dLongitude;
     double dAltitude;
-} RES_GPS_DATA;
+} RES_LLA_DATA;
 
+typedef struct PACKED
+{
+    double dRoll;
+    double dPitch;
+    double dYaw;
+} RES_RPY_DATA;
+
+typedef struct PACKED
+{
+    double dAz;
+    double dEl;
+} RES_AZ_EL_DATA;
 
 
 /* ========================================================================== */

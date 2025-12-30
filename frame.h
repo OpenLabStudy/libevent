@@ -88,6 +88,7 @@ int getFrameSizeWithData(unsigned char *puchData, FRAME_TYPE eFrameType);
 /* ========================================================================== */
 /*  Encode API                                                                */
 /* ========================================================================== */
+int findFrameHeader(unsigned char *puchData, int iSize);
 
 /**
  * @brief Request Frame 생성

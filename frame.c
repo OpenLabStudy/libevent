@@ -91,9 +91,31 @@ static void frameMakeTail(unsigned short unCmd,
     pstTail->unEtx = htons(ETX_CONST);
 }
 
+
 /* ========================================================================== */
 /*  Encode API                                                                */
 /* ========================================================================== */
+
+int findFrameHeader(unsigned char *puchData, int iSize)
+{
+    if (!puchData || iSize < 2)
+        return -1;
+
+    for (int i = 0; i <= iSize - 2; i++) {
+        /* STX = 0xAA55 (network order) */
+        if (puchData[i] == 0xAA && puchData[i + 1] == 0x55) {
+            return i;
+        }
+    }
+
+    /* 만약 마지막 바이트가 0xAA 라면,
+       다음 recv에서 0x55가 올 가능성 있음 */
+    if (puchData[iSize - 1] == 0xAA)
+        return -2;
+
+    return -1;
+}
+
 
 FRAME_ERR makeRequestFrame(unsigned short unCmd,
                             MSG_ID *pstMsgId,
@@ -293,7 +315,7 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
 
         case CDM_GPS_DATA:
             return (eFrameType == FRAME_TYPE_REQUEST) ?
-                0 : sizeof(RES_GPS_DATA);
+                0 : sizeof(RES_LLA_DATA);
 
         default:
             return 0;

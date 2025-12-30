@@ -17,36 +17,6 @@
 
 #define SERVER_PORT 5000
 
-void tcpWriteCallback(int iFd, short nEvent, void* pvData)
-{
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    unsigned char auchWriteBuffer[2048];
-    unsigned char auchSendBuf[1024];
-    int iWriteSize;
-    int iDataSize;
-    FRAME_ERR eErr;
-    iDataSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);    
-    if (iDataSize == 0) {
-        event_del(pstIoChannel->pstWriteEvent);
-        return;
-    }
-    iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));    
-    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)auchWriteBuffer;
-    iWriteSize = getFrameSizeWithCmd(pstIpcFrame->unCmd, FRAME_TYPE_RESPONSE);
-    fprintf(stderr, "[TCP-SVR] CMD=%04X, size=%d,%d,%d FD:%d\n", pstIpcFrame->unCmd, iDataSize, pstIpcFrame->iResultSize, iWriteSize, pstIoChannel->iFd);
-    MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-    eErr = makeResponseFrame(pstIpcFrame->unCmd, &stMsgId, pstIpcFrame->auchResult, auchSendBuf);
-
-    iWriteSize = write(pstIoChannel->iFd, auchSendBuf, iWriteSize);
-    if (iWriteSize <= 0) {
-        perror("[TCP-SVR] write");
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-        return;
-    }
-    if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
-        event_del(pstIoChannel->pstWriteEvent);
-}
-
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
@@ -71,7 +41,20 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                if (iOffset >= 0) {
+                    /* 앞부분 garbage 제거 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
+                    fprintf(stderr,"[TCP-SVR] resync: drop %d bytes, retry decode\n", iOffset);
+                } else if (iOffset == -2) {
+                    /* STX half-match: 데이터 더 수신 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
+                    fprintf(stderr,"[TCP-SVR] STX half match, wait more data\n");
+                } else {
+                    /* STX 자체가 없음 → 전부 드랍 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+                    fprintf(stderr, "[TCP-SVR] no STX, drop all\n");
+                }
                 continue;
             }            
             /* === CMD 먼저 추출 (가벼운 파싱) === */
@@ -147,8 +130,21 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             /* frameDecode에 대한 처리가 완전한지 확인 필요*/                                            
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[TCP-SVR] %s():%d frameDecode ERR: %s\n", __func__,__LINE__,frameErrToStr(eErr));
-                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                fprintf(stderr, "[UDS-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                if (iOffset >= 0) {
+                    /* 앞부분 garbage 제거 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
+                    fprintf(stderr,"[UDS-SVR] resync: drop %d bytes, retry decode\n", iOffset);
+                } else if (iOffset == -2) {
+                    /* STX half-match: 데이터 더 수신 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
+                    fprintf(stderr,"[UDS-SVR] STX half match, wait more data\n");
+                } else {
+                    /* STX 자체가 없음 → 전부 드랍 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+                    fprintf(stderr, "[UDS-SVR] no STX, drop all\n");
+                }
                 continue;
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
@@ -170,12 +166,12 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
-        printf("[UDS-CLI] channel closed fd=%d\n", pstIoChannel->iFd);
+        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
     case IO_EVT_ERROR:
-        printf("[UDS-CLI] channel error fd=%d\n", pstIoChannel->iFd);
+        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 

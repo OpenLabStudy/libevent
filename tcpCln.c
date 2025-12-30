@@ -21,9 +21,7 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     unsigned char auchRecvBuffer[2048];
-    unsigned char uchResult[sizeof(IPC_FRAME)];
-    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)uchResult;
-
+    unsigned char auchResultBuffer[64];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
 
@@ -39,45 +37,31 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 tRecvLen = sizeof(auchRecvBuffer);
 
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
-            fprintf(stderr,"### %s():%d %d ###\n",__func__,__LINE__, iCopyLen);
-            /* === CMD 추출 === */
-            eErr = getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
-            if (eErr == FRAME_ERR_NEED_MORE_DATA)
-                break;
-
-            if (eErr != FRAME_OK) {
-                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
-                continue;
-            }
-
-            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-            if (iFrameSize <= 0) {
-                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
-                continue;
-            }
-
-            if (iCopyLen < iFrameSize)
-                break;
-
-            /* === 프레임 소비 === */
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
-
             /* === 프레임 검증 === */
-            eErr = frameDecode(auchRecvBuffer, iFrameSize, FRAME_TYPE_RESPONSE, &unCmd);
+            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[TCP-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                if (iOffset >= 0) {
+                    /* 앞부분 garbage 제거 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
+                    fprintf(stderr,"[TCP-CLI] resync: drop %d bytes, retry decode\n", iOffset);
+                } else if (iOffset == -2) {
+                    /* STX half-match: 데이터 더 수신 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
+                    fprintf(stderr,"[TCP-CLI] STX half match, wait more data\n");
+                } else {
+                    /* STX 자체가 없음 → 전부 드랍 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+                    fprintf(stderr, "[TCP-CLI] no STX, drop all\n");
+                }
                 continue;
             }
-            parseAndDumpResponse(auchRecvBuffer, pstIpcFrame->auchResult);
-
-            /* === IPC_FRAME 구성 === */
-            memset(pstIpcFrame, 0x00, sizeof(IPC_FRAME));
-            pstIpcFrame->unStx = STX_CONST;
-            pstIpcFrame->unCmd = unCmd;
-            pstIpcFrame->iResultSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
-            memcpy(pstIpcFrame->auchResult, auchRecvBuffer + sizeof(FRAME_HEADER), pstIpcFrame->iResultSize);
-            pstIpcFrame->unEtx = ETX_CONST;
-
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            if (iCopyLen < iFrameSize)
+                break;
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            parseAndDumpResponse(auchRecvBuffer, auchResultBuffer);
         }
         break;
 
@@ -125,7 +109,6 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     if (!strcmp(achInput, "keepalive")) {
         fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
         eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
-
     } else if (!strcmp(achInput, "ibit")) {
         fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
         eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
@@ -197,12 +180,9 @@ int run()
     /* ------------------- */
     /* stdin 이벤트 등록   */
     /* ------------------- */
-    struct event* evStdin = event_new(
-        stEventEngine.pstEventBase,
-        STDIN_FILENO,
-        EV_READ | EV_PERSIST,
-        stdinReadCb,
-        stEventEngine.pstIoChannelList);
+    struct event* evStdin = event_new(stEventEngine.pstEventBase,
+        STDIN_FILENO, EV_READ | EV_PERSIST,
+        stdinReadCb, stEventEngine.pstIoChannelList);
     if (!evStdin) {
         printf("[TCP-CLI] evStdin create failed\n");
         event_base_free(stEventEngine.pstEventBase);

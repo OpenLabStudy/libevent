@@ -25,22 +25,12 @@ typedef enum {
     WORKER_EXTERN,
     WORKER_MAX
 } WORKER_ID;
-
 #define WORKER_MASK(id) (1u << (id))
 
 
 /* ============================================================
  * Request Context
  * ============================================================ */
-// struct _REQUEST_CONTEXT {
-//     REQ_STATE           eState;
-//     unsigned int        uiRequestId;
-//     int                 iPendingCount;
-//     IO_CHANNEL*         pstIoReqList;
-//     struct event*       pstTimeoutEvent;
-//     struct evbufer*     pstRespEvBuffer;    
-//     REQUEST_CONTEXT*    pstNextReqCtx;
-// };
 typedef struct _REQUEST_CONTEXT {
     unsigned int uiRequestId;
     IO_CHANNEL* pstTcpIoChannel;
@@ -60,19 +50,6 @@ typedef struct _REQUEST_CONTEXT {
 
     struct _REQUEST_CONTEXT* pstNextReqCtx;
 } REQUEST_CONTEXT;
-
-
-
-
-typedef struct __attribute__((__packed__)) {
-    unsigned short  unStx;          /**< 프레임 시작(STX) 값 */
-    unsigned int    uiRequestId;
-    unsigned short  unCmd;          /**< 명령 코드 */ 
-    unsigned char   auchResult[64];
-    int             iResultSize;
-    unsigned short  unEtx;    /**< 프레임 종료(ETX) 값 */
-} IPC_FRAME;
-
 
 typedef struct _EVENT_ENGINE {
     struct event_base*  pstEventBase;

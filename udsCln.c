@@ -26,8 +26,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     unsigned char auchRecvBuffer[2048];
     unsigned char auchResultBuffer[64];
-    unsigned char uchReult[sizeof(IPC_FRAME)];
-    IPC_FRAME *pstIpcFrame = (IPC_FRAME *)uchReult;
 
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
@@ -45,18 +43,30 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 tRecvLen = sizeof(auchRecvBuffer);
 
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, tRecvLen);
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                evbuffer_drain(pstIoChannel->pstReadBuffer, 1);
+                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                if (iOffset >= 0) {
+                    /* 앞부분 garbage 제거 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
+                    fprintf(stderr,"[UDS-CLI] resync: drop %d bytes, retry decode\n", iOffset);
+                } else if (iOffset == -2) {
+                    /* STX half-match: 데이터 더 수신 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
+                    fprintf(stderr,"[UDS-CLI] STX half match, wait more data\n");
+                } else {
+                    /* STX 자체가 없음 → 전부 드랍 */
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+                    fprintf(stderr, "[UDS-CLI] no STX, drop all\n");
+                }
                 continue;
             }
             /* === CMD 먼저 추출 (가벼운 파싱) === */
-            getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
-            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
+            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
             if (iCopyLen < iFrameSize)
                 break;
-            MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+            // MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
 
             /* === 프레임 하나 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
@@ -102,11 +112,11 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
 
     if (!strcmp(achInput, "keepalive")) {
-        fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
+        fprintf(stderr,"[UDS-CLI] REQ_KEEP_ALIVE\n");
         eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
 
     } else if (!strcmp(achInput, "ibit")) {
-        fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
+        fprintf(stderr,"[UDS-CLI] REQ_IBIT\n");
         eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
 
     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
@@ -190,7 +200,7 @@ int run(int iId)
         stdinReadCb,
         stEventEngine.pstIoChannelList);
     if (!evStdin) {
-        printf("[TCP-CLI] evStdin create failed\n");
+        printf("[UDS-CLI] evStdin create failed\n");
         event_base_free(stEventEngine.pstEventBase);
         return -1;
     }
