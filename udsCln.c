@@ -67,7 +67,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             if (iCopyLen < iFrameSize)
                 break;
             // MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-
             /* === 프레임 하나 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             parseAndDumpResponse(auchRecvBuffer, auchResultBuffer);
