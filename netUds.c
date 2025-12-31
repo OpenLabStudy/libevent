@@ -13,6 +13,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdio.h>
+#include <errno.h>
 
 /* ========================================================================== */
 /* Public API Implementation                                                  */
@@ -63,7 +64,10 @@ int netUdsCreateClient(const char* pszPath)
     strncpy(stAddrUn.sun_path, pszPath, sizeof(stAddrUn.sun_path) - 1);
 
     /* Non-blocking connect → EINPROGRESS가 정상 상태일 수 있음 */
-    connect(iFd, (struct sockaddr*)&stAddrUn, sizeof(stAddrUn));
-
+    int iRet = connect(iFd, (struct sockaddr*)&stAddrUn, sizeof(stAddrUn));
+    if (iRet < 0 && errno != EINPROGRESS) {
+        close(iFd);
+        return -1;
+    }
     return iFd;
 }

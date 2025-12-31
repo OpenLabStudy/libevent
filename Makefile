@@ -12,8 +12,8 @@ LIBS_COMMON = -levent
 
 HDRS1       = frame.h icdCommand.h netCore.h netTcp.h netUds.h netUdp.h
 FRAME1_OBJS = frame.o icdCommand.o netCore.o netTcp.o netUds.o netUdp.o
-HDRS2       = eventEngine.h eventSource.h udsFrame.h
-FRAME2_OBJS = eventEngine.o eventSource.o udsFrame.o
+HDRS2       = eventEngine.h eventSource.h udsFrame.h mti670Imu.h uartConfig.h ipcUtil.h ioChannelUtil.h
+FRAME2_OBJS = eventEngine.o eventSource.o udsFrame.o mti670Imu.o uartConfig.o ipcUtil.o ioChannelUtil.o
 
 # === Phony targets ===
 .PHONY: all clean gtest

@@ -23,6 +23,7 @@ typedef enum {
     WORKER_IMU,
     WORKER_SP,
     WORKER_EXTERN,
+    WORKER_SENSOR_FUSION,
     WORKER_MAX
 } WORKER_ID;
 #define WORKER_MASK(id) (1u << (id))

@@ -205,60 +205,45 @@ static void fusionDispatch(SENSOR_STATE* pstSensorState)
 /* ========================================================================== */
 static void commandEventCb(int iFd, short nEvent, void* pvData)
 {
-    (void)iFd;
     (void)nEvent;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+
+    IO_CHANNEL *pstIoChannel = (IO_CHANNEL *)pvData;
+    EVENT_ENGINE *pstEventEngine = pstIoChannel->pstEventEngine;
+    SENSOR_FUSION_CTX *pstSensorFusionCtx =
+        (SENSOR_FUSION_CTX *)pstEventEngine->pvSharedData;
+
     unsigned char auchRecvBuffer[2048];
-    unsigned short unCmd = 0;
-    FRAME_ERR eErr;
-    SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pvData;
     int iRecvSize = read(iFd, auchRecvBuffer, sizeof(auchRecvBuffer));
-    if(iRecvSize == 0){
+    if (iRecvSize <= 0)
+        return;
 
-    }else if(iRecvSize < 0){
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr = frameDecode(
+        auchRecvBuffer, iRecvSize,
+        FRAME_TYPE_REQUEST, &unCmd);
 
-    }else{
-        while(1){
-            if (iRecvSize < sizeof(FRAME_HEADER))
-                break;
-            eErr = frameDecode(auchRecvBuffer, iRecvSize, FRAME_TYPE_REQUEST, &unCmd);
-            if (eErr != FRAME_OK) {
-                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(auchRecvBuffer, iRecvSize);
-                if (iOffset >= 0) {
-                    /* 앞부분 garbage 제거 */
-                    fprintf(stderr,"[UDS-CLI] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
-                    /* STX half-match: 데이터 더 수신 */
-                    fprintf(stderr,"[UDS-CLI] STX half match, wait more data\n");
-                } else {
-                    /* STX 자체가 없음 → 전부 드랍 */
-                    fprintf(stderr, "[UDS-CLI] no STX, drop all\n");
-                    break;
-                }
-            }else{
-                /* === CMD 먼저 추출 (가벼운 파싱) === */
-                int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
-                if (iRecvSize < iFrameSize)
-                    break;
-                unsigned char uchaSendBuf[UDS_MAX_SIZE];
-                unsigned char auchResult[UDS_MAX_SIZE];
-                unsigned int uiSendSize;
-                int iResultSize;
-                /* === 명령 처리 === */
-                eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
-                if (eErr != FRAME_OK || iResultSize <= 0)
-                    continue;
-                    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-                uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
-                makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-                write(iFd, uchaSendBuf, uiSendSize);
-            }
-        }
-    }
+    if (eErr != FRAME_OK)
+        return;
+
+    unsigned char auchResult[UDS_MAX_SIZE];
+    unsigned char uchaSendBuf[UDS_MAX_SIZE];
+    int iResultSize = 0;
+
+    eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
+    if (eErr != FRAME_OK || iResultSize <= 0)
+        return;
+
+    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+    unsigned int uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+
+    makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
+    write(iFd, uchaSendBuf, uiSendSize);
 }
 
 static void fusionEventCb(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)iFd;
     (void)nEvent;
     SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pvData;
@@ -268,12 +253,15 @@ static void fusionEventCb(int iFd, short nEvent, void* pvData)
 }
 
 
+
+
 /* ========================================================================== */
 /* Application-Level Read Processing (UDS Server)                             */
 /* ========================================================================== */
 
 static void sensorFusionRead(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     SENSOR_FUSION_CTX* pstSensorFusionCtx =
         (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
@@ -324,43 +312,38 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                     memcpy(&pstSensorState->stGpsState.stGps, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_LLA_DATA));
                     pstSensorState->stGpsState.chValid = 1;
                     pstSensorState->stGpsState.ulUsec  = ulUsec;
-                    fprintf(stderr,"LATITUDE %lf\n",    pstSensorState->stGpsState.stGps.dLatitude);
-                    fprintf(stderr,"LONGITUDE %lf\n",   pstSensorState->stGpsState.stGps.dLongitude);
-                    fprintf(stderr,"ALTITUDE %lf\n",    pstSensorState->stGpsState.stGps.dAltitude);
+                    fprintf(stderr,"GPS LATITUDE %lf, LONGITUDE %lf, ALTITUDE %lf\n", pstSensorState->stGpsState.stGps.dLatitude,
+                        pstSensorState->stGpsState.stGps.dLongitude, pstSensorState->stGpsState.stGps.dAltitude);
                     break;                
                 }
                 case CDM_IMU_DATA: {
                     memcpy(&pstSensorState->stImuState.stImu, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_RPY_DATA));
                     pstSensorState->stImuState.chValid = 1;
                     pstSensorState->stImuState.ulUsec  = ulUsec;
-                    fprintf(stderr,"ROLL %lf\n",    pstSensorState->stImuState.stImu.dRoll);
-                    fprintf(stderr,"PITCH %lf\n",   pstSensorState->stImuState.stImu.dPitch);
-                    fprintf(stderr,"YAW %lf\n",     pstSensorState->stImuState.stImu.dYaw);
+                    fprintf(stderr,"IMU ROLL %lf, PITCH %lf, YAW %lf\n", pstSensorState->stImuState.stImu.dRoll,
+                        pstSensorState->stImuState.stImu.dPitch, pstSensorState->stImuState.stImu.dYaw);
                     break;
                 }
                 case CDM_SP_DATA: {
                     memcpy(&pstSensorState->stSpState.stSp, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_AZ_EL_DATA));
                     pstSensorState->stSpState.chValid = 1;
                     pstSensorState->stSpState.ulUsec  = ulUsec;
-                    fprintf(stderr,"AZ %lf\n",  pstSensorState->stSpState.stSp.dAz);
-                    fprintf(stderr,"EL %lf\n",  pstSensorState->stSpState.stSp.dEl);
+                    fprintf(stderr,"SP AZ %lf, EL %lf\n", pstSensorState->stSpState.stSp.dAz, pstSensorState->stSpState.stSp.dEl);
                     break;
                 }
                 case CDM_EXTERN_DATA: {
                     memcpy(&pstSensorState->stExternState.stExtern, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_LLA_DATA));
                     pstSensorState->stExternState.chValid = 1;
                     pstSensorState->stExternState.ulUsec  = ulUsec;
-                    fprintf(stderr,"LATITUDE %lf\n",    pstSensorState->stExternState.stExtern.dLatitude);
-                    fprintf(stderr,"LONGITUDE %lf\n",   pstSensorState->stExternState.stExtern.dLongitude);
-                    fprintf(stderr,"ALTITUDE %lf\n",    pstSensorState->stExternState.stExtern.dAltitude);
+                    fprintf(stderr,"EXTERN LATITUDE %lf, LONGITUDE %lf, ALTITUDE %lf\n", pstSensorState->stExternState.stExtern.dLatitude, 
+                    pstSensorState->stExternState.stExtern.dLongitude, pstSensorState->stExternState.stExtern.dAltitude);
                     break;                
                 }
                 case CDM_KEYBOARD_DATA: {
                     memcpy(&pstSensorState->stKeyboardState.stKeyboard, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_AZ_EL_DATA));
                     pstSensorState->stKeyboardState.chValid = 1;
                     pstSensorState->stKeyboardState.ulUsec  = ulUsec;
-                    fprintf(stderr,"AZ %lf\n",  pstSensorState->stKeyboardState.stKeyboard.dAz);
-                    fprintf(stderr,"EL %lf\n",  pstSensorState->stKeyboardState.stKeyboard.dEl);
+                    fprintf(stderr,"KEYBOARD AZ %lf, EL %lf\n", pstSensorState->stKeyboardState.stKeyboard.dAz, pstSensorState->stKeyboardState.stKeyboard.dEl);
                     break;                
                 }                
             }
@@ -373,12 +356,9 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
-        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-        break;
-
     case IO_EVT_ERROR:
-        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        fprintf(stderr,"[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        ioMarkChannelDead(pstIoChannel, eEventType);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
@@ -429,15 +409,55 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
 
+static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
+{
+    (void)fd;
+    (void)nEvent;
+
+    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
+    /* 이미 살아있으면 재접속 불필요 */
+    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_1_CLN1_ID);
+    if (pstCmdIo && ioIsChannelAlive(pstCmdIo)){
+        fprintf(stderr,"### %s():%d %u work id : %d###\n",__func__,__LINE__, pstCmdIo, pstCmdIo->iWorkerId);
+        return;
+    }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+
+    int iSock = netUdsCreateClient(UDS_1_PATH);
+    if (iSock < 0) {
+        fprintf(stderr, "[UDS#1] reconnect failed, retry later\n");
+        return; /* 타이머는 계속 살아있음 */
+    }
+
+    fprintf(stderr, "[UDS#1] reconnected!\n");
+    netSetNonblock(iSock);
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
+            TYPE_UDS_CLI, ROLE_REQUESTER,
+            NULL, NULL, commandEventCb);
+    if (!pstNewIo) {
+        close(iSock);
+        return;
+    }
+    pstNewIo->iWorkerId = UDS_1_CLN1_ID;
+
+    /* 🔹 worker register */
+    ipcSendWorkerRegister(pstNewIo, WORKER_SENSOR_FUSION);
+
+    fprintf(stderr, "[UDS-CLI] reconnected (%u fd=%d)\n", pstNewIo, pstNewIo->iFd);
+}
+
 
 /* ========================================================================== */
 /* Main Entry Point                                                           */
 /* ========================================================================== */
 int run(void)
 {
-    EVENT_ENGINE   stEventEngine;
+    EVENT_ENGINE    stEventEngine;
     struct event*   pstSignalEvent;
     struct event*   pstEventAccept;
+    struct event*   pstUdsRetryEvent = NULL;
+    struct timeval stRertyTimeOut = {1, 0};
+
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
         fprintf(stderr, "[UDS-SVR] event_base_new() failed\n");
@@ -446,29 +466,23 @@ int run(void)
 
     /* Dispatcher 초기화 */
     eventEngineInit(&stEventEngine);
+    /* 🔹 shared context는 여기서 1회만 생성 */
     SENSOR_FUSION_CTX* pstSensorFusionCtx = calloc(1, sizeof(SENSOR_FUSION_CTX));
     stEventEngine.pvSharedData = pstSensorFusionCtx;
 
-    /* fusion 계산 이벤트 생성 */
-    pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase,
-        -1, 0, fusionEventCb, pstSensorFusionCtx);
+    pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase, -1, 0,
+                  fusionEventCb, pstSensorFusionCtx);
 
-    int iCmdClnSock = netUdsCreateClient(UDS_1_PATH);
-    if (iCmdClnSock < 0) {
-        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
-        return EXIT_FAILURE;
-    }
-    printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
-    netSetNonblock(iCmdClnSock);    
-    pstSensorFusionCtx->pstCommandEvent = event_new(stEventEngine.pstEventBase,
-        iCmdClnSock, EV_READ|EV_PERSIST, commandEventCb, pstSensorFusionCtx);
+    pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
+                  -1, EV_PERSIST | EV_TIMEOUT,
+                  uds1ReconnectCb, &stEventEngine);
+    event_add(pstUdsRetryEvent, &stRertyTimeOut);
 
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
     if (iListenFd < 0) {
         fprintf(stderr, "[UDS-SVR] netUdsCreateServer() failed\n");
         return EXIT_FAILURE;
     }
-
     /* Accept 이벤트 등록 */
     pstEventAccept = event_new(stEventEngine.pstEventBase, iListenFd, 
             EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
@@ -482,6 +496,12 @@ int run(void)
     fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_2_PATH);
     
     event_base_dispatch(stEventEngine.pstEventBase);
+    if (pstUdsRetryEvent) {
+        event_del(pstUdsRetryEvent);
+        event_free(pstUdsRetryEvent);
+        pstUdsRetryEvent = NULL;   
+    }
+
     if(pstSignalEvent){
         event_del(pstSignalEvent);
         event_free(pstSignalEvent);

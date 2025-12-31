@@ -1,24 +1,3 @@
-/**
- * @file uartRx.c
- * @brief libevent 기반 UART 자동 재연결 + Hemisphere R632 GNSS ($BIN) 파서
- *
- * 기능 요약:
- * - UART를 비동기로 읽어 IMU Binary 프레임을 수신
- * - evbuffer로 수신한 데이터에서 GNSS Frame 파싱 (R632Feed)
- * - UART 연결이 끊어지면 자동 재연결 (exponential backoff)
- * - SIGINT 시 안전 종료
- *
- * 빌드예:
- * gcc -O2 -Wall -Wextra -o uartRx uartRx.c -levent -lm
- *
- * @author 
- */
-
-#define _GNU_SOURCE
-
-/* ========================================================================== */
-/* System includes                                                           */
-/* ========================================================================== */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,416 +8,238 @@
 #include <termios.h>
 #include <stdint.h>
 
-/* ========================================================================== */
-/* Libevent includes                                                          */
-/* ========================================================================== */
-#include <event2/event.h>
-#include <event2/buffer.h>
-#include <event2/bufferevent.h>
-
-/* ========================================================================== */
-/* Project includes                                                           */
-/* ========================================================================== */
 #include "mti670Imu.h"
 #include "eventEngine.h"
- #include "icdCommand.h"
- #include "netUds.h"
- #include "netCore.h"
- #include "eventSource.h"
- #include "frame.h"
-/* ========================================================================== */
-/* UART Configuration                                                         */
-/* ========================================================================== */
-typedef struct {
-    const char          *pchDevPath;
-    int                 iFd;
-    int                 iBackoffMsec;
-    int                 iBaudrate;
-} UART_CTX;
+#include "icdCommand.h"
+#include "netUds.h"
+#include "netCore.h"
+#include "eventSource.h"
+#include "frame.h"
+#include "uartConfig.h"
 
-int uartMakeNonblocking(int iFd)
-{
-    int iFlags = fcntl(iFd, F_GETFL, 0);
-    if (iFlags < 0) 
-        return -1;
-    return fcntl(iFd, F_SETFL, iFlags | O_NONBLOCK);
-}
-
-/**
- * @brief UART 속성 설정 함수
- * @param iFd 파일 디스크립터
- * @param baudrate 원하는 Baudrate (예: 9600, 115200, 230400 등)
- * @return 0 성공, -1 실패
- */
-int uartSetRaw(int iFd, int baudrate)
-{
-    struct termios stTermios;
-    speed_t speed;
-
-    //Baudrate 매핑
-    switch (baudrate) {
-        case 9600: speed = B9600; break;
-        case 19200: speed = B19200; break;
-        case 38400: speed = B38400; break;
-        case 57600: speed = B57600; break;
-        case 115200: speed = B115200; break;
-#ifdef B230400
-        case 230400: speed = B230400; break;
-#endif
-#ifdef B460800
-        case 460800: speed = B460800; break;
-#endif
-        default:
-            fprintf(stderr, "Unsupported baudrate: %d\n", baudrate);
-            return -1;
-    }
-
-    if (tcgetattr(iFd, &stTermios) < 0)
-        return -1;
-
-    cfmakeraw(&stTermios);
-    cfsetispeed(&stTermios, speed);
-    cfsetospeed(&stTermios, speed);
-
-    stTermios.c_cflag &= ~PARENB;   // No parity
-    stTermios.c_cflag &= ~CSTOPB;   // 1 stop bit
-    stTermios.c_cflag &= ~CSIZE;
-    stTermios.c_cflag |= CS8 | CLOCAL | CREAD; // 8 data bits, enable RX
-    stTermios.c_cflag &= ~HUPCL;    // No hang-up on close
-
-    stTermios.c_cc[VMIN]  = 1;
-    stTermios.c_cc[VTIME] = 0;
-
-    if (tcsetattr(iFd, TCSANOW, &stTermios) < 0)
-        return -1;
-
-    tcflush(iFd, TCIFLUSH);
-    return 0;
-}
-
-/**
- * @brief UART 열기 함수
- * @param ctx UART context
- * @return 0 성공, -1 실패
- */
-int uartOpen(UART_CTX* pstUartCtx)
-{
-    int iFd = open(pstUartCtx->pchDevPath, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (iFd < 0)
-        return -1;
-        
-    if (uartSetRaw(iFd, pstUartCtx->iBaudrate) < 0) {
-        close(iFd);
-        return -1;
-    }
-
-    if (uartMakeNonblocking(iFd) < 0) {
-        close(iFd);
-        return -1;
-    }
-    pstUartCtx->iFd = iFd;
-    return 0;
-}
-
-void uartClose(UART_CTX* pstUartCtx)
-{
-    if (pstUartCtx->iFd >= 0) {
-        close(pstUartCtx->iFd);
-        pstUartCtx->iFd = -1;
-    }
-}
-static IO_CHANNEL* findIoChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerId)
-{
-    IO_CHANNEL* pstCur = pstEngine->pstIoChannelList;
-    while (pstCur) {
-        if (pstCur->iWorkerId == iWorkerId)
-            return pstCur;
-        pstCur = pstCur->pstNextIoChannel;
-    }
-    return NULL;
-}
-
-/**
- * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
- *
- * - bufferevent 입력 버퍼(evbuffer)에서 데이터를 가져온다.
- * - IMU 파서(MTi670Feed)에 데이터를 전달하여 유효 프레임 검사.
- * - 파싱 성공 시 시간/좌표 출력.
- *
- * @param pstBev    bufferevent 객체
- * @param pvCtx     사용자 정의 컨텍스트 (SUartCtx*)
- */
+/* ============================================================
+ * UART read logic event handler
+ * ============================================================ */
 static void uartReadCallback(int iFd, short nEvent, void* pvData)
 {
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    IO_CHANNEL* pstIoChannelList = pstIoChannel->pstEventEngine->pstIoChannelList;
-    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    static MTI670_PARSER_CTX   stImuParser;
-    static IMU_FORMAT          stImuFormat;
-    switch (eEventType) {
-        case IO_EVT_RX_DATA:
-            while (1) {
-                size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-                if (tRecvLen == 0)
-                    break;
+    (void)iFd; (void)nEvent;
 
-                unsigned char* puchBuf = evbuffer_pullup(pstIoChannel->pstReadBuffer, tRecvLen);
-                if (!puchBuf)
-                    break;
-
-                /* === MTi-670 Feed === */
-                if (mti670Feed(&stImuParser, puchBuf, (int)tRecvLen, &stImuFormat))
-                {
-                    /* Euler Angle 추출 */
-                    float fRoll  = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chRoll);
-                    float fPitch = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chPitch);
-                    float fYaw   = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chYaw);
-
-                    fprintf(stderr,"\n[IMU] R=%.3f P=%.3f Y=%.3f\n", fRoll, fPitch, fYaw);
-
-                    /* === UDS#2 (sensorFusion) 전송 === */
-                    IO_CHANNEL* pstImuTxIo = findIoChannelByWorkerId(
-                            pstIoChannel->pstEventEngine, UDS_2_CLN2_ID);
-                    if (pstImuTxIo) {
-                        unsigned char auchSendBuf[UDS_MAX_SIZE];
-                        RES_RPY_DATA stImuData;
-
-                        stImuData.dRoll  = fRoll;
-                        stImuData.dPitch = fPitch;
-                        stImuData.dYaw   = fYaw;
-
-                        MSG_ID stMsgId = {UDS_2_CLN2_ID, UDS_2_SVR_ID};
-                        makeResponseFrame(CDM_IMU_DATA, &stMsgId, &stImuData, auchSendBuf);
-                        evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf,
-                            getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE));
-                        event_add(pstImuTxIo->pstWriteEvent, NULL);
-                        break;
-                    }
-                }
-                evbuffer_drain(pstIoChannel->pstReadBuffer, tRecvLen);
-            }
-            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);  
-        break;
-    
-        case IO_EVT_CHANNEL_CLOSED:
-            printf("[IMU] channel closed fd=%d\n", pstIoChannel->iFd);
-            event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-            break;
-    
-        case IO_EVT_ERROR:
-            printf("[IMU] channel error fd=%d\n", pstIoChannel->iFd);
-            event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-            break;
-    
-        default:
-            break;
-    }
-    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
-}
-
-static void udsSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerId)
-{
-    unsigned char auchSendBuf[128];
-    RES_ID stReg = {
-        .chResult = uchWorkerId
-    };
-
-    MSG_ID stMsgId = { UDS_1_CLN2_ID, UDS_1_SVR_ID };
-
-    if (makeResponseFrame( CMD_ID_INFO, &stMsgId, (void *)&stReg, auchSendBuf ) != FRAME_OK)
-        return;
-
-    int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
-    evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
-    event_add(pstIoChannel->pstWriteEvent, NULL);
-}
-
-static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
-{
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+
+    /* NOTE: IMU parser는 스트림 상태 유지가 필요 → static OK */
+    static MTI670_PARSER_CTX stImuParser;
+    static IMU_FORMAT        stImuFormat;
+
     unsigned char auchRecvBuffer[2048];
-    unsigned short unCmd = 0;
-    FRAME_ERR eErr;
-    
+
     switch (eEventType) {
     case IO_EVT_RX_DATA:
         while (1) {
-            unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            /* 최소 헤더도 안 왔으면 중단 */
-            if (uiRecvLen < sizeof(FRAME_HEADER))
+            unsigned int uiRecvSize = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            if (uiRecvSize == 0)
                 break;
 
-            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);            
-            
-            /*추후 evbuffer에 삭제 크기 알 필요 있음*/
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
-            if (eErr != FRAME_OK) {
-                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
-                if (iOffset >= 0) {
-                    /* 앞부분 garbage 제거 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[UDS-CLI] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
-                    /* STX half-match: 데이터 더 수신 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[UDS-CLI] STX half match, wait more data\n");
+            if (uiRecvSize > sizeof(auchRecvBuffer))
+                uiRecvSize = sizeof(auchRecvBuffer);
+
+            int uiCopySize = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvSize);
+            if (uiCopySize <= 0)
+                break;
+
+            /* 스트림 feed */
+            if (mti670Feed(&stImuParser, auchRecvBuffer, uiCopySize, &stImuFormat)) {
+                float fRoll  = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chRoll);
+                float fPitch = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chPitch);
+                float fYaw   = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chYaw);
+
+                fprintf(stderr, "[IMU] R=%.3f P=%.3f Y=%.3f\n", fRoll, fPitch, fYaw);
+
+                /* UDS#2(sensorFusion) 채널로 best-effort 전송 */
+                IO_CHANNEL* pstImuTxIo =
+                    ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN2_ID);
+
+                if (ioIsChannelAlive(pstImuTxIo)) {
+                    unsigned char auchSendBuf[UDS_MAX_SIZE];
+                    RES_RPY_DATA stImuData;
+
+                    stImuData.dRoll  = (double)fRoll;
+                    stImuData.dPitch = (double)fPitch;
+                    stImuData.dYaw   = (double)fYaw;
+
+                    MSG_ID stMsgId;
+                    ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
+                    if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, &stImuData, auchSendBuf) == FRAME_OK) {
+                        size_t sz = (size_t)getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
+                        evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf, sz);
+                        event_add(pstImuTxIo->pstWriteEvent, NULL);
+                    }
                 } else {
-                    /* STX 자체가 없음 → 전부 드랍 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[UDS-CLI] no STX, drop all\n");
+                    /* sensorFusion 미연결/끊김 → 드롭 */
+                    /* fprintf(stderr, "[IMU] UDS_2 not alive, drop\n"); */
                 }
-                continue;
             }
-
-            /* === CMD 먼저 추출 (가벼운 파싱) === */
-            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
-            if (iCopyLen < iFrameSize)
-                break;
-            /* === 프레임 하나 소비 === */
-            unsigned int uiReqId;
-            memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize+sizeof(unsigned int));
-            unsigned char uchaSendBuf[UDS_MAX_SIZE];
-            unsigned char auchResult[UDS_MAX_SIZE];
-            unsigned int uiSendSize;
-            int iResultSize;
-            /* === 명령 처리 === */
-            eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
-            if (eErr != FRAME_OK || iResultSize <= 0)
-                continue;
-                MSG_ID stMsgId = { UDS_1_CLN2_ID, UDS_1_SVR_ID };
-            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
-            makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-            memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
-
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize+sizeof(unsigned int));
-            event_add(pstIoChannel->pstWriteEvent, NULL);
-        }        
+            evbuffer_drain(pstIoChannel->pstReadBuffer, uiCopySize);
+        }
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
-        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
+        fprintf(stderr, "[IMU] UART channel closed fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
     case IO_EVT_ERROR:
-        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        fprintf(stderr, "[IMU] UART channel error fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
     default:
         break;
     }
+
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
 /* ============================================================
-* SIGINT 콜백
-* ============================================================ */
+ * UDS command channel logic handler
+ * ============================================================ */
+static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
+{
+    (void)iFd;
+    (void)nEvent;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+
+    switch (eEventType) {
+    case IO_EVT_CHANNEL_CLOSED:
+    case IO_EVT_ERROR:
+        ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+    case IO_EVT_RX_DATA:
+    default:
+        /* TX-only: ignore */
+        break;
+    }
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
+}
+
+/* ============================================================
+ * SIGINT
+ * ============================================================ */
 static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
+    (void)sig; (void)events;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
-    fprintf(stderr,"\n[UDP-SVR] SIGINT → shutdown\n");
-    if(pstEventEngine->pstEventBase)
+    fprintf(stderr, "\n[IMU-RX] SIGINT → shutdown\n");
+    if (pstEventEngine->pstEventBase)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
 
+static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
+{
+    (void)fd;
+    (void)nEvent;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
-/* ========================================================================== */
-/* Main Entry                                                                 */
-/* ========================================================================== */
+    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
+    /* 이미 살아있으면 재접속 불필요 */
+    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, UDS_2_CLN2_ID);
 
+    if (ioIsChannelAlive(pstImuTxIo))
+        return;
+
+    int iSock = netUdsCreateClient(UDS_2_PATH);
+    if (iSock < 0) {
+        fprintf(stderr, "[UDS#2] reconnect failed, retry later\n");
+        return; /* 타이머는 계속 살아있음 */
+    }
+
+    fprintf(stderr, "[UDS#2] reconnected!\n");
+    netSetNonblock(iSock);
+
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
+            TYPE_UDS_CLI, ROLE_REQUESTER,
+            NULL, NULL, ioChannelHandleEvent);
+
+    pstNewIo->iWorkerId = UDS_2_CLN2_ID;
+
+    /* worker register */
+    ipcSendWorkerRegister(pstNewIo, WORKER_IMU);
+}
+
+
+/* ============================================================
+ * Main
+ * ============================================================ */
 int run(char* pchUartPath)
 {    
+    //이미 끊어진 소켓에 write() 했을 때 프로세스가 즉사(SIGPIPE)하는 것을 막는다.
+    ioIgnoreSigpipeOnce();    
+
     EVENT_ENGINE    stEventEngine;
-    struct event*   pstSignalEvent;
-    struct event*   pstEventAccept;
-    UART_CTX        stUartCtx = {
+    struct event*   pstSignalEvent = NULL;
+    struct event*   pstUdsRetryEvent = NULL;
+    UART_CTX stUartCtx = {
         .pchDevPath     = pchUartPath,
         .iBaudrate      = 115200,
         .iFd            = -1,
         .iBackoffMsec   = 200
     };
+    struct timeval stRertyTimeOut = {1, 0};
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        fprintf(stderr, "[UDS-Client] event_base_new() failed\n");
+        fprintf(stderr, "[IMU-RX] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
-
     eventEngineInit(&stEventEngine);
 
-    /* 초기 장치열기 */
-    uartOpen(&stUartCtx);
+    /* UART open */
+    if (uartOpen(&stUartCtx) < 0) {
+        fprintf(stderr, "[IMU-RX] uartOpen failed: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
     eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
         TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
-
-    int iCmdClnSock = netUdsCreateClient(UDS_1_PATH);
-    if (iCmdClnSock < 0) {
-        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
-        return EXIT_FAILURE;
-    }
-    printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
-    netSetNonblock(iCmdClnSock);
-    IO_CHANNEL* pstUdsIo = eventSourceCreateWithBev(&stEventEngine, iCmdClnSock,
-        TYPE_UDS_CLI, ROLE_WORKER,
-        NULL, NULL, ioChannelHandleEvent
-    );
-    pstUdsIo->iWorkerId = UDS_1_CLN1_ID;
-
-    int iImuSndSock = netUdsCreateClient(UDS_2_PATH);
-    if (iImuSndSock < 0) {
-        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
-        return EXIT_FAILURE;
-    }
-    printf("[UDS-CLI] Connecting to %s\n", UDS_2_PATH);
-    netSetNonblock(iImuSndSock);
-    IO_CHANNEL* pstImuTxIo = eventSourceCreateWithBev(&stEventEngine, iImuSndSock,
-        TYPE_UDS_CLI, ROLE_REQUESTER, NULL, NULL, NULL);
-    pstImuTxIo->iWorkerId = UDS_2_CLN2_ID;
-
-    /* SIGINT 처리 등록 */
+    
+    pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
+                  -1, EV_PERSIST | EV_TIMEOUT,
+                  uds2ReconnectCb, &stEventEngine);
+    event_add(pstUdsRetryEvent, &stRertyTimeOut);
+    
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, SIGINT, signalCb, &stEventEngine);
-    event_add(pstSignalEvent, NULL);
+    event_add(pstSignalEvent, NULL);    
 
-    /* === ADD: connect 직후 자신의 WORKER ID 등록 === */
-    udsSendWorkerRegister(pstUdsIo, WORKER_IMU);
-    udsSendWorkerRegister(pstImuTxIo, WORKER_IMU);
-
-    /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
-    if(pstSignalEvent){
+
+    if (pstUdsRetryEvent) {
+        event_del(pstUdsRetryEvent);
+        event_free(pstUdsRetryEvent);
+        pstUdsRetryEvent = NULL;   
+    }
+
+    if (pstSignalEvent) {
         event_del(pstSignalEvent);
         event_free(pstSignalEvent);
-        pstSignalEvent =  NULL;
+        pstSignalEvent = NULL;
     }
 
-    if(pstEventAccept){
-        event_del(pstEventAccept);
-        event_free(pstEventAccept);
-        pstEventAccept =  NULL;
-    }
-
-    /* 종료 처리 */
-    eventEngineCleanup(&stEventEngine);    
+    eventEngineCleanup(&stEventEngine);
     event_base_free(stEventEngine.pstEventBase);
 
-    fprintf(stderr,"[UDP-SVR] Terminated.\n");
+    fprintf(stderr, "[IMU-RX] Terminated.\n");
     return EXIT_SUCCESS;
 }
 
 #ifndef GOOGLE_TEST
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
-    {
+    if (argc < 2) {
         fprintf(stderr, "Usage: %s /dev/ttyUSB0\n", argv[0]);
         return EXIT_FAILURE;
     }
-    run(argv[1]);
+    return run(argv[1]);
 }
 #endif

@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <stdio.h>
+#include <errno.h>
 
 /* ========================================================================== */
 /* Public API Implementation                                                  */
@@ -67,7 +68,11 @@ int netTcpCreateClient(const char* pszIp, uint16_t unPort)
     inet_pton(AF_INET, pszIp, &stAddr.sin_addr);
 
     /* non-blocking connect → EINPROGRESS expected */
-    connect(iFd, (struct sockaddr*)&stAddr, sizeof(stAddr));
+    int iRet = connect(iFd, (struct sockaddr*)&stAddr, sizeof(stAddr));
+    if (iRet < 0 && errno != EINPROGRESS) {
+        close(iFd);
+        return -1;
+    }
 
     return iFd;
 }

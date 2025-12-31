@@ -7,8 +7,11 @@
 #include <errno.h>
 #include <stdio.h>
 
+#include "mti670Imu.h"
+
 void readCallback(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     unsigned char auchRecvBuffer[2048];
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
@@ -28,7 +31,7 @@ void readCallback(int iFd, short nEvent, void* pvData)
         /* ===== 에러 ===== */
         pstIoChannel->chFdCloseSet = 0x01;
         pstIoChannel->ePendingLogicEvent = IO_EVT_ERROR;
-    }else{
+    }else{        
         pstIoChannel->ePendingLogicEvent = IO_EVT_RX_DATA;
         evbuffer_add(pstIoChannel->pstReadBuffer, auchRecvBuffer, iReadSize);
     }
@@ -38,6 +41,7 @@ void readCallback(int iFd, short nEvent, void* pvData)
 
 void writeCallback(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;
@@ -47,13 +51,6 @@ void writeCallback(int iFd, short nEvent, void* pvData)
         return;
     }    
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, sizeof(auchWriteBuffer));
-    fprintf(stderr,"\n### %s():%d ###\n",__func__,__LINE__);
-    for(int i=1; i<=iWriteSize; i++){
-        fprintf(stderr,"%02X ", auchWriteBuffer[i-1]);
-        if(i%16==0)
-            fprintf(stderr,"\n");
-    }
-
     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
     if (iWriteSize <= 0) {
         perror("write");
@@ -66,6 +63,7 @@ void writeCallback(int iFd, short nEvent, void* pvData)
 
 void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvData;
 
     fprintf(stderr, "[ENGINE] shutdown requested\n");
@@ -75,6 +73,7 @@ void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
 
 void eventEngineDispatchSrcCb(evutil_socket_t iFd, short nEvent, void* pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)iFd;
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL*)pvData;

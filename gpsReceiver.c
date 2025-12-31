@@ -1,21 +1,3 @@
-/**
- * @file uartRx.c
- * @brief libevent 기반 UART 자동 재연결 + Hemisphere R632 GNSS ($BIN) 파서
- *
- * 기능 요약:
- * - UART를 비동기로 읽어 GPS Binary 프레임을 수신
- * - evbuffer로 수신한 데이터에서 GNSS Frame 파싱 (R632Feed)
- * - UART 연결이 끊어지면 자동 재연결 (exponential backoff)
- * - SIGINT 시 안전 종료
- *
- * 빌드예:
- * gcc -O2 -Wall -Wextra -o uartRx uartRx.c -levent -lm
- *
- * @author 
- */
-
-#define _GNU_SOURCE
-
 /* ========================================================================== */
 /* System includes                                                           */
 /* ========================================================================== */
@@ -30,15 +12,9 @@
 #include <stdint.h>
 
 /* ========================================================================== */
-/* Libevent includes                                                          */
-/* ========================================================================== */
-#include <event2/event.h>
-#include <event2/buffer.h>
-#include <event2/bufferevent.h>
-
-/* ========================================================================== */
 /* Project includes                                                           */
 /* ========================================================================== */
+#include "uartConfig.h"
 #include "r632Gps.h"
 #include "eventEngine.h"
  #include "icdCommand.h"
@@ -46,117 +22,6 @@
  #include "netCore.h"
  #include "eventSource.h"
  #include "frame.h"
-/* ========================================================================== */
-/* UART Configuration                                                         */
-/* ========================================================================== */
-typedef struct {
-    const char          *pchDevPath;
-    int                 iFd;
-    int                 iBackoffMsec;
-    int                 iBaudrate;
-} UART_CTX;
-
-int uartMakeNonblocking(int iFd)
-{
-    int iFlags = fcntl(iFd, F_GETFL, 0);
-    if (iFlags < 0) 
-        return -1;
-    return fcntl(iFd, F_SETFL, iFlags | O_NONBLOCK);
-}
-
-/**
- * @brief UART 속성 설정 함수
- * @param iFd 파일 디스크립터
- * @param baudrate 원하는 Baudrate (예: 9600, 115200, 230400 등)
- * @return 0 성공, -1 실패
- */
-int uartSetRaw(int iFd, int baudrate)
-{
-    struct termios stTermios;
-    speed_t speed;
-
-    //Baudrate 매핑
-    switch (baudrate) {
-        case 9600: speed = B9600; break;
-        case 19200: speed = B19200; break;
-        case 38400: speed = B38400; break;
-        case 57600: speed = B57600; break;
-        case 115200: speed = B115200; break;
-#ifdef B230400
-        case 230400: speed = B230400; break;
-#endif
-#ifdef B460800
-        case 460800: speed = B460800; break;
-#endif
-        default:
-            fprintf(stderr, "Unsupported baudrate: %d\n", baudrate);
-            return -1;
-    }
-
-    if (tcgetattr(iFd, &stTermios) < 0)
-        return -1;
-
-    cfmakeraw(&stTermios);
-    cfsetispeed(&stTermios, speed);
-    cfsetospeed(&stTermios, speed);
-
-    stTermios.c_cflag &= ~PARENB;   // No parity
-    stTermios.c_cflag &= ~CSTOPB;   // 1 stop bit
-    stTermios.c_cflag &= ~CSIZE;
-    stTermios.c_cflag |= CS8 | CLOCAL | CREAD; // 8 data bits, enable RX
-    stTermios.c_cflag &= ~HUPCL;    // No hang-up on close
-
-    stTermios.c_cc[VMIN]  = 1;
-    stTermios.c_cc[VTIME] = 0;
-
-    if (tcsetattr(iFd, TCSANOW, &stTermios) < 0)
-        return -1;
-
-    tcflush(iFd, TCIFLUSH);
-    return 0;
-}
-
-/**
- * @brief UART 열기 함수
- * @param ctx UART context
- * @return 0 성공, -1 실패
- */
-int uartOpen(UART_CTX* pstUartCtx)
-{
-    int iFd = open(pstUartCtx->pchDevPath, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (iFd < 0)
-        return -1;
-        
-    if (uartSetRaw(iFd, pstUartCtx->iBaudrate) < 0) {
-        close(iFd);
-        return -1;
-    }
-
-    if (uartMakeNonblocking(iFd) < 0) {
-        close(iFd);
-        return -1;
-    }
-    pstUartCtx->iFd = iFd;
-    return 0;
-}
-
-void uartClose(UART_CTX* pstUartCtx)
-{
-    if (pstUartCtx->iFd >= 0) {
-        close(pstUartCtx->iFd);
-        pstUartCtx->iFd = -1;
-    }
-}
-static IO_CHANNEL* findIoChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerId)
-{
-    IO_CHANNEL* pstCur = pstEngine->pstIoChannelList;
-    while (pstCur) {
-        if (pstCur->iWorkerId == iWorkerId)
-            return pstCur;
-        pstCur = pstCur->pstNextIoChannel;
-    }
-    return NULL;
-}
 
 /**
  * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
@@ -170,23 +35,28 @@ static IO_CHANNEL* findIoChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerI
  */
 static void uartReadCallback(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd; (void)nEvent;
+
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_CHANNEL* pstIoChannelList = pstIoChannel->pstEventEngine->pstIoChannelList;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     SGpsDataInfo            stGpsInfo;
+    unsigned char auchRecvBuffer[2048];
     switch (eEventType) {
         case IO_EVT_RX_DATA:
             while (1) {
-                size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-                if (tRecvLen == 0)
+                unsigned int uiRecvSize = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+                if (uiRecvSize == 0)
                     break;
 
-                unsigned char* puchBuf = evbuffer_pullup(pstIoChannel->pstReadBuffer, tRecvLen);
-                if (!puchBuf)
+                if (uiRecvSize > sizeof(auchRecvBuffer))
+                    uiRecvSize = sizeof(auchRecvBuffer);
+
+                int uiCopySize = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvSize);
+                if (uiCopySize <= 0)
                     break;
 
-                if (R632Feed(puchBuf, (int)tRecvLen, &stGpsInfo))
-                {
+                if (R632Feed(auchRecvBuffer, uiRecvSize, &stGpsInfo)) {
                     printf("\n===== R632 GNSS FRAME RECEIVED =====\n");
                     printf("Time  : %s\n", stGpsInfo.m_szTime);
                     printf("Lat   : %.8lf\n", stGpsInfo.m_stMsg3.m_dLatitude);
@@ -195,8 +65,8 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     printf("Sat   : %u\n", stGpsInfo.m_stMsg3.m_wNumSatsUsed);
                 }
                 // UDS#2의 클라이언트를 찾기
-                IO_CHANNEL* pstGpsTxIo = findIoChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN1_ID);
-                if (pstGpsTxIo) {
+                IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN1_ID);
+                if (ioIsChannelAlive(pstGpsTxIo)) {
                     unsigned char uchaSendBuf[UDS_MAX_SIZE];
                     /* === Payload 구성 === */
                     RES_LLA_DATA stGpsData;
@@ -205,14 +75,15 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     stGpsData.dLongitude = stGpsInfo.m_stMsg3.m_dLongitude;
 
                     /* === Frame 생성 === */
-                    MSG_ID stMsgId = { UDS_2_CLN1_ID, UDS_2_SVR_ID };
+                    MSG_ID stMsgId;
+                    ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
                     makeResponseFrame(CDM_GPS_DATA, &stMsgId, &stGpsData, uchaSendBuf);
                     /* === Write buffer에 적재 === */
                     evbuffer_add(pstGpsTxIo->pstWriteBuffer, uchaSendBuf, getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE));
                     /* === Write 이벤트 발생 === */
                     event_add(pstGpsTxIo->pstWriteEvent, NULL);
                 }
-                evbuffer_drain(pstIoChannel->pstReadBuffer, tRecvLen);
+                evbuffer_drain(pstIoChannel->pstReadBuffer, uiCopySize);
             }        
         break;
     
@@ -232,100 +103,24 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-static void udsSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerId)
-{
-    unsigned char auchSendBuf[128];
-    RES_ID stReg = {
-        .chResult = uchWorkerId
-    };
 
-    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-
-    if (makeResponseFrame( CMD_ID_INFO, &stMsgId, (void *)&stReg, auchSendBuf ) != FRAME_OK)
-        return;
-
-    int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
-    evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
-    event_add(pstIoChannel->pstWriteEvent, NULL);
-}
 
 static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
+    (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    unsigned char auchRecvBuffer[2048];
-    unsigned short unCmd = 0;
-    FRAME_ERR eErr;
     
     switch (eEventType) {
-    case IO_EVT_RX_DATA:
-        while (1) {
-            unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            /* 최소 헤더도 안 왔으면 중단 */
-            if (uiRecvLen < sizeof(FRAME_HEADER))
-                break;
-
-            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);            
-            
-            /*추후 evbuffer에 삭제 크기 알 필요 있음*/
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
-            if (eErr != FRAME_OK) {
-                fprintf(stderr, "[UDS-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
-                if (iOffset >= 0) {
-                    /* 앞부분 garbage 제거 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[UDS-CLI] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
-                    /* STX half-match: 데이터 더 수신 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[UDS-CLI] STX half match, wait more data\n");
-                } else {
-                    /* STX 자체가 없음 → 전부 드랍 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[UDS-CLI] no STX, drop all\n");
-                }
-                continue;
-            }
-
-            /* === CMD 먼저 추출 (가벼운 파싱) === */
-            int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
-            if (iCopyLen < iFrameSize)
-                break;
-            /* === 프레임 하나 소비 === */
-            unsigned int uiReqId;
-            memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize+sizeof(unsigned int));
-            unsigned char uchaSendBuf[UDS_MAX_SIZE];
-            unsigned char auchResult[UDS_MAX_SIZE];
-            unsigned int uiSendSize;
-            int iResultSize;
-            /* === 명령 처리 === */
-            eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
-            if (eErr != FRAME_OK || iResultSize <= 0)
-                continue;
-                MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
-            makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-            memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
-
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize+sizeof(unsigned int));
-            event_add(pstIoChannel->pstWriteEvent, NULL);
-        }        
-        break;
-
     case IO_EVT_CHANNEL_CLOSED:
-        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-        break;
-
     case IO_EVT_ERROR:
-        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
-
+    case IO_EVT_RX_DATA:
     default:
+        /* TX-only: ignore */
         break;
     }
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
@@ -343,6 +138,37 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
 
+static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
+{
+    (void)fd;
+    (void)nEvent;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+
+    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
+    /* 이미 살아있으면 재접속 불필요 */
+    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, UDS_2_CLN1_ID);
+
+    if (ioIsChannelAlive(pstImuTxIo))
+        return;
+
+    int iSock = netUdsCreateClient(UDS_2_PATH);
+    if (iSock < 0) {
+        fprintf(stderr, "[UDS#2] reconnect failed, retry later\n");
+        return; /* 타이머는 계속 살아있음 */
+    }
+
+    fprintf(stderr, "[UDS#2] reconnected!\n");
+    netSetNonblock(iSock);
+
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
+            TYPE_UDS_CLI, ROLE_REQUESTER,
+            NULL, NULL, ioChannelHandleEvent);
+
+    pstNewIo->iWorkerId = UDS_2_CLN1_ID;
+
+    /* worker register */
+    ipcSendWorkerRegister(pstNewIo, WORKER_IMU);
+}
 
 /* ========================================================================== */
 /* Main Entry                                                                 */
@@ -350,75 +176,54 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 
 int run(char* pchUartPath)
 {    
+    ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
     struct event*   pstSignalEvent;
-    struct event*   pstEventAccept;
+    struct event*   pstUdsRetryEvent = NULL;
     UART_CTX        stUartCtx = {
         .pchDevPath     = pchUartPath,
         .iBaudrate      = 115200,
         .iFd            = -1,
         .iBackoffMsec   = 200
     };
+    struct timeval stRertyTimeOut = {1, 0};
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
         fprintf(stderr, "[UDS-Client] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
-
     eventEngineInit(&stEventEngine);
 
-    /* 초기 장치열기 */
-    uartOpen(&stUartCtx);
+    /* UART open */
+    if (uartOpen(&stUartCtx) < 0) {
+        fprintf(stderr, "[IMU-RX] uartOpen failed: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
     eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
         TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
-
-    int iCmdClnSock = netUdsCreateClient(UDS_1_PATH);
-    if (iCmdClnSock < 0) {
-        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
-        return EXIT_FAILURE;
-    }
-    printf("[UDS-CLI] Connecting to %s\n", UDS_1_PATH);
-    netSetNonblock(iCmdClnSock);
-    IO_CHANNEL* pstUdsIo = eventSourceCreateWithBev(&stEventEngine, iCmdClnSock,
-        TYPE_UDS_CLI, ROLE_WORKER,
-        NULL, NULL, ioChannelHandleEvent
-    );
-    pstUdsIo->iWorkerId = UDS_1_CLN1_ID;
-
-    int iGpsSndSock = netUdsCreateClient(UDS_2_PATH);
-    if (iGpsSndSock < 0) {
-        fprintf(stderr, "[UDS-CLI] Failed to create UDS client socket\n");
-        return EXIT_FAILURE;
-    }
-    printf("[UDS-CLI] Connecting to %s\n", UDS_2_PATH);
-    netSetNonblock(iGpsSndSock);
-    IO_CHANNEL* pstGpsTxIo = eventSourceCreateWithBev(&stEventEngine, iGpsSndSock,
-        TYPE_UDS_CLI, ROLE_REQUESTER, NULL, NULL, NULL);
-    pstGpsTxIo->iWorkerId = UDS_2_CLN1_ID;
+    
+    pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
+                  -1, EV_PERSIST | EV_TIMEOUT,
+                  uds2ReconnectCb, &stEventEngine);
+    event_add(pstUdsRetryEvent, &stRertyTimeOut);
 
     /* SIGINT 처리 등록 */
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-    /* === ADD: connect 직후 자신의 WORKER ID 등록 === */
-    udsSendWorkerRegister(pstUdsIo, WORKER_GPS);
-    udsSendWorkerRegister(pstGpsTxIo, WORKER_GPS);
-
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
+    if (pstUdsRetryEvent) {
+        event_del(pstUdsRetryEvent);
+        event_free(pstUdsRetryEvent);
+        pstUdsRetryEvent = NULL;   
+    }
     if(pstSignalEvent){
         event_del(pstSignalEvent);
         event_free(pstSignalEvent);
         pstSignalEvent =  NULL;
     }
-
-    if(pstEventAccept){
-        event_del(pstEventAccept);
-        event_free(pstEventAccept);
-        pstEventAccept =  NULL;
-    }
-
     /* 종료 처리 */
     eventEngineCleanup(&stEventEngine);    
     event_base_free(stEventEngine.pstEventBase);
