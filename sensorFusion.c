@@ -21,6 +21,7 @@
  #include "icdCommand.h"
  #include "eventEngine.h"
  #include "udsSvr.h"
+ #include "ioChannelUtil.h"
 
 
  typedef struct {
@@ -205,45 +206,68 @@ static void fusionDispatch(SENSOR_STATE* pstSensorState)
 /* ========================================================================== */
 static void commandEventCb(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
     (void)nEvent;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-
-    IO_CHANNEL *pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     EVENT_ENGINE *pstEventEngine = pstIoChannel->pstEventEngine;
     SENSOR_FUSION_CTX *pstSensorFusionCtx =
         (SENSOR_FUSION_CTX *)pstEventEngine->pvSharedData;
-
-    unsigned char auchRecvBuffer[2048];
-    int iRecvSize = read(iFd, auchRecvBuffer, sizeof(auchRecvBuffer));
-    if (iRecvSize <= 0)
-        return;
-
-    unsigned short unCmd = 0;
-    FRAME_ERR eErr = frameDecode(
-        auchRecvBuffer, iRecvSize,
-        FRAME_TYPE_REQUEST, &unCmd);
-
-    if (eErr != FRAME_OK)
-        return;
-
-    unsigned char auchResult[UDS_MAX_SIZE];
-    unsigned char uchaSendBuf[UDS_MAX_SIZE];
-    int iResultSize = 0;
-
-    eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
-    if (eErr != FRAME_OK || iResultSize <= 0)
-        return;
-
-    MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
-    unsigned int uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-
-    makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-    write(iFd, uchaSendBuf, uiSendSize);
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+    
+    switch (eEventType) {
+    case IO_EVT_CHANNEL_CLOSED:
+    case IO_EVT_ERROR:
+        ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+    case IO_EVT_RX_DATA:
+    default:
+        /* TX-only: ignore */
+        break;
+    }
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
+
+// static void commandEventCb(int iFd, short nEvent, void* pvData)
+// {
+//     (void)nEvent;
+//     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+
+//     IO_CHANNEL *pstIoChannel = (IO_CHANNEL *)pvData;
+//     EVENT_ENGINE *pstEventEngine = pstIoChannel->pstEventEngine;
+//     SENSOR_FUSION_CTX *pstSensorFusionCtx =
+//         (SENSOR_FUSION_CTX *)pstEventEngine->pvSharedData;
+
+//     unsigned char auchRecvBuffer[2048];
+//     int iRecvSize = read(iFd, auchRecvBuffer, sizeof(auchRecvBuffer));
+//     if (iRecvSize <= 0)
+//         return;
+
+//     unsigned short unCmd = 0;
+//     FRAME_ERR eErr = frameDecode(
+//         auchRecvBuffer, iRecvSize,
+//         FRAME_TYPE_REQUEST, &unCmd);
+
+//     if (eErr != FRAME_OK)
+//         return;
+
+//     unsigned char auchResult[UDS_MAX_SIZE];
+//     unsigned char uchaSendBuf[UDS_MAX_SIZE];
+//     int iResultSize = 0;
+
+//     eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
+//     if (eErr != FRAME_OK || iResultSize <= 0)
+//         return;
+
+//     MSG_ID stMsgId = { UDS_1_CLN1_ID, UDS_1_SVR_ID };
+//     unsigned int uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+
+//     makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
+//     write(iFd, uchaSendBuf, uiSendSize);
+// }
 
 static void fusionEventCb(int iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)iFd;
     (void)nEvent;
     SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pvData;
@@ -261,7 +285,6 @@ static void fusionEventCb(int iFd, short nEvent, void* pvData)
 
 static void sensorFusionRead(int iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     SENSOR_FUSION_CTX* pstSensorFusionCtx =
         (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
@@ -416,12 +439,10 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_1_CLN1_ID);
-    if (pstCmdIo && ioIsChannelAlive(pstCmdIo)){
-        fprintf(stderr,"### %s():%d %u work id : %d###\n",__func__,__LINE__, pstCmdIo, pstCmdIo->iWorkerId);
+    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_1_CLN1_ID);    
+    if (ioIsChannelAlive(pstCmdIo)){
         return;
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     int iSock = netUdsCreateClient(UDS_1_PATH);
     if (iSock < 0) {
@@ -430,7 +451,6 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     }
 
     fprintf(stderr, "[UDS#1] reconnected!\n");
-    netSetNonblock(iSock);
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, commandEventCb);
@@ -441,9 +461,8 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     pstNewIo->iWorkerId = UDS_1_CLN1_ID;
 
     /* 🔹 worker register */
-    ipcSendWorkerRegister(pstNewIo, WORKER_SENSOR_FUSION);
-
-    fprintf(stderr, "[UDS-CLI] reconnected (%u fd=%d)\n", pstNewIo, pstNewIo->iFd);
+    //ipcSendWorkerRegister(pstNewIo, WORKER_SENSOR_FUSION);
+    fprintf(stderr, "[UDS-CLI] reconnected (%p fd=%d)\n", (void*)pstNewIo, pstNewIo->iFd);
 }
 
 
@@ -452,6 +471,7 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 /* ========================================================================== */
 int run(void)
 {
+    ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
     struct event*   pstSignalEvent;
     struct event*   pstEventAccept;
@@ -470,8 +490,8 @@ int run(void)
     SENSOR_FUSION_CTX* pstSensorFusionCtx = calloc(1, sizeof(SENSOR_FUSION_CTX));
     stEventEngine.pvSharedData = pstSensorFusionCtx;
 
-    pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase, -1, 0,
-                  fusionEventCb, pstSensorFusionCtx);
+    // pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase, -1, 0,
+    //               fusionEventCb, pstSensorFusionCtx);
 
     pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
                   -1, EV_PERSIST | EV_TIMEOUT,
