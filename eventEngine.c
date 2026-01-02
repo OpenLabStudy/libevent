@@ -93,6 +93,11 @@ void eventEngineCleanup(EVENT_ENGINE* pstEventEngine)
 /* ============================================================ */
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel)
 {
+    fprintf(stderr, "attach: ch=%p next=%p head=%p\n",
+        (void*)pstIoChannel,
+        (void*)pstIoChannel->pstNextIoChannel,
+        (void*)pstEventEngine->pstIoChannelList);
+
     pstIoChannel->pstNextIoChannel      = pstEventEngine->pstIoChannelList;
     pstEventEngine->pstIoChannelList    = pstIoChannel;
 }
@@ -254,7 +259,6 @@ void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
 
     /* TCP write 트리거 */
     event_active(pstReqCtx->pstTcpIoChannel->pstWriteEvent, 0, 0);
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     /* req 제거/정리 */
     eventEngineRemoveReq(pstEventEngine, pstReqCtx);

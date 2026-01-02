@@ -157,8 +157,6 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     }
 
     fprintf(stderr, "[UDS#2] reconnected!\n");
-    netSetNonblock(iSock);
-
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, ioChannelHandleEvent);

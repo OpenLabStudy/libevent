@@ -11,7 +11,6 @@
 
 void readCallback(int iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     unsigned char auchRecvBuffer[2048];
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
@@ -41,7 +40,6 @@ void readCallback(int iFd, short nEvent, void* pvData)
 
 void writeCallback(int iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;
@@ -63,7 +61,6 @@ void writeCallback(int iFd, short nEvent, void* pvData)
 
 void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvData;
 
     fprintf(stderr, "[ENGINE] shutdown requested\n");
@@ -73,7 +70,6 @@ void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
 
 void eventEngineDispatchSrcCb(evutil_socket_t iFd, short nEvent, void* pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     (void)iFd;
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL*)pvData;

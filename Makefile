@@ -19,7 +19,7 @@ FRAME2_OBJS = eventEngine.o eventSource.o udsFrame.o mti670Imu.o uartConfig.o ip
 .PHONY: all clean gtest
 
 # 기본 빌드: udsSvr, udsCln
-all: trackingController tcpCln udsCln gpsReceiver imuReceiver sensorFusion # tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+all: trackingController tcpCln  gpsReceiver imuReceiver sensorFusion # udsCln tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
 
 # === Regular apps ===
 sensorFusion: sensorFusion.o $(FRAME1_OBJS) $(FRAME2_OBJS)

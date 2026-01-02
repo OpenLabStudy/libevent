@@ -16,21 +16,17 @@ extern "C" {
 #endif
 
 #define UDS_1_PATH      "/tmp/uds1.sock"
-#define UDS_1_SVR_ID    0x81
-#define UDS_1_CLN1_ID   0x01 // GPS
-#define UDS_1_CLN2_ID   0x02 // IMU
-#define UDS_1_CLN3_ID   0x04 // SP
-#define UDS_1_CLN4_ID   0x08 // EXTERN
-#define UDS_1_CLN5_ID   0x11 // KEYBOARD
-#define UDS_1_CLN6_ID   0x12 // SENSORFUSION
+#define UDS_1_SVR_ID    0x10
+#define UDS_1_CLN1_ID   0x01 // SENSOR_FUSION
+#define UDS_1_CLN2_ID   0x02 // ACU_CTRL
 
 #define UDS_2_PATH      "/tmp/uds2.sock"
-#define UDS_2_SVR_ID    0x82
-#define UDS_2_CLN1_ID   0x21 //GPS
-#define UDS_2_CLN2_ID   0x22 //IMU
-#define UDS_2_CLN3_ID   0x24
-#define UDS_2_CLN4_ID   0x28
-#define UDS_2_CLN5_ID   0x40
+#define UDS_2_SVR_ID    0x20
+#define UDS_2_CLN1_ID   0x21 // GPS
+#define UDS_2_CLN2_ID   0x22 // IMU
+#define UDS_2_CLN3_ID   0x24 // SP
+#define UDS_2_CLN4_ID   0x28 // EXTERN
+#define UDS_2_CLN5_ID   0x40 // KEYBOARD
 
 #define UDS_3_SVR_ID    0x84
 #define UDS_4_SVR_ID    0x88

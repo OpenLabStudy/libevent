@@ -14,22 +14,20 @@ void ioIgnoreSigpipeOnce(void)
 
 int ioIsChannelAlive(const IO_CHANNEL* pstIoChannel)
 {
-    fprintf(stderr,"### %s():%d %u ###\n",__func__,__LINE__, pstIoChannel);
     if (!pstIoChannel) 
         return 0;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        
     if (pstIoChannel->chFdCloseSet == 0x01) 
         return 0;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    
     if (pstIoChannel->iFd < 0) 
         return 0;
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        
     return 1;
 }
 
 void ioMarkChannelDead(IO_CHANNEL* pstIoChannel, IO_EVENT_TYPE eEventType)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!pstIoChannel)
         return;
 
@@ -44,11 +42,14 @@ void ioMarkChannelDead(IO_CHANNEL* pstIoChannel, IO_EVENT_TYPE eEventType)
 
 IO_CHANNEL* ioFindChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerId)
 {
+    if (!pstEngine)
+        return NULL;
+        
     IO_CHANNEL* pstCur = pstEngine->pstIoChannelList;
     while (pstCur) {
-        fprintf(stderr,"### %s():%d %d-%d###\n",__func__,__LINE__, iWorkerId, pstCur->iWorkerId);
-        if (pstCur->iWorkerId == iWorkerId)
+        if (pstCur->iWorkerId == iWorkerId){
             return pstCur;
+        }
         pstCur = pstCur->pstNextIoChannel;
     }
     return NULL;

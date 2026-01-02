@@ -14,7 +14,7 @@
 #include "tcpSvr.h"
 #include "udsSvr.h"
 
-#define SERVER_PORT 5000
+
 
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
