@@ -642,7 +642,7 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
 
         case CMD_IBIT:
         {
-            RES_BIT* pstResIBit = (RES_BIT *)(puchRecvData+sizeof(FRAME_HEADER));
+            RES_BIT* pstResIBit = (RES_BITexi *)(puchRecvData+sizeof(FRAME_HEADER));
             puchResult[0] = pstResIBit->chBitTotResult;
             fprintf(stderr,"iBit %02x %02x\n", pstResIBit->chBitTotResult, pstResIBit->chPositionResult);
             break;
