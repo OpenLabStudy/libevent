@@ -40,8 +40,27 @@ static FRAME_ERR checkCmd(unsigned short unCmd)
         case CMD_ID_INFO:
         case CMD_KEEP_ALIVE:
         case CMD_IBIT:
+        
+        case CMD_RBIT:
+        case CMD_CBIT:
+        case CMD_POSITIONER_AZ_EL_SET:
+        case CMD_TRACKING_SELECT:
+        case CMD_TRACKING_START_POINT_SET:
+        case CMD_CANNON_BALL_TRAJECTORY_INFO:
+        case CMD_SHELTER_COORDINATE_INFO:
+        case CMD_MCC_COORDINATE_INFO:
+        case CMD_CANNON_COORDINATE_INFO:
+        case CMD_TRACKING_CONTROL:
+        case CMD_POSITIONER_DEG_SEND:
+        case CMD_ACU_MODE_SELECT:
+        case CMD_TIME_SYNQ_CHECK:
+        case CMD_TIME_SYNQ_SET:
+        case CMD_AZ_EL_OFFSET_SET:
         case CDM_GPS_DATA:
         case CDM_IMU_DATA:
+        case CDM_SP_DATA:
+        case CDM_EXTERN_DATA:
+        case CDM_KEYBOARD_DATA:        
             return FRAME_OK;
         default:
             return FRAME_ERR_INVALID_CMD;
@@ -133,7 +152,70 @@ FRAME_ERR makeRequestFrame(unsigned short unCmd,
         case CMD_IBIT:
             ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
             break;
-
+        case CMD_RBIT:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;    
+        case CMD_CBIT:
+            ((REQ_ID *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CMD_POSITIONER_AZ_EL_SET:
+            ((REQ_POSITIONER_AZ_EL_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CMD_TRACKING_SELECT:
+            ((REQ_TRACKING_SELECT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CMD_TRACKING_START_POINT_SET:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CMD_CANNON_BALL_TRAJECTORY_INFO:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CMD_SHELTER_COORDINATE_INFO:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;    
+        case CMD_MCC_COORDINATE_INFO:
+            ((REQ_ID *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CMD_CANNON_COORDINATE_INFO:
+            ((REQ_KEEP_ALIVE *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CMD_TRACKING_CONTROL:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CMD_POSITIONER_DEG_SEND:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;          
+            
+        case CMD_ACU_MODE_SELECT:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CMD_TIME_SYNQ_CHECK:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;    
+        case CMD_TIME_SYNQ_SET:
+            ((REQ_ID *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CMD_AZ_EL_OFFSET_SET:
+            ((REQ_KEEP_ALIVE *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CDM_GPS_DATA:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CDM_IMU_DATA:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CDM_SP_DATA:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;
+        case CDM_EXTERN_DATA:
+            ((REQ_IBIT *)(puchSendData + sizeof(FRAME_HEADER)))->chIbit = 0x01;
+            break;    
+        case CDM_KEYBOARD_DATA:
+            ((REQ_ID *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;
+        case CMD_COMMAND_FAIL:
+            ((REQ_KEEP_ALIVE *)(puchSendData + sizeof(FRAME_HEADER)))->chTmp = 0x01;
+            break;        
         default:
             return FRAME_ERR_INVALID_CMD;
     }
@@ -151,8 +233,7 @@ FRAME_ERR makeResponseFrame(unsigned short unCmd,
         return FRAME_ERR_NULL_PTR;
     
     frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
-    memcpy(puchSendData + sizeof(FRAME_HEADER),
-           puchCmdResult,
+    memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult,
            getDataSize(unCmd, FRAME_TYPE_RESPONSE));
     frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
     return FRAME_OK;
@@ -191,8 +272,10 @@ static FRAME_ERR frameCheckDataLength(const FRAME_HEADER *pstHeader,
 {
     unsigned short unCmd = ntohs(pstHeader->unCmd);
 
-    if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd, eFrameType))
+    if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd, eFrameType)){
+        fprintf(stderr,"### %s():%d  %d %d ###\n", __func__,__LINE__, ntohl(pstHeader->iDataLength), getDataSize(unCmd, eFrameType));
         return FRAME_ERR_INVALID_LENGTH;
+    }
 
     return FRAME_OK;
 }
@@ -295,24 +378,76 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
 {
     switch (unCmd) {
         case CMD_ID_INFO:
-            return (eFrameType == FRAME_TYPE_REQUEST) ?
-                sizeof(REQ_ID) : sizeof(RES_ID);
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_ID) : sizeof(RES_ID);
 
         case CMD_KEEP_ALIVE:
-            return (eFrameType == FRAME_TYPE_REQUEST) ?
-                sizeof(REQ_KEEP_ALIVE) : sizeof(RES_KEEP_ALIVE);
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_KEEP_ALIVE) : sizeof(RES_KEEP_ALIVE);
 
         case CMD_IBIT:
-            return (eFrameType == FRAME_TYPE_REQUEST) ?
-                sizeof(REQ_IBIT) : sizeof(RES_IBIT);
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_BIT) : sizeof(RES_BIT);
+
+        case CMD_RBIT:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_BIT) : sizeof(RES_BIT);
+
+        case CMD_CBIT:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_BIT) : sizeof(RES_BIT);
+
+        case CMD_POSITIONER_AZ_EL_SET:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_POSITIONER_AZ_EL_SET) : sizeof(RES_POSITIONER_AZ_EL_SET);
+
+        case CMD_TRACKING_SELECT:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_TRACKING_SELECT) : sizeof(RES_TRACKING_SELECT);
+
+        case CMD_TRACKING_START_POINT_SET:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_TRACKING_START_POINT_SET) : sizeof(RES_TRACKING_START_POINT_SET);
+
+        case CMD_CANNON_BALL_TRAJECTORY_INFO:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_CANNON_BALL_TRAJECTORY_INFO) : sizeof(RES_CANNON_BALL_TRAJECTORY_INFO);
+
+        case CMD_SHELTER_COORDINATE_INFO:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_SHELTER_COORDINATE_INFO) : sizeof(RES_SHELTER_COORDINATE_INFO);
+
+        // case CMD_MCC_COORDINATE_INFO:
+        //     return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_ID) : sizeof(RES_ID);
+
+        case CMD_CANNON_COORDINATE_INFO:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_CANNON_COORDINATE_INFO) : sizeof(RES_CANNON_COORDINATE_INFO);
+
+        case CMD_TRACKING_CONTROL:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_TRACKING_CONTROL) : sizeof(RES_TRACKING_CONTROL);
+
+        case CMD_POSITIONER_DEG_SEND:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_POSITIONER_DEG_SEND) : sizeof(RES_POSITIONER_DEG_SEND);
+
+        case CMD_ACU_MODE_SELECT:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_ACU_MODE) : sizeof(RES_ACU_MODE);
+
+        case CMD_TIME_SYNQ_CHECK:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_TIME_SYNQ_CHECK) : sizeof(RES_TIME_SYNQ_CHECK);
+
+        case CMD_TIME_SYNQ_SET:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_KEEP_ALIVE) : sizeof(RES_KEEP_ALIVE);
+
+        // case CMD_AZ_EL_OFFSET_SET:
+        //     return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_IBIT) : sizeof(RES_IBIT);
 
         case CDM_GPS_DATA:
-            return (eFrameType == FRAME_TYPE_REQUEST) ?
-                0 : sizeof(RES_LLA_DATA);
+            return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_LLA_DATA);
 
         case CDM_IMU_DATA:
-            return (eFrameType == FRAME_TYPE_REQUEST) ?
-                0 : sizeof(RES_RPY_DATA);
+            return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_RPY_DATA); 
+
+        case CDM_SP_DATA:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_LLA_DATA);
+
+        case CDM_EXTERN_DATA:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_RPY_DATA); 
+
+        case CDM_KEYBOARD_DATA:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_LLA_DATA);
+
+        case CMD_COMMAND_FAIL:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_RPY_DATA); 
         default:
             return 0;
     }
@@ -405,11 +540,19 @@ PROCESS_PATH decideProcessingPath(unsigned char *puchRecvData)
     unsigned short unCmd = ntohs(pstHeader->unCmd);
 
     switch (unCmd) {
-        case CMD_ID_INFO:
+        case CMD_IBIT:
+        case CMD_RBIT:
+        case CMD_CBIT:
+        case CMD_TIME_SYNQ_CHECK:
+        case CMD_TIME_SYNQ_SET:
         case CMD_KEEP_ALIVE:
             return PROCESS_LOCAL;
 
-        case CMD_IBIT:
+        case CMD_POSITIONER_AZ_EL_SET:
+        case CMD_TRACKING_SELECT:
+        case CMD_POSITIONER_DEG_SEND:
+        case CMD_ACU_MODE_SELECT:
+        case CMD_AZ_EL_OFFSET_SET:
             return PROCESS_VIA_IPC;
 
         default:
@@ -499,7 +642,7 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
 
         case CMD_IBIT:
         {
-            RES_IBIT* pstResIBit = (RES_IBIT *)(puchRecvData+sizeof(FRAME_HEADER));
+            RES_BIT* pstResIBit = (RES_BIT *)(puchRecvData+sizeof(FRAME_HEADER));
             puchResult[0] = pstResIBit->chBitTotResult;
             fprintf(stderr,"iBit %02x %02x\n", pstResIBit->chBitTotResult, pstResIBit->chPositionResult);
             break;

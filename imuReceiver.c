@@ -16,6 +16,7 @@
 #include "eventSource.h"
 #include "frame.h"
 #include "uartConfig.h"
+#include "ioChannelUtil.h"
 
 /* ============================================================
  * UART read logic event handler
@@ -141,7 +142,6 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 {
     (void)fd;
     (void)nEvent;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */

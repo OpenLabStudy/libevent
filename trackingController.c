@@ -14,8 +14,6 @@
 #include "tcpSvr.h"
 #include "udsSvr.h"
 
-
-
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
@@ -57,7 +55,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 continue;
             }            
             /* === CMD 먼저 추출 (가벼운 파싱) === */
-            getCmdFromFrame(auchRecvBuffer, iCopyLen, &unCmd);
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             if (iCopyLen < iFrameSize)
                 break;
@@ -89,12 +86,8 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
-        printf("[TCP-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-        break;
-
     case IO_EVT_ERROR:
-        printf("[TCP-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        printf("[TCP-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
@@ -113,6 +106,8 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     unsigned char auchRecvBuffer[2048];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
+
+    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
 
     switch (eEventType) {
 
@@ -147,6 +142,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 continue;
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            fprintf(stderr,"### %s():%d %d ###\n", __func__, __LINE__, iFrameSize);
             /* === 프레임 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
             if(unCmd == 0x0001){
@@ -165,12 +161,8 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
-        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-        break;
-
     case IO_EVT_ERROR:
-        printf("[UDS-SVR] channel error fd=%d\n", pstIoChannel->iFd);
+        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
