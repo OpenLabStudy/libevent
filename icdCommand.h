@@ -26,6 +26,29 @@
  * @enum COMMAND_ID
  * @brief 명령 정의 (요청/응답 공통 Command ID)
  */
+/* 추적 모드 */
+enum TRACKING_MODE {
+	IDLE = 0x00,
+	SELF_TRACKING,
+	PROGRAMMED_TRACKING,
+	EXTERNAL_DEV_TRACKING
+};
+
+enum TRACKING_START_STOP {
+	TRACKING_STOP = 0x00,
+	TRACKING_START
+};
+
+enum AZ_EL_SEND_FLAG {
+	AZ_EL_SEND_OFF = 0x00,
+	AZ_EL_SEND_ON
+};
+
+enum ACU_MODE {
+	RATE = 0x00,
+	POSITION
+};
+
 enum COMMAND_ID
 {    
     CMD_KEEP_ALIVE = 0x0000,           /**< 통신 상태 유지 */

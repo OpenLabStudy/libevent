@@ -127,10 +127,16 @@ int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
 	REQ_TRACKING_SELECT *pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_TRACKING_SELECT *pstResTrackingSelect = (RES_TRACKING_SELECT *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResTrackingSelect->chResult = 0x01;
 
+	pstResTrackingSelect->chResult = 0x01;
+	if(pstReqTrackingSelect->chTrackingSelect == SELF_TRACKING){
+
+	}else if(pstReqTrackingSelect->chTrackingSelect == EXTERNAL_DEV_TRACKING){
+		
+	}else{
+		pstResTrackingSelect->chResult = 0x0;
+	}
+	
 	fprintf(stderr, "Tracking Select Setting executed\n");
 	return sizeof(RES_TRACKING_SELECT);
 }
@@ -202,6 +208,13 @@ int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResTrackingControl->chResult = 0x01;
+	if(pstReqTrackingControl->chStartStop == TRACKING_STOP){
+
+	}else if(pstReqTrackingControl->chStartStop == TRACKING_START){
+
+	}else{
+		pstResTrackingControl->chResult = 0x00;
+	}
 
 	fprintf(stderr, "Tracking Control executed\n");
 	return sizeof(RES_TRACKING_CONTROL);
@@ -214,6 +227,12 @@ int positionDegCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResPositionDegSend->chResult = 0x01;
+	if(pstReqPositionDegSend->chSendOnOff == TRACKING_STOP){
+
+	}else if(pstReqPositionDegSend->chSendOnOff == TRACKING_START){
+	}else{
+		pstResPositionDegSend->chResult = 0x00;
+	}
 
 	fprintf(stderr, "Position Degree Send executed\n");
 	return sizeof(RES_POSITIONER_DEG_SEND);
@@ -226,6 +245,12 @@ int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResAcuMode->chResult = 0x01;
+	if(pstReqAcuMode->chAcuMode == RATE){
+
+	}else if(pstReqAcuMode->chAcuMode == POSITION){
+	}else{
+		pstResAcuMode->chResult = 0x00;
+	}
 
 	fprintf(stderr, "ACU Mode Select executed\n");
 	return sizeof(RES_ACU_MODE);
@@ -262,6 +287,8 @@ int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResAzElOffsetSet->chResult = 0x01;
+	pstReqAzElOffsetSet->iAzOffset;
+	pstReqAzElOffsetSet->iElOffset;
 
 	fprintf(stderr, "AZ EL Offset Set executed\n");
 	return sizeof(RES_AZ_EL_OFFSET_SET);
