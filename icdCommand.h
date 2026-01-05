@@ -144,7 +144,7 @@ typedef struct PACKED
  */
 typedef struct PACKED
 {
-    char chIbit;
+    char chBit;
 } REQ_BIT;
 
 /**
@@ -263,6 +263,33 @@ typedef struct PACKED{
 }RES_TIME_SYNQ_CHECK;
 
 typedef struct PACKED{
+	short nYear;
+	char chMon;
+	char chDay;
+	char chHour;
+	char chMin;
+	char chSec;
+}REQ_TIME_SYNQ_SET;
+
+typedef struct PACKED{
+	short nYear;
+	char chMon;
+	char chDay;
+	char chHour;
+	char chMin;
+	char chSec;
+}RES_TIME_SYNQ_SET;
+
+typedef struct __attribute__((__packed__)){
+	int iAzOffset;
+	int iElOffset;
+}REQ_AZ_EL_OFFSET_SET;
+
+typedef struct __attribute__((__packed__)){
+	char chResult;
+}RES_AZ_EL_OFFSET_SET;
+
+typedef struct PACKED{
 	char chSelect;
 }REQ_EXTERN_DEV_SELECT;
 
@@ -329,6 +356,22 @@ int keepAlive(unsigned char* puchRecvData, unsigned char* puchCmdResult);
  */
 int iBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
+
+int rBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int cBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int mccCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int cannonCoordinateInifo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int positionDegCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
 
 
