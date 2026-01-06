@@ -11,8 +11,8 @@
 #include <errno.h>
 
 #include "eventEngine.h"
-#include "tcpSvr.h"
-#include "udsSvr.h"
+#include "netTcp.h"
+#include "ipcUtil.h"
 
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {

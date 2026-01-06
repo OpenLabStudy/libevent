@@ -10,22 +10,19 @@
  * - appReadCb / appEventCb 는 Application 레이어 콜백
  */
 
- #include <stdio.h>
- #include <stdlib.h>
- #include <string.h>
- #include <signal.h>
- #include <unistd.h>
- #include <errno.h>
- #include <sys/time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/time.h>
 
- #include "icdCommand.h"
- #include "eventEngine.h"
- #include "udsSvr.h"
- #include "ioChannelUtil.h"
- #include "ipcUtil.h"
+#include "eventEngine.h"
+#include "ipcUtil.h"
 
 
- typedef struct {
+typedef struct {
     char            chValid;
     unsigned long   ulUsec;
     RES_LLA_DATA    stGps;
@@ -212,7 +209,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
-    unsigned char auchRecvBuffer[2048];
+    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     
@@ -236,20 +233,20 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             /* frameDecode에 대한 처리가 완전한지 확인 필요*/                                            
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[UDS-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[UDS_1_SENSOR_FUSION] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[UDS-SVR] resync: drop %d bytes, retry decode\n", iOffset);
+                    fprintf(stderr,"[UDS_1_SENSOR_FUSION] resync: drop %d bytes, retry decode\n", iOffset);
                 } else if (iOffset == -2) {
                     /* STX half-match: 데이터 더 수신 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[UDS-SVR] STX half match, wait more data\n");
+                    fprintf(stderr,"[UDS_1_SENSOR_FUSION] STX half match, wait more data\n");
                 } else {
                     /* STX 자체가 없음 → 전부 드랍 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[UDS-SVR] no STX, drop all\n");
+                    fprintf(stderr, "[UDS_1_SENSOR_FUSION] no STX, drop all\n");
                 }
                 continue;
             }
@@ -302,7 +299,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
         (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
     SENSOR_STATE* pstSensorState = &pstSensorFusionCtx->stSensor;        
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    unsigned char auchRecvBuffer[2048];
+    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     unsigned long ulUsec = nowUsec();
@@ -418,11 +415,11 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
     int iClientSock = accept(iListenFd, (struct sockaddr*)&stClientAddr, &uiClientLen);
     if (iClientSock < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
-            perror("[UDS-SVR] accept");
+            perror("[UDS_2_SVR] accept");
         return;
     }
 
-    printf("[UDS-SVR] New client FD=%d\n", iClientSock);
+    printf("[UDS_2_SVR] New client FD=%d\n", iClientSock);
 
     netSetNonblock(iClientSock);
 
@@ -439,7 +436,7 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
-    fprintf(stderr,"\n[UDS-SVR] SIGINT → shutdown\n");
+    fprintf(stderr,"\n[SENSOR_FUSION] SIGINT → shutdown\n");
     if(pstEventEngine->pstEventBase)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
@@ -458,11 +455,11 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     int iSock = netUdsCreateClient(UDS_1_PATH);
     if (iSock < 0) {
-        fprintf(stderr, "[UDS#1] reconnect failed, retry later\n");
+        fprintf(stderr, "[UDS_1_SENSOR_FUSION] reconnect failed, retry later\n");
         return; /* 타이머는 계속 살아있음 */
     }
 
-    fprintf(stderr, "[UDS#1] reconnected!\n");
+    fprintf(stderr, "[UDS_1_SENSOR_FUSION] reconnected!\n");
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, commandEventCb);
@@ -474,7 +471,7 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     /* 🔹 worker register */
     ipcSendWorkerRegister(pstNewIo, WORKER_SENSOR_FUSION);
-    fprintf(stderr, "[UDS-CLI] reconnected (%p fd=%d)\n", (void*)pstNewIo, pstNewIo->iFd);
+    fprintf(stderr, "[UDS_1_SENSOR_FUSION] reconnected (%p fd=%d)\n", (void*)pstNewIo, pstNewIo->iFd);
 }
 
 
@@ -492,7 +489,7 @@ int run(void)
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        fprintf(stderr, "[UDS-SVR] event_base_new() failed\n");
+        fprintf(stderr, "[SENSOR_FUSION] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
 
@@ -512,7 +509,7 @@ int run(void)
 
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
     if (iListenFd < 0) {
-        fprintf(stderr, "[UDS-SVR] netUdsCreateServer() failed\n");
+        fprintf(stderr, "[SENSOR_FUSION] netUdsCreateServer() failed\n");
         return EXIT_FAILURE;
     }
     /* Accept 이벤트 등록 */
@@ -525,7 +522,7 @@ int run(void)
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-    fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_2_PATH);
+    fprintf(stderr, "[SENSOR_FUSION] Listening at %s\n", UDS_2_PATH);
     
     event_base_dispatch(stEventEngine.pstEventBase);
     if (pstUdsRetryEvent) {
@@ -551,7 +548,7 @@ int run(void)
     event_base_free(stEventEngine.pstEventBase);
     free(pstSensorFusionCtx);
 
-    fprintf(stderr,"[UDS-SVR] Terminated.\n");
+    fprintf(stderr,"[SENSOR_FUSION] Terminated.\n");
     return 0;
 }
 

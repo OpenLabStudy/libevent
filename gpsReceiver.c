@@ -16,14 +16,7 @@
 /* ========================================================================== */
 #include "uartConfig.h"
 #include "r632Gps.h"
-#include "eventEngine.h"
- #include "icdCommand.h"
- #include "netUds.h"
- #include "netCore.h"
- #include "eventSource.h"
- #include "frame.h"
- #include "ioChannelUtil.h"
- #include "ipcUtil.h"
+#include "ipcUtil.h"
 
 /**
  * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback

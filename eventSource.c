@@ -1,4 +1,3 @@
-#include "eventSource.h"
 #include "eventEngine.h"
 
 #include <stdlib.h>
@@ -6,8 +5,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdio.h>
-
-#include "mti670Imu.h"
 
 void readCallback(int iFd, short nEvent, void* pvData)
 {

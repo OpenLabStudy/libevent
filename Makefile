@@ -1,234 +1,232 @@
-# === Compilers & Flags ===
-CC      	?= gcc
-CXX     	?= g++
-CFLAGS  	?= -Wall -O2
-CXXFLAGS	?= -Wall -O2
-LDFLAGS 	?=
+# ============================================================
+#  Compilers & Flags
+# ============================================================
+CC       ?= gcc
+CXX      ?= g++
+
+CFLAGS   ?= -Wall -O2
+CXXFLAGS ?= -Wall -O2
+
+# 자동 의존성 생성 (각 .o 빌드 시 .d 파일 자동 생성)
+CFLAGS   += -MMD -MP
+CXXFLAGS += -MMD -MP
+
+LDFLAGS  ?=
 LIBS_COMMON = -levent
 
-# === Files ===
-# HDRS       = frame.h icdCommand.h sockSession.h
-# FRAME_OBJS = frame-io.o sockSession.o
+# ============================================================
+#  Object Grouping (모듈 단위)
+# ============================================================
 
-HDRS1       = frame.h icdCommand.h netCore.h netTcp.h netUds.h netUdp.h
-FRAME1_OBJS = frame.o icdCommand.o netCore.o netTcp.o netUds.o netUdp.o
-HDRS2       = eventEngine.h eventSource.h udsFrame.h mti670Imu.h uartConfig.h ipcUtil.h ioChannelUtil.h
-FRAME2_OBJS = eventEngine.o eventSource.o udsFrame.o mti670Imu.o uartConfig.o ipcUtil.o ioChannelUtil.o
+# 프레임 / ICD
+FRAME_OBJS   = frame.o icdCommand.o
 
-# === Phony targets ===
+# 네트워크 (TCP/UDP/UDS 공통)
+NET_OBJS     = netCore.o netTcp.o netUdp.o netUds.o
+
+# 이벤트 엔진 / IPC
+ENGINE_OBJS  = eventEngine.o eventSource.o ioChannelUtil.o ipcUtil.o udsFrame.o
+
+# UART / 센서
+UART_OBJS    = uartConfig.o 
+
+# 공통 (대부분의 서버/컨트롤러에서 사용)
+COMMON_OBJS  = $(FRAME_OBJS) $(NET_OBJS) $(ENGINE_OBJS)
+
+# ============================================================
+#  Phony targets
+# ============================================================
 .PHONY: all clean gtest
 
-# 기본 빌드: udsSvr, udsCln
-all: trackingController tcpCln  gpsReceiver imuReceiver sensorFusion # udsCln tcpSvr tcpCln udsSvr udsCln udpSvr udpCln gpsReceiver tcpUdsSvr #udpSvr udpCln uartRx tcpUdsSvr # multicastSender multicastReceiver mCastReceiver uartTxTest uartRx
+# 기본 빌드: 주요 프로세스
+all: trackingController tcpCln gpsReceiver imuReceiver sensorFusion acuCtrl
 
-# === Regular apps ===
-sensorFusion: sensorFusion.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# --- ACU Controller ---
+acuCtrl: acuCtrl.o $(COMMON_OBJS) $(UART_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-sensorFusion.o: sensorFusion.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-trackingController: trackingController.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# --- Sensor Fusion ---
+sensorFusion: sensorFusion.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-trackingController.o: trackingController.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-tcpUdsSvr: tcpUdsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# --- Tracking Controller (TCP ↔ UDS 허브) ---
+trackingController: trackingController.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-tcpUdsSvr.o: tcpUdsSvr.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
+# ============================================================
+#  UDS / TCP / UDP Servers & Clients
+# ============================================================
 
-
-udsSvr: udsSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# --- UDS 서버 / 클라이언트 ---
+udsSvr: udsSvr.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-udsCln: udsCln.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+udsCln: udsCln.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-udsSvr.o: udsSvr.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-udsCln.o: udsCln.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-
-udpSvr: udpSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# --- UDP 서버 / 클라이언트 ---
+udpSvr: udpSvr.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-udpCln: udpCln.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+udpCln: udpCln.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-udpSvr.o: udpSvr.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-udpCln.o: udpCln.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-
-tcpSvr: tcpSvr.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# --- TCP 서버 / 클라이언트 ---
+tcpSvr: tcpSvr.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-tcpSvr.o: tcpSvr.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-tcpCln: tcpCln.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+tcpCln: tcpCln.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-tcpCln.o: tcpCln.c $(HDRS1) $(HDRS2)
-	$(CC) $(CFLAGS) -c -o $@ $<
 
+# ============================================================
+#  UART / 센서 Apps
+# ============================================================
 
-# === Multicast apps (standalone) ===
-multicastSender: multicastSender.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-multicastSender.o: multicastSender.c
-	$(CC) $(CFLAGS) -c -o $@ $<	
-
-multicastReceiver: multicastReceiver.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-multicastReceiver.o: multicastReceiver.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-mCastReceiver: mCastReceiver.o $(FRAME_OBJS)
+# GPS 수신 프로세스
+gpsReceiver: gpsReceiver.o r632Gps.o $(COMMON_OBJS) $(UART_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-mCastReceiver.o: mCastReceiver.c $(HDRS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-# === Uart apps (standalone) ===
-gpsReceiver: gpsReceiver.o r632Gps.o $(FRAME1_OBJS) $(FRAME2_OBJS)
+# IMU 수신 프로세스
+imuReceiver: imuReceiver.o mti670Imu.o $(COMMON_OBJS) $(UART_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
-gpsReceiver.o: gpsReceiver.c $(HDRS1) $(HDRS2)
+
+# ============================================================
+#  Common Objects
+#  (필요하면 개별 규칙 추가 가능, 기본은 패턴 규칙 사용)
+# ============================================================
+
+frame.o: frame.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-imuReceiver: imuReceiver.o mti670Imu.o $(FRAME1_OBJS) $(FRAME2_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
-
-imuReceiver.o: imuReceiver.c $(HDRS1) $(HDRS2)
+icdCommand.o: icdCommand.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-uartRx: uartRx.o r632Gps.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
-
-uartRx.o: uartRx.c
+netCore.o: netCore.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-uartTxTest: uartTxTest.o 
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
-
-uartTxTest.o: uartTxTest.c
+netTcp.o: netTcp.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-
-# === Common objects ===
-frame-io.o: frame-io.c $(HDRS)
+netUdp.o: netUdp.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-sockSession.o: sockSession.c $(HDRS)
+netUds.o: netUds.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-frame.o: frame.c $(HDRS1)
+eventEngine.o: eventEngine.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-eventSession.o: eventSession.c $(HDRS1)
+eventSource.o: eventSource.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-netCore.o: netCore.c $(HDRS1)
+ioChannelUtil.o: ioChannelUtil.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-netTcp.o: netTcp.c $(HDRS1)
+ipcUtil.o: ipcUtil.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# gtest 전용 빌드
-# === GoogleTest Paths (given) ===
-GTEST_DIR          	= /home/pcw1029/googletest
-GTEST_INCLUDE_DIR  	= $(GTEST_DIR)/googletest/include
-GTEST_LIB_DIR      	= $(GTEST_DIR)/build/lib
-
-# Include/Link flags for GoogleTest
-GTEST_CXXFLAGS 		= -I$(GTEST_INCLUDE_DIR)
-GTEST_LDFLAGS 		= -L$(GTEST_LIB_DIR) -lgtest -lgtest_main -pthread -Wl,-rpath,$(GTEST_LIB_DIR)
-
-gtest: gpsUartRxGtest tcpSvrGtest udsSvrGtest udpSvrGtest  #mutexQueueGtest tcpSvrGtest mutexQueueGtest
-# === GoogleTest target (NO -DUDS_SVR_STANDALONE) ===
-udsSvrGtest: udsSvrGtest.o $(FRAME1_OBJS) udsSvrNostandalone.o
-	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
-
-udsSvrGtest.o: ./gtest/udsSvrGtest.cc $(HDRS1)
-	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-# 테스트용: STANDALONE 미정의로 udsSvr.c 빌드
-udsSvrNostandalone.o: udsSvr.c $(HDRS1)
-	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-
-tcpSvrGtest: tcpSvrGtest.o $(FRAME1_OBJS) tcpSvrNostandalone.o
-	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
-
-tcpSvrGtest.o: ./gtest/tcpSvrGtest.cc $(HDRS1)
-	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-# 테스트용: STANDALONE 미정의로 udsSvr.c 빌드
-tcpSvrNostandalone.o: tcpSvr.c $(HDRS1)
-	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-
-udpSvrGtest: udpSvrGtest.o $(FRAME1_OBJS) udpSvrNostandalone.o
-	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
-
-udpSvrGtest.o: ./gtest/udpSvrGtest.cc $(HDRS1)
-	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-# 테스트용: STANDALONE 미정의로 udsSvr.c 빌드
-udpSvrNostandalone.o: udpSvr.c $(HDRS1)
-	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-
-# === MutexQueue common object ===
-mutexQueue.o: mutexQueue.c mutexQueue.h
+udsFrame.o: udsFrame.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# === MutexQueue GoogleTest ===
-mutexQueueGtest: gtest/mutexQueueGtest.o mutexQueue.o
-	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(GTEST_LDFLAGS) $(LDFLAGS)
+uartConfig.o: uartConfig.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-mutexQueueGtest.o: ./gtest/mutexQueueGtest.cc mutexQueue.h
-	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
-
-# === GPS Uart common object ===
 r632Gps.o: r632Gps.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# === MutexQueue GoogleTest ===
-gpsUartRxGtest: gpsUartRxGtest.o uartRxNostandalone.o
-	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(GTEST_LDFLAGS) $(LDFLAGS)
+mti670Imu.o: mti670Imu.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-gpsUartRxGtest.o: ./gtest/gpsUartRxGtest.cc 
+
+# ============================================================
+#  GoogleTest 설정
+# ============================================================
+
+GTEST_DIR         = /home/pcw1029/googletest
+GTEST_INCLUDE_DIR = $(GTEST_DIR)/googletest/include
+GTEST_LIB_DIR     = $(GTEST_DIR)/build/lib
+
+GTEST_CXXFLAGS    = -I$(GTEST_INCLUDE_DIR)
+GTEST_LDFLAGS     = -L$(GTEST_LIB_DIR) -lgtest -lgtest_main -pthread -Wl,-rpath,$(GTEST_LIB_DIR)
+
+gtest: gpsUartRxGtest tcpSvrGtest udsSvrGtest udpSvrGtest mutexQueueGtest
+
+# --- UDS Server GTest ---
+udsSvrGtest: udsSvrGtest.o udsSvrNostandalone.o $(COMMON_OBJS)
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
+
+udsSvrGtest.o: gtest/udsSvrGtest.cc
 	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
 
-# 테스트용: STANDALONE 미정의로 udsSvr.c 빌드
+udsSvrNostandalone.o: udsSvr.c
+	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+# --- TCP Server GTest ---
+tcpSvrGtest: tcpSvrGtest.o tcpSvrNostandalone.o $(COMMON_OBJS)
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
+
+tcpSvrGtest.o: gtest/tcpSvrGtest.cc
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+tcpSvrNostandalone.o: tcpSvr.c
+	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+# --- UDP Server GTest ---
+udpSvrGtest: udpSvrGtest.o udpSvrNostandalone.o $(COMMON_OBJS)
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
+
+udpSvrGtest.o: gtest/udpSvrGtest.cc
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+udpSvrNostandalone.o: udpSvr.c
+	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+# --- MutexQueue GTest ---
+mutexQueueGtest: gtest/mutexQueueGtest.o mutexQueue.o
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(GTEST_LDFLAGS) $(LDFLAGS)
+
+gtest/mutexQueueGtest.o: gtest/mutexQueueGtest.cc mutexQueue.h
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
+# --- GPS UartRx GTest ---
+gpsUartRxGtest: gpsUartRxGtest.o uartRxNostandalone.o
+	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(LIBS_COMMON) $(GTEST_LDFLAGS) $(LDFLAGS)
+
+gpsUartRxGtest.o: gtest/gpsUartRxGtest.cc
+	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
+
 uartRxNostandalone.o: uartRx.c r632Gps.c
 	$(CC) $(CFLAGS) -DGOOGLE_TEST -c -o $@ $<
 
+# ============================================================
+#  Generic Pattern Rules
+# ============================================================
 
-gpsUartRxGtest: gtest/gpsUartRxGtest.o r632Gps.o
-	$(CXX) $(CXXFLAGS) -DGOOGLE_TEST -o $@ $^ $(GTEST_LDFLAGS) $(LDFLAGS)
+# C 소스 기본 규칙 (위에서 개별 규칙 없는 경우에 사용)
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-gpsUartRxGtest.o: ./gtest/gpsUartRxGtest.cc r632Gps.c
-	$(CXX) $(CXXFLAGS) $(GTEST_CXXFLAGS) -DGOOGLE_TEST -c -o $@ $<
+# C++ / gtest용 기본 규칙 (위에서 개별 규칙 없는 경우에 사용)
+%.o: %.cc
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# ============================================================
+#  Clean
+# ============================================================
 
-	
-
-
-# === Clean ===
 clean:
-	rm -f *.o udsSvr udsCln udsSvrGtest trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
-		udpSvr udpCln multicastSender multicastReceiver mCastReceiver uartTxTest \
-		uartRx mutexQueueGtest udpSvrGtest gpsUartRxGtest tcpUdsSvr gpsReceiver \
-		trackingController sensorFusion imuReceiver
+	rm -f *.o *.d \
+		udsSvr udsCln udsSvrGtest \
+		trackingCtrlApp tcpSvr tcpCln tcpSvrGtest \
+		udpSvr udpCln udpSvrGtest \
+		multicastSender multicastReceiver mCastReceiver \
+		uartTxTest uartRx mutexQueueGtest \
+		gpsUartRxGtest tcpUdsSvr gpsReceiver \
+		trackingController sensorFusion imuReceiver acuCtrl
+
+# ============================================================
+#  Include auto-generated dependencies
+# ============================================================
+

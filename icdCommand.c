@@ -116,8 +116,9 @@ int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult/*,
 	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_POSITIONER_AZ_EL_SET *pstResAzElSet = (RES_POSITIONER_AZ_EL_SET *)(puchCmdResult);
 	dAz = endianChange(pstReqAzElSet->chAzimuthDeg);
-	dEl = endianChange(pstReqAzElSet->chElevationDeg);
+	dEl = endianChange(pstReqAzElSet->chElevationDeg);	
 	//todo Az,El설정에 대한 명령 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
+	fprintf(stderr,"AZ:%.03lf, EL:%.03lf\n", dAz, dEl);
 	pstResAzElSet->chResult = 0x01;
 
 	fprintf(stderr, "POSITION AZ EL Setting executed\n");
@@ -131,10 +132,11 @@ int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 
 	pstResTrackingSelect->chResult = 0x01;
 	if(pstReqTrackingSelect->chTrackingSelect == SELF_TRACKING){
-
+		fprintf(stderr,"SELF_TRACKING\n");
 	}else if(pstReqTrackingSelect->chTrackingSelect == EXTERNAL_DEV_TRACKING){
-		
+		fprintf(stderr,"EXTERNAL_DEV_TRACKING\n");
 	}else{
+		fprintf(stderr,"Tracking Select Fail\n");
 		pstResTrackingSelect->chResult = 0x0;
 	}
 	
@@ -144,7 +146,7 @@ int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_TRACKING_START_POINT_SET *pstReqTrackingStartPointSet = (REQ_TRACKING_START_POINT_SET *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_TRACKING_START_POINT_SET *pstReqTrackingStartPointSet = (REQ_TRACKING_START_POINT_SET *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_TRACKING_START_POINT_SET *pstResTrackingStartPointSet = (RES_TRACKING_START_POINT_SET *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -210,10 +212,11 @@ int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResTrackingControl->chResult = 0x01;
 	if(pstReqTrackingControl->chStartStop == TRACKING_STOP){
-
+		fprintf(stderr, "TRACKING_STOP\n");
 	}else if(pstReqTrackingControl->chStartStop == TRACKING_START){
-
+		fprintf(stderr, "TRACKING_START\n");
 	}else{
+		fprintf(stderr,"Tracking Control Fail\n");
 		pstResTrackingControl->chResult = 0x00;
 	}
 
@@ -228,10 +231,12 @@ int positionDegTransferCtrl(unsigned char* puchRecvData, unsigned char* puchCmdR
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResPositionDegSend->chResult = 0x01;
-	if(pstReqPositionDegSend->chSendOnOff == TRACKING_STOP){
-
-	}else if(pstReqPositionDegSend->chSendOnOff == TRACKING_START){
+	if(pstReqPositionDegSend->chSendOnOff == AZ_EL_SEND_OFF){
+		fprintf(stderr,"AZ_EL_SEND_OFF\n");
+	}else if(pstReqPositionDegSend->chSendOnOff == AZ_EL_SEND_ON){
+		fprintf(stderr,"AZ_EL_SEND_ON\n");
 	}else{
+		fprintf(stderr,"Position Degree Transfer Control Fail\n");
 		pstResPositionDegSend->chResult = 0x00;
 	}
 
@@ -247,9 +252,11 @@ int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResAcuMode->chResult = 0x01;
 	if(pstReqAcuMode->chAcuMode == RATE){
-
+		fprintf(stderr,"ACU Mode is RATE\n");
 	}else if(pstReqAcuMode->chAcuMode == POSITION){
+		fprintf(stderr,"ACU Mode is RATE\n");
 	}else{
+		fprintf(stderr,"ACU Mode Select Fail\n");
 		pstResAcuMode->chResult = 0x00;
 	}
 
@@ -272,7 +279,7 @@ int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
 	// REQ_TIME_SYNQ_SET *pstReqTimeSynqSet = (REQ_TIME_SYNQ_SET *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_TIME_SYNQ_SET *pstResTimeSynqSet = (RES_TIME_SYNQ_SET *)(puchCmdResult);
+	// RES_TIME_SYNQ_SET *pstResTimeSynqSet = (RES_TIME_SYNQ_SET *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	// pstResTimeSynqSet->chResult = 0x01;
@@ -288,9 +295,8 @@ int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResAzElOffsetSet->chResult = 0x01;
-	pstReqAzElOffsetSet->iAzOffset;
-	pstReqAzElOffsetSet->iElOffset;
-
+	fprintf(stderr,"AZ Offset is %d, EL Offset is %d\n", pstReqAzElOffsetSet->iAzOffset, pstReqAzElOffsetSet->iElOffset);
+	
 	fprintf(stderr, "AZ EL Offset Set executed\n");
 	return sizeof(RES_AZ_EL_OFFSET_SET);
 }

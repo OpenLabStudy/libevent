@@ -1,8 +1,11 @@
 #ifndef IPC_UTIL_H
 #define IPC_UTIL_H
 
-#include "eventEngine.h"
 #include "icdCommand.h"
+#include "frame.h"
+#include "netUds.h"
+#include "netCore.h"
+#include "ioChannelUtil.h"
 
 /* Worker ID → MSG_ID 변환 */
 int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId);

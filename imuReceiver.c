@@ -8,15 +8,8 @@
 #include <termios.h>
 #include <stdint.h>
 
-#include "mti670Imu.h"
-#include "eventEngine.h"
-#include "icdCommand.h"
-#include "netUds.h"
-#include "netCore.h"
-#include "eventSource.h"
-#include "frame.h"
 #include "uartConfig.h"
-#include "ioChannelUtil.h"
+#include "mti670Imu.h"
 #include "ipcUtil.h"
 
 /* ============================================================

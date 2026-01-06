@@ -82,20 +82,107 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-
+void printMenu()
+{
+    fprintf(stderr,"1. keepalive\n");
+    fprintf(stderr,"2. ibit\n");
+    fprintf(stderr,"3. position az el set\n");
+    fprintf(stderr,"4. tracking select\n");
+    fprintf(stderr,"5. tracking control\n");
+    fprintf(stderr,"6. position degree send\n");
+    fprintf(stderr,"7. acu mode select\n");
+    fprintf(stderr,"8. az el offset set\n");
+    fprintf(stderr,"0. exit\n");
+}
 /* ============================================================
 * stdin 이벤트 콜백
 * ============================================================ */
+/* ------------------------------------------------------------
+ * 문자열 입력 (공백/엔터 방어)
+ * ------------------------------------------------------------ */
+static int readLine(char *buf, size_t sz)
+{
+    if (!fgets(buf, sz, stdin))
+        return 0;
+
+    buf[strcspn(buf, "\n")] = '\0';
+
+    char *p = buf;
+    while (*p == ' ' || *p == '\t') p++;
+
+    char *end = p + strlen(p);
+    while (end > p && (end[-1] == ' ' || end[-1] == '\t'))
+        *--end = '\0';
+
+    if (*p == '\0')
+        return 0;
+
+    if (p != buf)
+        memmove(buf, p, strlen(p) + 1);
+
+    return 1;
+}
+
+/* ------------------------------------------------------------
+ * double 입력 (유효성 검증)
+ * ------------------------------------------------------------ */
+static int readDouble(const char *prompt, double *out)
+{
+    char buf[128];
+
+    fprintf(stderr, "%s", prompt);
+
+    if (!readLine(buf, sizeof(buf)))
+        return 0;
+
+    char *endptr = NULL;
+    double v = strtod(buf, &endptr);
+
+    if (endptr == buf || *endptr != '\0')
+        return 0;
+
+    *out = v;
+    return 1;
+}
+
+/* ------------------------------------------------------------
+ * 정수(enum) 선택 (0~max 범위 검사)
+ * ------------------------------------------------------------ */
+static int readIntChoice(const char *prompt, int max, int *out)
+{
+    char buf[64];
+
+    fprintf(stderr, "%s", prompt);
+
+    if (!readLine(buf, sizeof(buf)))
+        return 0;
+
+    for (char *p = buf; *p; p++) {
+        if (*p < '0' || *p > '9')
+            return 0;
+    }
+
+    int v = atoi(buf);
+
+    if (v < 0 || v > max)
+        return 0;
+
+    *out = v;
+    return 1;
+}
+
 static void stdinReadCb(int iFd, short nEvents, void* pvData)
 {
-    fprintf(stderr, "[TCP-CLI] stdin fired\n");
+    (void)iFd;
     (void)nEvents;
 
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    printMenu();
 
-    char achInput[1024];
+    char achInput[128] = {0};
     unsigned char auSendBuf[1024];
-    FRAME_ERR eErr;
+    FRAME_ERR eErr = FRAME_OK;
+    MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
 
     if (!fgets(achInput, sizeof(achInput), stdin)) {
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
@@ -103,25 +190,204 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
         return;
     }
 
+    // --------- 개행 제거 ----------
     achInput[strcspn(achInput, "\n")] = '\0';
-    MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
 
-    if (!strcmp(achInput, "keepalive")) {
+    // --------- 앞/뒤 공백 제거 ----------
+    char *p = achInput;
+    while (*p == ' ' || *p == '\t')
+        p++;
+
+    char *end = p + strlen(p);
+    while (end > p && (end[-1] == ' ' || end[-1] == '\t'))
+        *--end = '\0';
+
+    // --------- 빈 입력 처리 ----------
+    if (*p == '\0') {
+        fprintf(stderr, "[TCP-CLI] (입력 없음)\n");
+        return;
+    }
+
+    // --------- 숫자인지 검사 ----------
+    for (char *q = p; *q; q++) {
+        if (*q < '0' || *q > '9') {
+            fprintf(stderr, "[TCP-CLI] 숫자만 입력하세요. (입력: '%s')\n", p);
+            return;
+        }
+    }
+
+    int sel = atoi(p);
+
+    switch (sel) {
+    case 1:
         fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
         eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
-    } else if (!strcmp(achInput, "ibit")) {
+        break;
+
+    case 2:
         fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
         eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
+        break;
+        
+    case 3: {
+        fprintf(stderr,"[TCP-CLI] REQ_POSITIONER_AZ_EL_SET\n");
 
-    } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
+        double az = 0.0, el = 0.0;
+
+        if (!readDouble("  AZ(도): ", &az) ||
+            !readDouble("  EL(도): ", &el)) {
+            fprintf(stderr, "[TCP-CLI] 잘못된 값입니다.\n");
+            return;
+        }
+
+        REQ_POSITIONER_AZ_EL_SET payload;
+        memset(&payload, 0, sizeof(payload));
+
+        snprintf(payload.chAzimuthDeg,  sizeof(payload.chAzimuthDeg),  "%.3f", az);
+        snprintf(payload.chElevationDeg,sizeof(payload.chElevationDeg),"%.3f", el);
+
+        eErr = makeRequestFrame(
+            CMD_POSITIONER_AZ_EL_SET,
+            &stMsgId,
+            &payload,
+            auSendBuf
+        );
+        break;
+    }
+
+    case 4: {
+        fprintf(stderr,"[TCP-CLI] REQ_TRACKING_SELECT\n");
+        fprintf(stderr,
+            "  0: IDLE\n"
+            "  1: SELF_TRACKING\n"
+            "  2: PROGRAMMED_TRACKING\n"
+            "  3: EXTERNAL_DEV_TRACKING\n");
+
+        int mode = 0;
+
+        if (!readIntChoice("  선택: ", 3, &mode)) {
+            fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
+            return;
+        }
+
+        REQ_TRACKING_SELECT payload;
+        payload.chTrackingSelect = (char)mode;
+
+        eErr = makeRequestFrame(
+            CMD_TRACKING_SELECT,
+            &stMsgId,
+            &payload,
+            sizeof(payload),
+            auSendBuf
+        );
+        break;
+    }
+
+    case 5: {
+        fprintf(stderr,"[TCP-CLI] REQ_TRACKING_CONTROL\n");
+        fprintf(stderr, "  0: STOP\n  1: START\n");
+
+        int v = 0;
+
+        if (!readIntChoice("  선택: ", 1, &v)) {
+            fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
+            return;
+        }
+
+        REQ_TRACKING_CONTROL payload;
+        payload.chStartStop = (char)v;
+
+        eErr = makeRequestFrame(
+            CMD_TRACKING_CONTROL,
+            &stMsgId,
+            &payload,
+            sizeof(payload),
+            auSendBuf
+        );
+        break;
+    }
+
+    case 6: {
+        fprintf(stderr,"[TCP-CLI] REQ_POSITIONER_DEG_SEND\n");
+        fprintf(stderr, "  0: OFF\n  1: ON\n");
+
+        int v = 0;
+
+        if (!readIntChoice("  선택: ", 1, &v)) {
+            fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
+            return;
+        }
+
+        REQ_POSITIONER_DEG_SEND payload;
+        payload.chSendOnOff = (char)v;
+
+        eErr = makeRequestFrame(
+            CMD_POSITIONER_DEG_SEND,
+            &stMsgId,
+            &payload,
+            sizeof(payload),
+            auSendBuf
+        );
+        break;
+    }
+
+    case 7: {
+        fprintf(stderr,"[TCP-CLI] REQ_ACU_MODE_SELECT\n");
+        fprintf(stderr, "  0: RATE\n  1: POSITION\n");
+
+        int v = 0;
+
+        if (!readIntChoice("  선택: ", 1, &v)) {
+            fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
+            return;
+        }
+
+        REQ_ACU_MODE payload;
+        payload.chAcuMode = (char)v;
+
+        eErr = makeRequestFrame(
+            CMD_ACU_MODE_SELECT,
+            &stMsgId,
+            &payload,
+            sizeof(payload),
+            auSendBuf
+        );
+        break;
+    }
+
+    case 8: {
+        fprintf(stderr,"[TCP-CLI] REQ_AZ_EL_OFFSET_SET\n");
+
+        double az = 0.0, el = 0.0;
+
+        if (!readDouble("  AZ Offset: ", &az) ||
+            !readDouble("  EL Offset: ", &el)) {
+            fprintf(stderr, "[TCP-CLI] 잘못된 값입니다.\n");
+            return;
+        }
+
+        REQ_AZ_EL_OFFSET_SET payload;
+        payload.iAzOffset = (int)(az * 100.0);
+        payload.iElOffset = (int)(el * 100.0);
+
+        eErr = makeRequestFrame(
+            CMD_AZ_EL_OFFSET_SET,
+            &stMsgId,
+            &payload,
+            sizeof(payload),
+            auSendBuf
+        );
+        break;
+    }
+
+
+    case 0:
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         return;
-    } else {
-        fprintf(stderr, "Available commands:\n" 
-            " keepalive\n"
-            "  ibit\n"
-            "  quit\n");
+
+    default:
+        fprintf(stderr, "[TCP-CLI] 잘못된 메뉴 번호입니다. (0~8)\n");
         return;
     }
 
@@ -131,6 +397,53 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
         event_add(pstIoChannel->pstWriteEvent, NULL);
     }
 }
+
+// static void stdinReadCb(int iFd, short nEvents, void* pvData)
+// {
+//     int iSelec;
+//     fprintf(stderr, "[TCP-CLI] stdin fired\n");
+//     (void)nEvents;
+
+//     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+//     printMenu();
+
+//     char achInput[1024];
+//     unsigned char auSendBuf[1024];
+//     FRAME_ERR eErr;
+
+//     if (!fgets(achInput, sizeof(achInput), stdin)) {
+//         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+//         event_active(pstIoChannel->pstLogicEvent, 0, 0);
+//         return;
+//     }
+
+//     achInput[strcspn(achInput, "\n")] = '\0';
+//     MSG_ID stMsgId = { TCP_CLN_ID, TCP_SVR_ID };
+
+//     if (!strcmp(achInput, "keepalive")) {
+//         fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
+//         eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
+//     } else if (!strcmp(achInput, "ibit")) {
+//         fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
+//         eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
+//     } else if (!strcmp(achInput, "quit") || !strcmp(achInput, "exit")) {
+//         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
+//         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+//         return;
+//     } else {
+//         fprintf(stderr, "Available commands:\n" 
+//             " keepalive\n"
+//             "  ibit\n"
+//             "  quit\n");
+//         return;
+//     }
+
+//     if (eErr == FRAME_OK) {
+//         int iSendLen = getFrameSizeWithData(auSendBuf, FRAME_TYPE_REQUEST);
+//         evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, iSendLen);
+//         event_add(pstIoChannel->pstWriteEvent, NULL);
+//     }
+// }
 
 
 /* ============================================================

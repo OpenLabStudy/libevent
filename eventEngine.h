@@ -6,7 +6,6 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include <event2/event.h>
 #include "eventSource.h"
 
 
