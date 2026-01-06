@@ -378,11 +378,9 @@ int keepAlive(unsigned char* puchRecvData, unsigned char* puchCmdResult);
  * @see RES_IBIT
  */
 int iBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-
-
 int rBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int cBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult/*, double* dAz, double* dEl*/);
 int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
@@ -390,7 +388,7 @@ int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdRes
 int mccCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int cannonCoordinateInifo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int positionDegCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int positionDegTransferCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);

@@ -22,7 +22,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     unsigned char auchRecvBuffer[2048];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
-    int iSendLen = 0;
 
     switch (eEventType) {
 
@@ -182,8 +181,6 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 {
     (void)nKindOfEvent;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
-    IO_CHANNEL *pstCurIoChannel;
-
     struct sockaddr_storage stSockAddrStorage;
     struct sockaddr_in stClientAddr;
     unsigned int uiClientLen = sizeof(stClientAddr);

@@ -122,11 +122,11 @@ static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine,
 /* ============================================================ */
 static void eventEngineFlushCb(int iFd, short nEvent, void* pvArg)
 {
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvArg;
+    // EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvArg;
 
-    unsigned char auchBuffer[4096];
-    IO_CHANNEL* pstIoChannel;
-    int iLen;
+    // unsigned char auchBuffer[4096];
+    // IO_CHANNEL* pstIoChannel;
+    // int iLen;
 
 }
 

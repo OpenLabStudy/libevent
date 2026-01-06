@@ -13,14 +13,25 @@ int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
     pstMsgId->uchSrcId = (unsigned char)iWorkerId;
 
     switch (iWorkerId) {
-    case UDS_1_CLN1_ID:
-    case UDS_1_CLN2_ID:
+    case UDS_1_SENSOR_FUSION:
+    case UDS_1_ACU_CONTROLLER:
         pstMsgId->uchDstId = UDS_1_SVR_ID;
         break;
 
-    case UDS_2_CLN1_ID:
-    case UDS_2_CLN2_ID:
+    case UDS_2_GPS_RECEIVER:
+    case UDS_2_IMU_RECEIVER:
+    case UDS_2_SP_RECEIVER:
+    case UDS_2_EXTERN_RECEIVER:
+    case UDS_2_KEYBOARD_RECEIVER:
         pstMsgId->uchDstId = UDS_2_SVR_ID;
+        break;
+
+    case UDS_3_ACU_CONTROLLER:
+        pstMsgId->uchDstId = UDS_3_SVR_ID;
+        break;
+
+    case UDS_4_KEYBOARD_RECEIVER:
+        pstMsgId->uchDstId = UDS_4_SVR_ID;
         break;
 
     default:
@@ -41,10 +52,9 @@ void ipcSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerType
     if (ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId) < 0)
         return;
         
-    if (makeResponseFrame(CMD_ID_INFO, &stMsgId, &stReg, auchSendBuf) != FRAME_OK)
+    if (makeResponseFrame(CMD_ID_INFO, &stMsgId, (unsigned char *)&stReg, auchSendBuf) != FRAME_OK)
         return;
         
     int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
     evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
-    event_add(pstIoChannel->pstWriteEvent, NULL);
 }

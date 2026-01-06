@@ -9,6 +9,7 @@
 #include "icdCommand.h"
 #include "frame.h"
 #include <stdio.h>
+#include <string.h>
 
 double endianChange(char* i_chData)
 {
@@ -18,8 +19,8 @@ double endianChange(char* i_chData)
 	for(i=0; i<8; i++){
 		chChangeEndian[7-i] = i_chData[i];
 	}
-	memset(&dValue, 0x0, sizeof(double));
-	memcpy(&dValue, chChangeEndian, sizeof(double));
+	memset((void*)&dValue, 0x0, sizeof(double));
+	memcpy((void*)&dValue, chChangeEndian, sizeof(double));
 	return dValue;
 }
 
@@ -109,13 +110,13 @@ int cBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_BIT);
 }
 
-int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult/*, double* dAz, double* dEl*/)
 {
-	double dSetAz, dSetEl;
+	double dAz, dEl;
 	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_POSITIONER_AZ_EL_SET *pstResAzElSet = (RES_POSITIONER_AZ_EL_SET *)(puchCmdResult);
-	dSetAz = endianChange(pstReqAzElSet->chAzimuthDeg);
-	dSetEl = endianChange(pstReqAzElSet->chElevationDeg);
+	dAz = endianChange(pstReqAzElSet->chAzimuthDeg);
+	dEl = endianChange(pstReqAzElSet->chElevationDeg);
 	//todo Az,El설정에 대한 명령 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
 	pstResAzElSet->chResult = 0x01;
 
@@ -155,7 +156,7 @@ int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdRes
 
 int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_CANNON_BALL_TRAJECTORY_INFO *pstReqCannonBallTrajectoryInfo = (REQ_CANNON_BALL_TRAJECTORY_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_CANNON_BALL_TRAJECTORY_INFO *pstReqCannonBallTrajectoryInfo = (REQ_CANNON_BALL_TRAJECTORY_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_CANNON_BALL_TRAJECTORY_INFO *pstResCannonBallTrajectoryInfo = (RES_CANNON_BALL_TRAJECTORY_INFO *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -167,7 +168,7 @@ int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmd
 
 int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_SHELTER_COORDINATE_INFO *pstReqShelterCoordinateInfo = (REQ_SHELTER_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_SHELTER_COORDINATE_INFO *pstReqShelterCoordinateInfo = (REQ_SHELTER_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_SHELTER_COORDINATE_INFO *pstResShelterCoordinateInfo = (RES_SHELTER_COORDINATE_INFO *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -179,7 +180,7 @@ int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdRes
 
 int mccCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_EXTERN_DEV_COORDINATE_INFO *pstReqExternDevCoordinateInfo = (REQ_EXTERN_DEV_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_EXTERN_DEV_COORDINATE_INFO *pstReqExternDevCoordinateInfo = (REQ_EXTERN_DEV_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_EXTERN_DEV_COORDINATE_INFO *pstResExternDevCoordinateInfo = (RES_EXTERN_DEV_COORDINATE_INFO *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -191,7 +192,7 @@ int mccCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 
 int cannonCoordinateInifo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_CANNON_COORDINATE_INFO *pstReqCannonCoordinateInfo = (REQ_CANNON_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_CANNON_COORDINATE_INFO *pstReqCannonCoordinateInfo = (REQ_CANNON_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_CANNON_COORDINATE_INFO *pstResCannonCoordinateInfo = (RES_CANNON_COORDINATE_INFO *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -220,7 +221,7 @@ int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_TRACKING_CONTROL);
 }
 
-int positionDegCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int positionDegTransferCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
 	REQ_POSITIONER_DEG_SEND *pstReqPositionDegSend = (REQ_POSITIONER_DEG_SEND *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_POSITIONER_DEG_SEND *pstResPositionDegSend = (RES_POSITIONER_DEG_SEND *)(puchCmdResult);
@@ -258,7 +259,7 @@ int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 
 int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_TIME_SYNQ_CHECK *pstReqTimeSynqCheck = (REQ_TIME_SYNQ_CHECK *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_TIME_SYNQ_CHECK *pstReqTimeSynqCheck = (REQ_TIME_SYNQ_CHECK *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_TIME_SYNQ_CHECK *pstResTimeSynqCheck = (RES_TIME_SYNQ_CHECK *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -270,7 +271,7 @@ int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 
 int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_TIME_SYNQ_SET *pstReqTimeSynqSet = (REQ_TIME_SYNQ_SET *)(puchRecvData + sizeof(FRAME_HEADER));
+	// REQ_TIME_SYNQ_SET *pstReqTimeSynqSet = (REQ_TIME_SYNQ_SET *)(puchRecvData + sizeof(FRAME_HEADER));
 	RES_TIME_SYNQ_SET *pstResTimeSynqSet = (RES_TIME_SYNQ_SET *)(puchCmdResult);
 	
 	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.

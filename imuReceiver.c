@@ -17,6 +17,7 @@
 #include "frame.h"
 #include "uartConfig.h"
 #include "ioChannelUtil.h"
+#include "ipcUtil.h"
 
 /* ============================================================
  * UART read logic event handler
@@ -58,10 +59,10 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
                 /* UDS#2(sensorFusion) 채널로 best-effort 전송 */
                 IO_CHANNEL* pstImuTxIo =
-                    ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN2_ID);
+                    ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_IMU_RECEIVER);
 
                 if (ioIsChannelAlive(pstImuTxIo)) {
-                    unsigned char auchSendBuf[UDS_MAX_SIZE];
+                    unsigned char auchSendBuf[UDS_MAX_BUFFER_SIZE];
                     RES_RPY_DATA stImuData;
 
                     stImuData.dRoll  = (double)fRoll;
@@ -70,7 +71,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
                     MSG_ID stMsgId;
                     ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-                    if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, &stImuData, auchSendBuf) == FRAME_OK) {
+                    if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, (unsigned char *)&stImuData, auchSendBuf) == FRAME_OK) {
                         size_t sz = (size_t)getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
                         evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf, sz);
                         event_add(pstImuTxIo->pstWriteEvent, NULL);
@@ -145,7 +146,7 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, UDS_2_CLN2_ID);
+    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, UDS_2_IMU_RECEIVER);
 
     if (ioIsChannelAlive(pstImuTxIo))
         return;
@@ -161,7 +162,7 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, ioChannelHandleEvent);
 
-    pstNewIo->iWorkerId = UDS_2_CLN2_ID;
+    pstNewIo->iWorkerId = UDS_2_IMU_RECEIVER;
 
     /* worker register */
     ipcSendWorkerRegister(pstNewIo, WORKER_IMU);

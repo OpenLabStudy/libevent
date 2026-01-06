@@ -175,7 +175,8 @@ FRAME_ERR makeRequestFrame(unsigned short unCmd,
             break;
 
         case CMD_CANNON_BALL_TRAJECTORY_INFO:
-            ((REQ_CANNON_BALL_TRAJECTORY_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->pvData;
+        //todo 
+            ((REQ_CANNON_BALL_TRAJECTORY_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->pvData = NULL;
             break;
 
         case CMD_SHELTER_COORDINATE_INFO:
@@ -641,7 +642,7 @@ FRAME_ERR commandHandler(unsigned char *puchRecvData,
             break;
 
         case CMD_POSITIONER_DEG_SEND:
-            *piSendDataSize = positionDegCtrl(puchRecvData, puchCmdResult);
+            *piSendDataSize = positionDegTransferCtrl(puchRecvData, puchCmdResult);
             break;
 
         case CMD_ACU_MODE_SELECT:
@@ -712,7 +713,7 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
         return FRAME_ERR_NULL_PTR;
     int iFrameSize = getFrameSizeWithData(puchRecvData, FRAME_TYPE_RESPONSE);
 
-    unsigned short unCmd;
+    unsigned short unCmd=CMD_COMMAND_FAIL;
     getCmdFromFrame(puchRecvData, iFrameSize, &unCmd);
     switch (unCmd) {
         case CMD_ID_INFO:
@@ -830,7 +831,7 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
         {
             RES_ACU_MODE* pstResAcuMode = (RES_ACU_MODE *)(puchRecvData+sizeof(FRAME_HEADER));
             puchResult[0] = pstResAcuMode->chResult;
-            fprintf(stderr,"Acu Mode Result %02x %02x\n", pstResAcuMode->chResult);
+            fprintf(stderr,"Acu Mode Result %02x\n", pstResAcuMode->chResult);
             break;
         }
 
@@ -856,7 +857,7 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
         {
             RES_AZ_EL_OFFSET_SET* pstResAzElOffsetSet = (RES_AZ_EL_OFFSET_SET *)(puchRecvData+sizeof(FRAME_HEADER));
             puchResult[0] = pstResAzElOffsetSet->chResult;
-            fprintf(stderr,"Az El Offset Set Result %02x %02x\n", pstResAzElOffsetSet->chResult);
+            fprintf(stderr,"Az El Offset Set Result %02x\n", pstResAzElOffsetSet->chResult);
             break;
         }
         default:

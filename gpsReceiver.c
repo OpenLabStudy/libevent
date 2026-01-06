@@ -22,6 +22,8 @@
  #include "netCore.h"
  #include "eventSource.h"
  #include "frame.h"
+ #include "ioChannelUtil.h"
+ #include "ipcUtil.h"
 
 /**
  * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
@@ -38,7 +40,6 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     (void)iFd; (void)nEvent;
 
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    IO_CHANNEL* pstIoChannelList = pstIoChannel->pstEventEngine->pstIoChannelList;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     SGpsDataInfo            stGpsInfo;
     unsigned char auchRecvBuffer[2048];
@@ -65,9 +66,9 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     printf("Sat   : %u\n", stGpsInfo.m_stMsg3.m_wNumSatsUsed);
                 }
                 // UDS#2의 클라이언트를 찾기
-                IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_CLN1_ID);
+                IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_GPS_RECEIVER);
                 if (ioIsChannelAlive(pstGpsTxIo)) {
-                    unsigned char uchaSendBuf[UDS_MAX_SIZE];
+                    unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
                     /* === Payload 구성 === */
                     RES_LLA_DATA stGpsData;
                     stGpsData.dAltitude = stGpsInfo.m_stMsg3.m_fHeight;
@@ -77,7 +78,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     /* === Frame 생성 === */
                     MSG_ID stMsgId;
                     ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-                    makeResponseFrame(CDM_GPS_DATA, &stMsgId, &stGpsData, uchaSendBuf);
+                    makeResponseFrame(CDM_GPS_DATA, &stMsgId, (unsigned char*)&stGpsData, uchaSendBuf);
                     /* === Write buffer에 적재 === */
                     evbuffer_add(pstGpsTxIo->pstWriteBuffer, uchaSendBuf, getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE));
                     /* === Write 이벤트 발생 === */
@@ -146,7 +147,7 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, UDS_2_CLN1_ID);
+    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, UDS_2_GPS_RECEIVER);
 
     if (ioIsChannelAlive(pstImuTxIo))
         return;
@@ -164,7 +165,7 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, ioChannelHandleEvent);
 
-    pstNewIo->iWorkerId = UDS_2_CLN1_ID;
+    pstNewIo->iWorkerId = UDS_2_GPS_RECEIVER;
 
     /* worker register */
     ipcSendWorkerRegister(pstNewIo, WORKER_IMU);

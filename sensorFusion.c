@@ -22,6 +22,7 @@
  #include "eventEngine.h"
  #include "udsSvr.h"
  #include "ioChannelUtil.h"
+ #include "ipcUtil.h"
 
 
  typedef struct {
@@ -209,9 +210,6 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     (void)iFd;
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    EVENT_ENGINE *pstEventEngine = pstIoChannel->pstEventEngine;
-    SENSOR_FUSION_CTX *pstSensorFusionCtx =
-        (SENSOR_FUSION_CTX *)pstEventEngine->pvSharedData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
     unsigned char auchRecvBuffer[2048];
@@ -226,15 +224,15 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
         break;
     case IO_EVT_RX_DATA:
         while (1) {
-            size_t tRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            fprintf(stderr,"Recv Size is %d\n", tRecvLen);
+            int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+            fprintf(stderr,"Recv Size is %d\n", iRecvLen);
             /* 최소 헤더도 없으면 중단 */
-            if (tRecvLen < sizeof(FRAME_HEADER))
+            if (iRecvLen < sizeof(FRAME_HEADER))
                 break;
 
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
-                                            auchRecvBuffer, tRecvLen);
+                                            auchRecvBuffer, iRecvLen);
             /* frameDecode에 대한 처리가 완전한지 확인 필요*/                                            
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
@@ -260,8 +258,8 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
             unsigned int uiReqId;
             memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
-            unsigned char uchaSendBuf[UDS_MAX_SIZE];
-            unsigned char auchResult[UDS_MAX_SIZE];
+            unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
+            unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
             unsigned int uiSendSize;
             int iResultSize;
             /* === 명령 처리 === */
@@ -453,7 +451,7 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_1_CLN1_ID);    
+    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_1_SENSOR_FUSION);    
     if (ioIsChannelAlive(pstCmdIo)){
         return;
     }
@@ -472,7 +470,7 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
         close(iSock);
         return;
     }
-    pstNewIo->iWorkerId = UDS_1_CLN1_ID;
+    pstNewIo->iWorkerId = UDS_1_SENSOR_FUSION;
 
     /* 🔹 worker register */
     ipcSendWorkerRegister(pstNewIo, WORKER_SENSOR_FUSION);

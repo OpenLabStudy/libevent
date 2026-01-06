@@ -15,23 +15,29 @@
 extern "C" {
 #endif
 
-#define UDS_1_PATH      "/tmp/uds1.sock"
-#define UDS_1_SVR_ID    0x10
-#define UDS_1_CLN1_ID   0x01 // SENSOR_FUSION
-#define UDS_1_CLN2_ID   0x02 // ACU_CTRL
+#define UDS_1_PATH              "/tmp/uds1.sock"
+#define UDS_1_SVR_ID            0x00
+#define UDS_1_SENSOR_FUSION     0x01
+#define UDS_1_ACU_CONTROLLER    0x02
 
-#define UDS_2_PATH      "/tmp/uds2.sock"
-#define UDS_2_SVR_ID    0x20
-#define UDS_2_CLN1_ID   0x21 // GPS
-#define UDS_2_CLN2_ID   0x22 // IMU
-#define UDS_2_CLN3_ID   0x24 // SP
-#define UDS_2_CLN4_ID   0x28 // EXTERN
-#define UDS_2_CLN5_ID   0x40 // KEYBOARD
+#define UDS_2_PATH              "/tmp/uds2.sock"
+#define UDS_2_SVR_ID            0x30
+#define UDS_2_GPS_RECEIVER      0x11
+#define UDS_2_IMU_RECEIVER      0x12
+#define UDS_2_SP_RECEIVER       0x14
+#define UDS_2_EXTERN_RECEIVER   0x18
+#define UDS_2_KEYBOARD_RECEIVER 0x21
 
-#define UDS_3_SVR_ID    0x84
-#define UDS_4_SVR_ID    0x88
+#define UDS_3_PATH              "/tmp/uds3.sock"
+#define UDS_3_SVR_ID            0x40
+#define UDS_3_ACU_CONTROLLER    0x41
 
-#define UDS_MAX_SIZE    2048
+
+#define UDS_4_PATH              "/tmp/uds4.sock"
+#define UDS_4_SVR_ID            0x80
+#define UDS_4_KEYBOARD_RECEIVER 0x81
+
+#define UDS_MAX_BUFFER_SIZE     2048
 
 
 
