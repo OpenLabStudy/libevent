@@ -38,10 +38,10 @@ typedef enum {
 
 typedef enum {
     PROCESS_UNKNOWN=0,
-    PROCESS_LOCAL,
     PROCESS_VIA_IPC_SENSOR_FUSION,
     PROCESS_VIA_IPC_ACU_CTRL,
-    PROCESS_VIA_IPC_BRODCAST
+    PROCESS_VIA_IPC_BRODCAST,
+    PROCESS_LOCAL
 } PROCESS_PATH;
 /* ========================================================================== */
 /*  Structures                                                                */
@@ -73,6 +73,8 @@ typedef struct __attribute__((__packed__)) {
  * @brief CMD + FrameType 기준 Payload 크기 반환
  */
 int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType);
+
+const char* getCmdString(unsigned short unCmd, FRAME_TYPE eFrameType);
 
 /**
  * @brief CMD + FrameType 기준 전체 Frame 크기 반환

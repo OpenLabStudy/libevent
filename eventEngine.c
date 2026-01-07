@@ -259,22 +259,19 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 
     IO_CHANNEL* pstRequester = (IO_CHANNEL*)pvData;
     EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
+    PROCESS_PATH eProcPath = PROCESS_UNKNOWN;
 
     while (1) {
-        unsigned int uiBufLen = evbuffer_get_length(pstRequester->pstRequestBuffer);
-        if (uiBufLen < sizeof(FRAME_HEADER))
+        if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(PROCESS_PATH))
             break;
-
+        evbuffer_remove(pstRequester->pstRequestBuffer, &eProcPath, sizeof(PROCESS_PATH));
+        unsigned int uiRemain = evbuffer_get_length(pstRequester->pstRequestBuffer);
         unsigned char auchBuf[2048];
-        unsigned int uiCopySize =
-            evbuffer_copyout(pstRequester->pstRequestBuffer, auchBuf, sizeof(auchBuf));
+        unsigned int uiCopySize = evbuffer_remove(pstRequester->pstRequestBuffer, auchBuf, uiRemain);
 
         int iFrameSize = getFrameSizeWithData(auchBuf, FRAME_TYPE_REQUEST);
         if (iFrameSize <= 0 || uiCopySize < (unsigned int)iFrameSize)
             break;
-
-        /* 요청 프레임 제거 */
-        evbuffer_drain(pstRequester->pstRequestBuffer, iFrameSize);
 
         /* =========================================================
          * REQUEST_CONTEXT 생성
@@ -296,7 +293,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         if (!pstReq->pstFinalizeEvent) {
             free(pstReq);
             return;
-        }
+        }        
 
         /* =========================================================
          * Worker 대상 결정 (Fan-out 대상 계산)
@@ -305,7 +302,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         while (pstIo) {
             if (pstIo->eRole == ROLE_WORKER) {
                 int iWorkerId = pstIo->iWorkerId;
-                if (iWorkerId >= 0 && iWorkerId < WORKER_MAX) {
+                if (iWorkerId >= 0 && iWorkerId < WORKER_MAX && iWorkerId == eProcPath) {
                     pstReq->uiExpectedMask |= (1u << iWorkerId);
                 }
             }
@@ -342,9 +339,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
          * ========================================================= */
         pstIo = pstEventEngine->pstIoChannelList;
         while (pstIo) {
-            if (pstIo->eRole == ROLE_WORKER &&
-                pstIo->pstWriteBuffer &&
-                (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))) {                    
+            if (pstIo->eRole == ROLE_WORKER && pstIo->pstWriteBuffer && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))) {                    
                 if ((size_t)iFrameSize + sizeof(unsigned int) > sizeof(auchBuf))
                     continue;
                 /* requestId를 프레임 끝에 부착 */

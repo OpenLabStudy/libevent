@@ -123,11 +123,11 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
     case IO_EVT_RX_DATA:
         while (1)
         {
-            int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            fprintf(stderr, "Recv Size is %d\n", iRecvLen);
+            int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);            
             /* 최소 헤더도 없으면 중단 */
             if (iRecvLen < sizeof(FRAME_HEADER))
                 break;
+            fprintf(stderr, "Recv Size is %d\n", iRecvLen);
 
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
@@ -167,9 +167,13 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
             unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
             int iResultSize;
             RES_ID *pstResId;
+            REQ_POSITIONER_AZ_EL_SET *pstReqPositionerAzElSet;
             RES_POSITIONER_AZ_EL_SET *pstResPositionerAzElSet;
+            REQ_POSITIONER_DEG_SEND *pstReqPositionerDegSend;
             RES_POSITIONER_DEG_SEND *pstResPositionerDegSend;
+            REQ_ACU_MODE* pstReqAcuMode;
             RES_ACU_MODE* pstResAcuMode;
+            REQ_AZ_EL_OFFSET_SET* pstReqAzElOffsetSet;
             RES_AZ_EL_OFFSET_SET* pstResAzElOffsetSet;
             switch (unCmd) {        
                 case CMD_ID_INFO:
@@ -186,21 +190,31 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
                     break;
 
                 case CMD_POSITIONER_AZ_EL_SET:
+                    pstReqPositionerAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(auchRecvBuffer + sizeof(FRAME_HEADER));
+                    fprintf(stderr,"Azimuth: %s, Elevation: %s\n", pstReqPositionerAzElSet->chAzimuthDeg,
+                            pstReqPositionerAzElSet->chElevationDeg);
                     pstResPositionerAzElSet = (RES_POSITIONER_AZ_EL_SET *)(auchResult);
                     pstResPositionerAzElSet->chResult = 0x01;
                     break;
 
                 case CMD_POSITIONER_DEG_SEND:
+                    pstReqPositionerDegSend = (REQ_POSITIONER_DEG_SEND *)(auchRecvBuffer + sizeof(FRAME_HEADER));
+                    fprintf(stderr,"Positioner DEG Send On/Off: %d\n", pstReqPositionerDegSend->chSendOnOff);   
                     pstResPositionerDegSend = (RES_POSITIONER_DEG_SEND *)(auchResult);
                     pstResPositionerDegSend->chResult = 0x01;
                     break;
 
                 case CMD_ACU_MODE_SELECT:
+                    pstReqAcuMode = (REQ_ACU_MODE *)(auchRecvBuffer + sizeof(FRAME_HEADER));
+                    fprintf(stderr,"ACU Mode Select: %d\n", pstReqAcuMode->chAcuMode);
                     pstResAcuMode = (RES_ACU_MODE *)(auchResult);
                     pstResAcuMode->chResult = 0x01;
                     break;
 
                 case CMD_AZ_EL_OFFSET_SET:
+                    pstReqAzElOffsetSet = (REQ_AZ_EL_OFFSET_SET *)(auchRecvBuffer + sizeof(FRAME_HEADER));
+                    fprintf(stderr,"AZ Offset: %d, EL Offset: %d\n", pstReqAzElOffsetSet->iAzOffset,
+                            pstReqAzElOffsetSet->iElOffset);
                     pstResAzElOffsetSet = (RES_AZ_EL_OFFSET_SET *)(auchResult);
                     pstResAzElOffsetSet->chResult = 0x1;
                     break;                    

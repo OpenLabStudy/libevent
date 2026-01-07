@@ -163,69 +163,55 @@ FRAME_ERR makeRequestFrame(unsigned short unCmd,
             break;
 
         case CMD_POSITIONER_AZ_EL_SET:
-            ((REQ_POSITIONER_AZ_EL_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chAzimuthDeg[0] = 0x01;
-            ((REQ_POSITIONER_AZ_EL_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chElevationDeg[0] = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_POSITIONER_AZ_EL_SET));
             break;
 
         case CMD_TRACKING_SELECT:
-            ((REQ_TRACKING_SELECT *)(puchSendData + sizeof(FRAME_HEADER)))->chTrackingSelect = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_TRACKING_SELECT));
             break;
 
         case CMD_TRACKING_START_POINT_SET:
-            ((REQ_TRACKING_START_POINT_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chTrackingStartPoint = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_TRACKING_START_POINT_SET));
             break;
 
         case CMD_CANNON_BALL_TRAJECTORY_INFO:
-        //todo 
-            ((REQ_CANNON_BALL_TRAJECTORY_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->pvData = NULL;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_CANNON_BALL_TRAJECTORY_INFO));
             break;
 
         case CMD_SHELTER_COORDINATE_INFO:
-            ((REQ_SHELTER_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chLatitude[0] = 0x01;
-            ((REQ_SHELTER_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chLongitude[0] = 0x01;
-            ((REQ_SHELTER_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chHeight[0] = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_SHELTER_COORDINATE_INFO));
             break;
 
         case CMD_MCC_COORDINATE_INFO:
-            ((REQ_EXTERN_DEV_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chLatitude[0] = 0x01;
-            ((REQ_EXTERN_DEV_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chLongitude[0] = 0x01;
-            ((REQ_EXTERN_DEV_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chHeight[0] = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_EXTERN_DEV_COORDINATE_INFO));
             break;
 
         case CMD_CANNON_COORDINATE_INFO:
-            ((REQ_CANNON_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chLatitude[0] = 0x01;
-            ((REQ_CANNON_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chLongitude[0] = 0x01;
-            ((REQ_CANNON_COORDINATE_INFO *)(puchSendData + sizeof(FRAME_HEADER)))->chHeight[0] = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_EXTERN_DEV_COORDINATE_INFO));
             break;
 
         case CMD_TRACKING_CONTROL:
-            ((REQ_TRACKING_CONTROL *)(puchSendData + sizeof(FRAME_HEADER)))->chStartStop = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_TRACKING_CONTROL));
             break;
 
         case CMD_POSITIONER_DEG_SEND:
-            ((REQ_POSITIONER_DEG_SEND *)(puchSendData + sizeof(FRAME_HEADER)))->chSendOnOff = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_POSITIONER_DEG_SEND));
             break;          
             
         case CMD_ACU_MODE_SELECT:
-            ((REQ_ACU_MODE *)(puchSendData + sizeof(FRAME_HEADER)))->chAcuMode = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_ACU_MODE));
             break;
 
         case CMD_TIME_SYNQ_CHECK:
-            ((REQ_TIME_SYNQ_CHECK *)(puchSendData + sizeof(FRAME_HEADER)))->chTimeSynqCheck = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_TIME_SYNQ_CHECK));
             break;
 
         case CMD_TIME_SYNQ_SET:
-            ((REQ_TIME_SYNQ_SET *)(puchSendData + sizeof(FRAME_HEADER)))->nYear = 0x01;
-            ((REQ_TIME_SYNQ_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chMon = 0x01;
-            ((REQ_TIME_SYNQ_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chDay = 0x01;
-            ((REQ_TIME_SYNQ_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chHour = 0x01;
-            ((REQ_TIME_SYNQ_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chMin = 0x01;
-            ((REQ_TIME_SYNQ_SET *)(puchSendData + sizeof(FRAME_HEADER)))->chSec = 0x01;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_TIME_SYNQ_SET));
             break;
 
         case CMD_AZ_EL_OFFSET_SET:
-            ((REQ_AZ_EL_OFFSET_SET *)(puchSendData + sizeof(FRAME_HEADER)))->iAzOffset = 0;
-            ((REQ_AZ_EL_OFFSET_SET *)(puchSendData + sizeof(FRAME_HEADER)))->iElOffset = 0;
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_AZ_EL_OFFSET_SET));
             break;
                     
         default:
@@ -282,7 +268,8 @@ static FRAME_ERR frameCheckDataLength(const FRAME_HEADER *pstHeader,
     unsigned short unCmd = ntohs(pstHeader->unCmd);
 
     if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd, eFrameType)){
-        fprintf(stderr,"### %s():%d  %d %d ###\n", __func__,__LINE__, ntohl(pstHeader->iDataLength), getDataSize(unCmd, eFrameType));
+        fprintf(stderr,"### %s():%d  %s %d %d ###\n", __func__,__LINE__, getCmdString(unCmd, eFrameType), 
+            ntohl(pstHeader->iDataLength), getDataSize(unCmd, eFrameType));
         return FRAME_ERR_INVALID_LENGTH;
     }
 
@@ -416,8 +403,8 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
         case CMD_SHELTER_COORDINATE_INFO:
             return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_SHELTER_COORDINATE_INFO) : sizeof(RES_SHELTER_COORDINATE_INFO);
 
-        // case CMD_MCC_COORDINATE_INFO:
-        //     return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_ID) : sizeof(RES_ID);
+        case CMD_MCC_COORDINATE_INFO:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_EXTERN_DEV_COORDINATE_INFO) : sizeof(RES_EXTERN_DEV_COORDINATE_INFO);
 
         case CMD_CANNON_COORDINATE_INFO:
             return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_CANNON_COORDINATE_INFO) : sizeof(RES_CANNON_COORDINATE_INFO);
@@ -437,8 +424,8 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
         case CMD_TIME_SYNQ_SET:
             return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_KEEP_ALIVE) : sizeof(RES_KEEP_ALIVE);
 
-        // case CMD_AZ_EL_OFFSET_SET:
-        //     return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_IBIT) : sizeof(RES_IBIT);
+        case CMD_AZ_EL_OFFSET_SET:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_AZ_EL_OFFSET_SET) : sizeof(RES_AZ_EL_OFFSET_SET);
 
         case CDM_GPS_DATA:
             return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_LLA_DATA);
@@ -461,6 +448,88 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
             return 0;
     }
 }
+
+const char* getCmdString(unsigned short unCmd, FRAME_TYPE eFrameType)
+{
+    switch (unCmd) {
+
+    case CMD_ID_INFO:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_ID" : "RES_ID";
+
+    case CMD_KEEP_ALIVE:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_KEEP_ALIVE" : "RES_KEEP_ALIVE";
+
+    case CMD_IBIT:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_IBIT" : "RES_IBIT";
+
+    case CMD_RBIT:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_RBIT" : "RES_RBIT";
+
+    case CMD_CBIT:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_CBIT" : "RES_CBIT";
+
+    case CMD_POSITIONER_AZ_EL_SET:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_POSITIONER_AZ_EL_SET" : "RES_POSITIONER_AZ_EL_SET";
+
+    case CMD_TRACKING_SELECT:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_TRACKING_SELECT" : "RES_TRACKING_SELECT";
+
+    case CMD_TRACKING_START_POINT_SET:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_TRACKING_START_POINT_SET" : "RES_TRACKING_START_POINT_SET";
+
+    case CMD_CANNON_BALL_TRAJECTORY_INFO:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_CANNON_BALL_TRAJECTORY_INFO" : "RES_CANNON_BALL_TRAJECTORY_INFO";
+
+    case CMD_SHELTER_COORDINATE_INFO:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_SHELTER_COORDINATE_INFO" : "RES_SHELTER_COORDINATE_INFO";
+
+    case CMD_MCC_COORDINATE_INFO:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_EXTERN_DEV_COORDINATE_INFO" : "RES_EXTERN_DEV_COORDINATE_INFO";
+
+    case CMD_CANNON_COORDINATE_INFO:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_CANNON_COORDINATE_INFO" : "RES_CANNON_COORDINATE_INFO";
+
+    case CMD_TRACKING_CONTROL:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_TRACKING_CONTROL" : "RES_TRACKING_CONTROL";
+
+    case CMD_POSITIONER_DEG_SEND:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_POSITIONER_DEG_SEND" : "RES_POSITIONER_DEG_SEND";
+
+    case CMD_ACU_MODE_SELECT:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_ACU_MODE" : "RES_ACU_MODE";
+
+    case CMD_TIME_SYNQ_CHECK:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_TIME_SYNQ_CHECK" : "RES_TIME_SYNQ_CHECK";
+
+    case CMD_TIME_SYNQ_SET:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_TIME_SYNQ_SET" : "RES_TIME_SYNQ_SET";
+
+    case CMD_AZ_EL_OFFSET_SET:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_AZ_EL_OFFSET_SET" : "RES_AZ_EL_OFFSET_SET";
+
+    case CDM_GPS_DATA:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_GPS_DATA" : "RES_GPS_DATA";
+
+    case CDM_IMU_DATA:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_IMU_DATA" : "RES_IMU_DATA";
+
+    case CDM_SP_DATA:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_SP_DATA" : "RES_SP_DATA";
+
+    case CDM_EXTERN_DATA:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_EXTERN_DATA" : "RES_EXTERN_DATA";
+
+    case CDM_KEYBOARD_DATA:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_KEYBOARD_DATA" : "RES_KEYBOARD_DATA";
+
+    case CMD_COMMAND_FAIL:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_COMMAND_FAIL" : "RES_COMMAND_FAIL";
+
+    default:
+        return "UNKNOWN_CMD";
+    }
+}
+
 int getFrameSizeWithCmd(unsigned short unCmd, FRAME_TYPE eFrameType)
 {
     int iDataSize = getDataSize(unCmd, eFrameType);

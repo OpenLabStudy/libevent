@@ -303,12 +303,12 @@ typedef struct PACKED{
 	char chSec;
 }RES_TIME_SYNQ_SET;
 
-typedef struct __attribute__((__packed__)){
+typedef struct PACKED{
 	int iAzOffset;
 	int iElOffset;
 }REQ_AZ_EL_OFFSET_SET;
 
-typedef struct __attribute__((__packed__)){
+typedef struct PACKED{
 	char chResult;
 }RES_AZ_EL_OFFSET_SET;
 

@@ -259,7 +259,9 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
             int iResultSize;
             RES_ID *pstResId;
+            REQ_TRACKING_SELECT *pstReqTrackingSelect;
             RES_TRACKING_SELECT *pstResTrackingSelect;
+            REQ_TRACKING_CONTROL *pstReqTrackingControl;
             RES_TRACKING_CONTROL *pstResTrackingControl;
             switch (unCmd) {        
                 case CMD_ID_INFO:
@@ -276,11 +278,15 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
                     break;
 
                 case CMD_TRACKING_SELECT:
+                    pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(auchRecvBuffer + sizeof(FRAME_HEADER));
+                    fprintf(stderr,"Tracking Select: %d\n", pstReqTrackingSelect->chTrackingSelect);
                     pstResTrackingSelect = (RES_TRACKING_SELECT *)(auchResult);
                     pstResTrackingSelect->chResult = 1;
                     break;
 
                 case CMD_TRACKING_CONTROL:
+                    pstReqTrackingControl = (REQ_TRACKING_CONTROL *)(auchRecvBuffer + sizeof(FRAME_HEADER));
+                    fprintf(stderr,"Tracking Control Start/Stop: %d\n", pstReqTrackingControl->chStartStop);
                     pstResTrackingControl = (RES_TRACKING_CONTROL *)(auchResult);
                     pstResTrackingControl->chResult = 1;
                     break;

@@ -36,6 +36,11 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
+                for(int i=1; i<=iCopyLen; i++){
+                    if(i&16 == 0)
+                        fprintf(stderr,"\n");
+                    fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
+                }
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
@@ -78,6 +83,8 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             } else if (eProcPath == PROCESS_VIA_IPC_SENSOR_FUSION || eProcPath == PROCESS_VIA_IPC_ACU_CTRL) {
                 /* === IPC 전달 (Fan-out 진입점) === */
+                fprintf(stderr,"### %s():%d IPC Forwarding CMD:0x%04x Path:%d ###\n", __func__, __LINE__, unCmd, eProcPath);
+                evbuffer_add(pstIoChannel->pstRequestBuffer, &eProcPath, sizeof(PROCESS_PATH));
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
             }

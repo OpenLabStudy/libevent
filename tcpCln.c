@@ -324,16 +324,19 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     case 8: {
         fprintf(stderr,"[TCP-CLI] REQ_AZ_EL_OFFSET_SET\n");
         double az = 0.0, el = 0.0;
+        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         if (!readDouble("  AZ Offset: ", &az) || !readDouble("  EL Offset: ", &el)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 값입니다.\n");
             return;
         }
+        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
 
         REQ_AZ_EL_OFFSET_SET stReqAzElOffsetSet;
         stReqAzElOffsetSet.iAzOffset = (int)(az * 100.0);
         stReqAzElOffsetSet.iElOffset = (int)(el * 100.0);
-
+        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         eErr = makeRequestFrame(CMD_AZ_EL_OFFSET_SET, &stMsgId, &stReqAzElOffsetSet, auSendBuf);
+        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         break;
     }
 
