@@ -257,18 +257,50 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
             unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
             unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
-            unsigned int uiSendSize;
             int iResultSize;
-            /* === 명령 처리 === */
-            eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
+            RES_ID *pstResId;
+            RES_TRACKING_SELECT *pstResTrackingSelect;
+            RES_TRACKING_CONTROL *pstResTrackingControl;
+            switch (unCmd) {        
+                case CMD_ID_INFO:
+                    pstResId = (RES_ID *)(auchResult);
+                    pstResId->chResult = (char)pstIoChannel->iWorkerId;
+                    break;
+                case CMD_IBIT:
+                    break;
+
+                case CMD_RBIT:
+                    break;
+
+                case CMD_CBIT:
+                    break;
+
+                case CMD_TRACKING_SELECT:
+                    pstResTrackingSelect = (RES_TRACKING_SELECT *)(auchResult);
+                    pstResTrackingSelect->chResult = 1;
+                    break;
+
+                case CMD_TRACKING_CONTROL:
+                    pstResTrackingControl = (RES_TRACKING_CONTROL *)(auchResult);
+                    pstResTrackingControl->chResult = 1;
+                    break;
+
+                default:
+                    break;  
+            }
             MSG_ID stMsgId;
             ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
             makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-            memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
+            unsigned int uiFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            fprintf(stderr,"===== RESPONSE DATA =====\n");
+            for(int i=0; i<uiFrameSize; i++){
+                fprintf(stderr, "%02X ",uchaSendBuf[i]);
+            }
+            memcpy(uchaSendBuf+uiFrameSize, &uiReqId, sizeof(unsigned int)); 
 
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize+sizeof(unsigned int));
+            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiFrameSize+sizeof(unsigned int));
             event_add(pstIoChannel->pstWriteEvent, NULL);
+            
         }
         break;
     default:
@@ -468,10 +500,6 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
         return;
     }
     pstNewIo->iWorkerId = UDS_1_SENSOR_FUSION;
-
-    /* 🔹 worker register */
-    ipcSendWorkerRegister(pstNewIo, WORKER_SENSOR_FUSION);
-    fprintf(stderr, "[UDS_1_SENSOR_FUSION] reconnected (%p fd=%d)\n", (void*)pstNewIo, pstNewIo->iFd);
 }
 
 

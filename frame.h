@@ -39,7 +39,9 @@ typedef enum {
 typedef enum {
     PROCESS_UNKNOWN=0,
     PROCESS_LOCAL,
-    PROCESS_VIA_IPC
+    PROCESS_VIA_IPC_SENSOR_FUSION,
+    PROCESS_VIA_IPC_ACU_CTRL,
+    PROCESS_VIA_IPC_BRODCAST
 } PROCESS_PATH;
 /* ========================================================================== */
 /*  Structures                                                                */
@@ -94,8 +96,9 @@ int findFrameHeader(unsigned char *puchData, int iSize);
  * @brief Request Frame 생성
  */
 FRAME_ERR makeRequestFrame(unsigned short unCmd,
-                           MSG_ID *pstMsgId,
-                           unsigned char *puchSendData);
+                            MSG_ID *pstMsgId,
+                            void* pvData,
+                            unsigned char *puchSendData);
 
 /**
  * @brief Response Frame 생성

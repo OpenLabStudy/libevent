@@ -76,7 +76,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
                 evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE));
                 event_add(pstIoChannel->pstWriteEvent, NULL);
-            } else if (eProcPath == PROCESS_VIA_IPC) {
+            } else if (eProcPath == PROCESS_VIA_IPC_SENSOR_FUSION || eProcPath == PROCESS_VIA_IPC_ACU_CTRL) {
                 /* === IPC 전달 (Fan-out 진입점) === */
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
@@ -144,7 +144,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             fprintf(stderr,"### %s():%d %d ###\n", __func__, __LINE__, iFrameSize);
             /* === 프레임 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
-            if(unCmd == 0x0001){
+            if(unCmd == CMD_ID_INFO){
                 //CMD_ID_INFO
                 pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer);
                 fprintf(stderr,"ID is %d\n", pstIoChannel->iWorkerId);
@@ -180,6 +180,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 {
     (void)nKindOfEvent;
+    IO_CHANNEL* pstIoChannel;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
     struct sockaddr_storage stSockAddrStorage;
     struct sockaddr_in stClientAddr;
@@ -201,14 +202,23 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
         netSetNonblock(iClientSock);
         if (stSockAddrStorage.ss_family == AF_INET || stSockAddrStorage.ss_family == AF_INET6) {
             fprintf(stderr, "[TCP-SVR] New client FD=%d\n", iClientSock);
-            eventSourceCreateWithBev(pstEventEngine, iClientSock,
+            pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_TCP_SVR, ROLE_REQUESTER,
                     NULL, NULL, tcpIoChannelHandleEvent);
+            pstIoChannel->iWorkerId = UDS_1_SVR_ID;
         } else if (stSockAddrStorage.ss_family == AF_UNIX) {
             fprintf(stderr, "[UDS-SVR] New client FD=%d\n", iClientSock);
-            eventSourceCreateWithBev(pstEventEngine, iClientSock,
+            pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_UDS_SVR, ROLE_WORKER,
                     NULL, NULL, udsIoChannelHandleEvent);
+            REQ_ID stReqId;
+            MSG_ID stMsgId = { UDS_1_SVR_ID,  UDS_1_SENSOR_FUSION|UDS_1_ACU_CONTROLLER};
+            unsigned char auSendBuf[64];            
+            stReqId.chTmp = 0x01;        
+            if(makeRequestFrame(CMD_ID_INFO, &stMsgId, &stReqId, auSendBuf) == FRAME_OK){
+                evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
+                event_add(pstIoChannel->pstWriteEvent, NULL);
+            }
         }
     }
 }

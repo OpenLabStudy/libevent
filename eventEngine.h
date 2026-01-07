@@ -16,6 +16,7 @@ typedef struct event_base       EVENT_BASE;
 /* ================================================================ */
 /* 요청 상태                                                         */
 /* ================================================================ */
+// 삭제 및 수정 필요
 typedef enum {
     WORKER_NONE = 0,
     WORKER_GPS,
@@ -37,6 +38,8 @@ typedef struct _REQUEST_CONTEXT {
 
     unsigned int uiExpectedMask;
     unsigned int uiReceivedMask;
+
+    unsigned short  unCmd;
 
     struct evbuffer* apstWorkerBuf[WORKER_MAX];
 

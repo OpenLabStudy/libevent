@@ -11,29 +11,33 @@
 #include "uartConfig.h"
 #include "ipcUtil.h"
 
-
-typedef enum {
+typedef enum
+{
     ACU_STATE_IDLE,
     ACU_STATE_WAIT_RESPONSE
 } ACU_STATE;
 
-typedef struct {
-    ACU_STATE      eState;
-    unsigned int   uiLastCmd;
+typedef struct
+{
+    ACU_STATE eState;
+    unsigned int uiLastCmd;
 } ACU_CTRL_STATE;
 
 static ACU_CTRL_STATE g_stAcuState = {
-    .eState = ACU_STATE_IDLE
-};
+    .eState = ACU_STATE_IDLE};
 
-static int acuSendUartCommand(IO_CHANNEL* pstIoChannel, const unsigned char* puchFrame, unsigned int uiFrameSize)
-{
-    if (g_stAcuState.eState != ACU_STATE_IDLE) {
+static int acuSendUartCommand(IO_CHANNEL *pstIoChannel, const unsigned char *puchFrame, unsigned int uiFrameSize)
+{    
+    if (!pstIoChannel || !pstIoChannel->pstWriteBuffer || !pstIoChannel->pstWriteEvent) {
+        return -1; 
+    }
+    if (g_stAcuState.eState != ACU_STATE_IDLE)
+    {
         fprintf(stderr, "[ACU] busy, ignore command\n");
         return -1;
     }
 
-    evbuffer_add(pstIoChannel->pstWriteBuffer, puchFrame, uiFrameSize);
+    evbuffer_add(pstIoChannel->pstWriteBuffer, puchFrame, uiFrameSize);   
 
     /* write event 활성화 */
     event_active(pstIoChannel->pstWriteEvent, EV_WRITE, 0);
@@ -42,24 +46,26 @@ static int acuSendUartCommand(IO_CHANNEL* pstIoChannel, const unsigned char* puc
     return 0;
 }
 
-
 /* ============================================================
  * UART read logic event handler
  * ============================================================ */
-static void uartReadCallback(int iFd, short nEvent, void* pvData)
+static void uartReadCallback(int iFd, short nEvent, void *pvData)
 {
-    (void)iFd; (void)nEvent;
+    (void)iFd;
+    (void)nEvent;
 
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_CHANNEL *pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
     /* NOTE: IMU parser는 스트림 상태 유지가 필요 → static OK */
-    
+
     unsigned char auchRecvBuffer[2048];
 
-    switch (eEventType) {
+    switch (eEventType)
+    {
     case IO_EVT_RX_DATA:
-        while (1) {
+        while (1)
+        {
             unsigned int uiRecvSize = evbuffer_get_length(pstIoChannel->pstReadBuffer);
             if (uiRecvSize == 0)
                 break;
@@ -90,27 +96,29 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 /* ============================================================
  * UDS command channel logic handler
  * ============================================================ */
-static void commandEventCb(int iFd, short nEvent, void* pvData)
+static void commandEventCb(int iFd, short nEvent, void *pvData)
 {
     (void)iFd;
     (void)nEvent;
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    IO_CHANNEL *pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
     unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
 
-    switch (eEventType) {
+    switch (eEventType)
+    {
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
         ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
     case IO_EVT_RX_DATA:
-        while (1) {
+        while (1)
+        {
             int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            fprintf(stderr,"Recv Size is %d\n", iRecvLen);
+            fprintf(stderr, "Recv Size is %d\n", iRecvLen);
             /* 최소 헤더도 없으면 중단 */
             if (iRecvLen < sizeof(FRAME_HEADER))
                 break;
@@ -118,20 +126,26 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
                                             auchRecvBuffer, iRecvLen);
-            /* frameDecode에 대한 처리가 완전한지 확인 필요*/                                            
+            /* frameDecode에 대한 처리가 완전한지 확인 필요*/
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
-            if (eErr != FRAME_OK) {
+            if (eErr != FRAME_OK)
+            {
                 fprintf(stderr, "[UDS-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
-                if (iOffset > 0) {
+                if (iOffset > 0)
+                {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[UDS-SVR] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
+                    fprintf(stderr, "[UDS-SVR] resync: drop %d bytes, retry decode\n", iOffset);
+                }
+                else if (iOffset == -2)
+                {
                     /* STX half-match: 데이터 더 수신 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[UDS-SVR] STX half match, wait more data\n");
-                } else {
+                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen - 1);
+                    fprintf(stderr, "[UDS-SVR] STX half match, wait more data\n");
+                }
+                else
+                {
                     /* STX 자체가 없음 → 전부 드랍 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
                     fprintf(stderr, "[UDS-SVR] no STX, drop all\n");
@@ -142,7 +156,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             /* === 프레임 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
             unsigned int uiReqId;
-            memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
+            memcpy(&uiReqId, auchRecvBuffer + iFrameSize, sizeof(unsigned int));
             unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
             unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
             unsigned int uiSendSize;
@@ -151,11 +165,11 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
             MSG_ID stMsgId;
             ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);    
+            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
             makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-            memcpy(uchaSendBuf+uiSendSize, &uiReqId, sizeof(unsigned int)); 
+            memcpy(uchaSendBuf + uiSendSize, &uiReqId, sizeof(unsigned int));
 
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize+sizeof(unsigned int));
+            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize + sizeof(unsigned int));
             event_add(pstIoChannel->pstWriteEvent, NULL);
         }
         break;
@@ -169,10 +183,11 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
 /* ============================================================
  * SIGINT
  * ============================================================ */
-static void signalCb(evutil_socket_t sig, short events, void* pvArg)
+static void signalCb(evutil_socket_t sig, short events, void *pvArg)
 {
-    (void)sig; (void)events;
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
+    (void)sig;
+    (void)events;
+    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
 
     fprintf(stderr, "\n[ACU] SIGINT → shutdown\n");
     if (pstEventEngine->pstEventBase)
@@ -192,15 +207,16 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
         return;
 
     int iSock = netUdsCreateClient(UDS_1_PATH);
-    if (iSock < 0) {
+    if (iSock < 0)
+    {
         fprintf(stderr, "[UDS#1] reconnect failed, retry later\n");
         return; /* 타이머는 계속 살아있음 */
     }
 
     fprintf(stderr, "[UDS#1] reconnected!\n");
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
-            TYPE_UDS_CLI, ROLE_REQUESTER,
-            NULL, NULL, commandEventCb);
+                                                    TYPE_UDS_CLI, ROLE_REQUESTER,
+                                                    NULL, NULL, commandEventCb);
 
     pstNewIo->iWorkerId = UDS_1_ACU_CONTROLLER;
 
@@ -237,18 +253,17 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 //     ipcSendWorkerRegister(pstNewIo, WORKER_IMU);
 // }
 
-
 /* ============================================================
  * Main
  * ============================================================ */
-int run(char* pchUartPath)
-{    
-    //이미 끊어진 소켓에 write() 했을 때 프로세스가 즉사(SIGPIPE)하는 것을 막는다.
+int run(char *pchUartPath)
+{
+    // 이미 끊어진 소켓에 write() 했을 때 프로세스가 즉사(SIGPIPE)하는 것을 막는다.
     ioIgnoreSigpipeOnce();
 
-    EVENT_ENGINE    stEventEngine;
-    struct event*   pstSignalEvent = NULL;
-    struct event*   pstUdsRetryEvent = NULL;
+    EVENT_ENGINE stEventEngine;
+    struct event *pstSignalEvent = NULL;
+    struct event *pstUdsRetryEvent = NULL;
 #if 0
     UART_CTX stUartCtx = {
         .pchDevPath     = pchUartPath,
@@ -260,7 +275,8 @@ int run(char* pchUartPath)
     struct timeval stRertyTimeOut = {1, 0};
 
     stEventEngine.pstEventBase = event_base_new();
-    if (!stEventEngine.pstEventBase) {
+    if (!stEventEngine.pstEventBase)
+    {
         fprintf(stderr, "[ACU] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
@@ -275,22 +291,24 @@ int run(char* pchUartPath)
         TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
 #endif
     pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
-                  -1, EV_PERSIST | EV_TIMEOUT,
-                  uds1ReconnectCb, &stEventEngine);
+                                 -1, EV_PERSIST | EV_TIMEOUT,
+                                 uds1ReconnectCb, &stEventEngine);
     event_add(pstUdsRetryEvent, &stRertyTimeOut);
-    
+
     pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, SIGINT, signalCb, &stEventEngine);
-    event_add(pstSignalEvent, NULL);    
+    event_add(pstSignalEvent, NULL);
 
     event_base_dispatch(stEventEngine.pstEventBase);
 
-    if (pstUdsRetryEvent) {
+    if (pstUdsRetryEvent)
+    {
         event_del(pstUdsRetryEvent);
         event_free(pstUdsRetryEvent);
-        pstUdsRetryEvent = NULL;   
+        pstUdsRetryEvent = NULL;
     }
 
-    if (pstSignalEvent) {
+    if (pstSignalEvent)
+    {
         event_del(pstSignalEvent);
         event_free(pstSignalEvent);
         pstSignalEvent = NULL;
@@ -304,9 +322,10 @@ int run(char* pchUartPath)
 }
 
 #ifndef GOOGLE_TEST
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-    if (argc < 2) {
+    if (argc < 2)
+    {
         fprintf(stderr, "Usage: %s /dev/ttyUSB0\n", argv[0]);
         return EXIT_FAILURE;
     }

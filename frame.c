@@ -133,6 +133,7 @@ int findFrameHeader(unsigned char *puchData, int iSize)
 
 FRAME_ERR makeRequestFrame(unsigned short unCmd,
                             MSG_ID *pstMsgId,
+                            void* pvData,
                             unsigned char *puchSendData)
 {
     if (!pstMsgId || !puchSendData)
@@ -235,17 +236,14 @@ FRAME_ERR makeRequestFrame(unsigned short unCmd,
     return FRAME_OK;
 }
 
-FRAME_ERR makeResponseFrame(unsigned short unCmd,
-                            MSG_ID *pstMsgId,
-                            unsigned char *puchCmdResult,
-                            unsigned char *puchSendData)
+FRAME_ERR makeResponseFrame(unsigned short unCmd, MSG_ID *pstMsgId,
+                            unsigned char *puchCmdResult, unsigned char *puchSendData)
 {
     if (!pstMsgId || !puchCmdResult || !puchSendData)
         return FRAME_ERR_NULL_PTR;
     
     frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
-    memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult,
-           getDataSize(unCmd, FRAME_TYPE_RESPONSE));
+    memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
     frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
     return FRAME_OK;
 }
@@ -555,17 +553,21 @@ PROCESS_PATH decideProcessingPath(unsigned char *puchRecvData)
         case CMD_TIME_SYNQ_SET:
         case CMD_KEEP_ALIVE:
             return PROCESS_LOCAL;
+        
+        case CMD_TRACKING_SELECT:
+        case CMD_TRACKING_CONTROL:
+            return PROCESS_VIA_IPC_SENSOR_FUSION;
+
+        case CMD_POSITIONER_AZ_EL_SET:
+        case CMD_POSITIONER_DEG_SEND:
+        case CMD_ACU_MODE_SELECT:
+        case CMD_AZ_EL_OFFSET_SET:
+            return PROCESS_VIA_IPC_ACU_CTRL;
 
         case CMD_IBIT:
         case CMD_RBIT:
         case CMD_CBIT:
-        case CMD_POSITIONER_AZ_EL_SET:
-        case CMD_TRACKING_SELECT:
-        case CMD_TRACKING_CONTROL:
-        case CMD_POSITIONER_DEG_SEND:
-        case CMD_ACU_MODE_SELECT:
-        case CMD_AZ_EL_OFFSET_SET:
-            return PROCESS_VIA_IPC;
+            return PROCESS_VIA_IPC_BRODCAST;
 
         default:
             return PROCESS_UNKNOWN;
@@ -660,6 +662,7 @@ FRAME_ERR commandHandler(unsigned char *puchRecvData,
         case CMD_AZ_EL_OFFSET_SET:
             *piSendDataSize = azElOffset(puchRecvData, puchCmdResult);
             break;
+
 
         // case CMD_IBIT:
         //     *piSendDataSize = iBit(puchRecvData, puchCmdResult);

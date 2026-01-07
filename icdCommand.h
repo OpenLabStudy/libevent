@@ -395,6 +395,5 @@ int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
 
-
 #endif /* ICD_COMMAND_H */
  

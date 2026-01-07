@@ -221,37 +221,31 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     switch (sel) {
     case 1:
         fprintf(stderr,"[TCP-CLI] REQ_KEEP_ALIVE\n");
-        eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, auSendBuf);
+        REQ_KEEP_ALIVE stReqKeepAlive;
+        stReqKeepAlive.chTmp = 0x01;
+        eErr = makeRequestFrame(CMD_KEEP_ALIVE, &stMsgId, &stReqKeepAlive, auSendBuf);
         break;
 
     case 2:
         fprintf(stderr,"[TCP-CLI] REQ_IBIT\n");
-        eErr = makeRequestFrame(CMD_IBIT, &stMsgId, auSendBuf);
+        REQ_BIT stReqBit;
+        stReqBit.chBit = 0x01;
+        eErr = makeRequestFrame(CMD_IBIT, &stMsgId, &stReqBit, auSendBuf);
         break;
         
     case 3: {
         fprintf(stderr,"[TCP-CLI] REQ_POSITIONER_AZ_EL_SET\n");
-
         double az = 0.0, el = 0.0;
-
-        if (!readDouble("  AZ(도): ", &az) ||
-            !readDouble("  EL(도): ", &el)) {
+        if (!readDouble("  AZ(도): ", &az) || !readDouble("  EL(도): ", &el)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 값입니다.\n");
             return;
         }
 
-        REQ_POSITIONER_AZ_EL_SET payload;
-        memset(&payload, 0, sizeof(payload));
-
-        snprintf(payload.chAzimuthDeg,  sizeof(payload.chAzimuthDeg),  "%.3f", az);
-        snprintf(payload.chElevationDeg,sizeof(payload.chElevationDeg),"%.3f", el);
-
-        eErr = makeRequestFrame(
-            CMD_POSITIONER_AZ_EL_SET,
-            &stMsgId,
-            &payload,
-            auSendBuf
-        );
+        REQ_POSITIONER_AZ_EL_SET stReqPositionAzElSet;
+        memset(&stReqPositionAzElSet, 0, sizeof(stReqPositionAzElSet));
+        snprintf(stReqPositionAzElSet.chAzimuthDeg,  sizeof(stReqPositionAzElSet.chAzimuthDeg),  "%.3f", az);
+        snprintf(stReqPositionAzElSet.chElevationDeg,sizeof(stReqPositionAzElSet.chElevationDeg),"%.3f", el);
+        eErr = makeRequestFrame(CMD_POSITIONER_AZ_EL_SET, &stMsgId, &stReqPositionAzElSet, auSendBuf);
         break;
     }
 
@@ -263,123 +257,78 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
             "  2: PROGRAMMED_TRACKING\n"
             "  3: EXTERNAL_DEV_TRACKING\n");
 
-        int mode = 0;
-
-        if (!readIntChoice("  선택: ", 3, &mode)) {
+        int iSelect = 0;
+        if (!readIntChoice("  선택: ", 3, &iSelect)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
             return;
         }
 
-        REQ_TRACKING_SELECT payload;
-        payload.chTrackingSelect = (char)mode;
-
-        eErr = makeRequestFrame(
-            CMD_TRACKING_SELECT,
-            &stMsgId,
-            &payload,
-            sizeof(payload),
-            auSendBuf
-        );
+        REQ_TRACKING_SELECT stReqTrackingSelect;
+        stReqTrackingSelect.chTrackingSelect = (char)iSelect;
+        eErr = makeRequestFrame(CMD_TRACKING_SELECT, &stMsgId, &stReqTrackingSelect, auSendBuf);
         break;
     }
 
     case 5: {
         fprintf(stderr,"[TCP-CLI] REQ_TRACKING_CONTROL\n");
         fprintf(stderr, "  0: STOP\n  1: START\n");
-
-        int v = 0;
-
-        if (!readIntChoice("  선택: ", 1, &v)) {
+        int iSelect = 0;
+        if (!readIntChoice("  선택: ", 1, &iSelect)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
             return;
         }
 
-        REQ_TRACKING_CONTROL payload;
-        payload.chStartStop = (char)v;
-
-        eErr = makeRequestFrame(
-            CMD_TRACKING_CONTROL,
-            &stMsgId,
-            &payload,
-            sizeof(payload),
-            auSendBuf
-        );
+        REQ_TRACKING_CONTROL stReqTrackingConrol;
+        stReqTrackingConrol.chStartStop = (char)iSelect;
+        eErr = makeRequestFrame(CMD_TRACKING_CONTROL, &stMsgId, &stReqTrackingConrol, auSendBuf);
         break;
     }
 
     case 6: {
         fprintf(stderr,"[TCP-CLI] REQ_POSITIONER_DEG_SEND\n");
         fprintf(stderr, "  0: OFF\n  1: ON\n");
-
-        int v = 0;
-
-        if (!readIntChoice("  선택: ", 1, &v)) {
+        int iSelect = 0;
+        if (!readIntChoice("  선택: ", 1, &iSelect)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
             return;
         }
 
-        REQ_POSITIONER_DEG_SEND payload;
-        payload.chSendOnOff = (char)v;
-
-        eErr = makeRequestFrame(
-            CMD_POSITIONER_DEG_SEND,
-            &stMsgId,
-            &payload,
-            sizeof(payload),
-            auSendBuf
-        );
+        REQ_POSITIONER_DEG_SEND stReqPositionerDegSend;
+        stReqPositionerDegSend.chSendOnOff = (char)iSelect;
+        eErr = makeRequestFrame(CMD_POSITIONER_DEG_SEND, &stMsgId, &stReqPositionerDegSend, auSendBuf);
         break;
     }
 
     case 7: {
         fprintf(stderr,"[TCP-CLI] REQ_ACU_MODE_SELECT\n");
         fprintf(stderr, "  0: RATE\n  1: POSITION\n");
-
-        int v = 0;
-
-        if (!readIntChoice("  선택: ", 1, &v)) {
+        int iSelect = 0;
+        if (!readIntChoice("  선택: ", 1, &iSelect)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 선택입니다.\n");
             return;
         }
 
-        REQ_ACU_MODE payload;
-        payload.chAcuMode = (char)v;
-
-        eErr = makeRequestFrame(
-            CMD_ACU_MODE_SELECT,
-            &stMsgId,
-            &payload,
-            sizeof(payload),
-            auSendBuf
-        );
+        REQ_ACU_MODE stReqAcuMode;
+        stReqAcuMode.chAcuMode = (char)iSelect;
+        eErr = makeRequestFrame(CMD_ACU_MODE_SELECT, &stMsgId, &stReqAcuMode, auSendBuf);
         break;
     }
 
     case 8: {
         fprintf(stderr,"[TCP-CLI] REQ_AZ_EL_OFFSET_SET\n");
-
         double az = 0.0, el = 0.0;
-
-        if (!readDouble("  AZ Offset: ", &az) ||
-            !readDouble("  EL Offset: ", &el)) {
+        if (!readDouble("  AZ Offset: ", &az) || !readDouble("  EL Offset: ", &el)) {
             fprintf(stderr, "[TCP-CLI] 잘못된 값입니다.\n");
             return;
         }
 
-        REQ_AZ_EL_OFFSET_SET payload;
-        payload.iAzOffset = (int)(az * 100.0);
-        payload.iElOffset = (int)(el * 100.0);
+        REQ_AZ_EL_OFFSET_SET stReqAzElOffsetSet;
+        stReqAzElOffsetSet.iAzOffset = (int)(az * 100.0);
+        stReqAzElOffsetSet.iElOffset = (int)(el * 100.0);
 
-        eErr = makeRequestFrame(
-            CMD_AZ_EL_OFFSET_SET,
-            &stMsgId,
-            &payload,
-            sizeof(payload),
-            auSendBuf
-        );
+        eErr = makeRequestFrame(CMD_AZ_EL_OFFSET_SET, &stMsgId, &stReqAzElOffsetSet, auSendBuf);
         break;
     }
-
 
     case 0:
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;

@@ -8,6 +8,8 @@
 
 void readCallback(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
+    (void)nEvent;
     unsigned char auchRecvBuffer[2048];
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
@@ -37,6 +39,8 @@ void readCallback(int iFd, short nEvent, void* pvData)
 
 void writeCallback(int iFd, short nEvent, void* pvData)
 {
+    (void)nEvent;
+    fprintf(stderr, "### %s():%d ###\n", __func__, __LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;
@@ -118,8 +122,7 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
     }else{
         pstIoChannel->pstReadEvent = event_new(pstEventEngine->pstEventBase, 
             iFd, EV_READ|EV_PERSIST, pfRead, pstIoChannel);
-    }
-    
+    }    
     pstIoChannel->pstReadBuffer = evbuffer_new();
     event_add(pstIoChannel->pstReadEvent, NULL);
 
@@ -140,8 +143,13 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
             -1, EV_PERSIST, eventEngineShutdownCb, pstEventEngine);
     }
 
-    pstIoChannel->pstLogicEvent = event_new(pstEventEngine->pstEventBase,
-        -1/* FD 없음 */,  EV_PERSIST, pfEvent,  pstIoChannel);
+    if(pfEvent != NULL){
+        pstIoChannel->pstLogicEvent = event_new(pstEventEngine->pstEventBase,
+            -1/* FD 없음 */,  EV_PERSIST, pfEvent,  pstIoChannel);
+    }else{
+        pstIoChannel->pstLogicEvent = NULL;
+    }
+    
     if(eRole == ROLE_REQUESTER){
         pstIoChannel->pstRequestEvent = event_new(pstEventEngine->pstEventBase,
             -1/* FD 없음 */,  EV_PERSIST, eventEngineHandleRequest,  pstIoChannel);

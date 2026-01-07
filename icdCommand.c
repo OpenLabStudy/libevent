@@ -24,14 +24,6 @@ double endianChange(char* i_chData)
 	return dValue;
 }
 
-int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	RES_ID *pstResId = (RES_ID *)(puchRecvData);
-
-	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
-	return sizeof(RES_ID);
-}
-
 /**
  * @brief Keep-Alive 명령 처리 (통신 활성 여부 확인)
  *
@@ -301,6 +293,14 @@ int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_AZ_EL_OFFSET_SET);
 }
 
+int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+{
+	REQ_ID *pstReqId = (REQ_ID *)(puchRecvData);
+	RES_ID *pstResId = (RES_ID *)(puchCmdResult);
+	pstResId->chResult = 0x01;
+	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+	return sizeof(RES_ID);
+}
 // int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 // {
 

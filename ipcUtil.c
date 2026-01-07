@@ -52,5 +52,6 @@ void ipcSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerType
         return;
         
     int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
+    fprintf(stderr, "[IPC] send worker register: type=%d, frame size=%d\n", uchWorkerType, iFrameSize);
     evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
 }

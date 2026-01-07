@@ -179,7 +179,7 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
     MSG_ID stMsgId = { 0x77, 0x55 };
 
     /* TODO: 요청 시점에 저장해둔 cmd를 사용하는 것이 이상적 */
-    unsigned short unCmd = 0x0003;
+    unsigned short unCmd = 0x00FF;//CMD_COMMAND_FAIL
 
     /* ========================================================
      * 1. TIMEOUT 처리
@@ -193,25 +193,25 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
         /* ====================================================
          * 2. Worker 응답 통합
          * ==================================================== */
-        for (int wid = 0; wid < WORKER_MAX; wid++) {
+        for (int iWorkId = 0; iWorkId < WORKER_MAX; iWorkId++) {
 
             /* 이 요청에 포함되지 않은 worker */
-            if (!(pstReqCtx->uiExpectedMask & (1u << wid)))
+            if (!(pstReqCtx->uiExpectedMask & (1u << iWorkId)))
                 continue;
 
             /* 응답 미수신 worker */
-            if (!(pstReqCtx->uiReceivedMask & (1u << wid))) {
+            if (!(pstReqCtx->uiReceivedMask & (1u << iWorkId))) {
                 /* 정책 예: partial failure 표시 */
                 auchResult[iResultLen++] = 0x02; /* RESULT_PARTIAL */
                 continue;
             }
 
-            struct evbuffer* pstWb = pstReqCtx->apstWorkerBuf[wid];
-            if (!pstWb)
+            struct evbuffer* pstEventBuffer = pstReqCtx->apstWorkerBuf[iWorkId];
+            if (!pstEventBuffer)
                 continue;
 
-            unsigned char buf[512];
-            int len = evbuffer_remove(pstWb, buf, sizeof(buf));
+            unsigned char auchBuffer[512];
+            int len = evbuffer_remove(pstEventBuffer, auchBuffer, sizeof(auchBuffer));
             if (len <= 0)
                 continue;
 
@@ -219,13 +219,13 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
              * buf 구성:
              * [UDS_FRAME_HEADER][payload][UDS_FRAME_TAIL][requestId(4B)]
              */
-            const unsigned char* pPayload = NULL;
+            const unsigned char* puchPayload = NULL;
             unsigned int uiPayloadLen = 0;
 
             if (iResultLen + (int)uiPayloadLen > (int)sizeof(auchResult))
                 break;
 
-            memcpy(auchResult + iResultLen, pPayload, uiPayloadLen);
+            memcpy(auchResult + iResultLen, puchPayload, uiPayloadLen);
             iResultLen += uiPayloadLen;
         }
     }
@@ -238,12 +238,7 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
     }
 
     int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-
-    evbuffer_add(
-        pstTcpCh->pstWriteBuffer,
-        auchSendBuf,
-        iFrameSize
-    );
+    evbuffer_add(pstTcpCh->pstWriteBuffer, auchSendBuf, iFrameSize);
 }
 
 void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
@@ -304,6 +299,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         pstReq->uiReceivedMask  = 0;
         pstReq->iFinalizeQueued = 0;
         pstReq->iTimedOut       = 0;
+        pstReq->unCmd          = 0; // TODO: 프레임에서 cmd 추출하여 저장 auchBuf
         /* === ADD: finalize event 생성 === */
         pstReq->pstFinalizeEvent = event_new(pstEventEngine->pstEventBase, -1, 0,
             eventEngineFinalizeRequestCb, pstReq );
