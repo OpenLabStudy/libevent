@@ -24,13 +24,19 @@ typedef struct
 } ACU_CTRL_STATE;
 
 static ACU_CTRL_STATE g_stAcuState = {
-    .eState = ACU_STATE_IDLE};
+    .eState = ACU_STATE_IDLE
+};
 
+
+/* ============================================================
+ * UART command send function
+ * ============================================================ */
 static int acuSendUartCommand(IO_CHANNEL *pstIoChannel, const unsigned char *puchFrame, unsigned int uiFrameSize)
 {    
     if (!pstIoChannel || !pstIoChannel->pstWriteBuffer || !pstIoChannel->pstWriteEvent) {
         return -1; 
     }
+
     if (g_stAcuState.eState != ACU_STATE_IDLE)
     {
         fprintf(stderr, "[ACU] busy, ignore command\n");
