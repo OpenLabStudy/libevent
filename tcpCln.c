@@ -40,9 +40,16 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
             /* === 프레임 검증 === */
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
+                fprintf(stderr,"\n");
+                for(int i=1; i<=iCopyLen; i++){
+                    if(i&16 == 0)
+                        fprintf(stderr,"\n");
+                    fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
+                }  
+                fprintf(stderr,"\n");
                 fprintf(stderr, "[TCP-CLI] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
-                if (iOffset >= 0) {
+                if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
                     fprintf(stderr,"[TCP-CLI] resync: drop %d bytes, retry decode\n", iOffset);

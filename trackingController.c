@@ -38,7 +38,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
-                if (iOffset >= 0) {
+                if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
                     fprintf(stderr,"[TCP-SVR] resync: drop %d bytes, retry decode\n", iOffset);

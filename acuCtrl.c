@@ -165,17 +165,60 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
             memcpy(&uiReqId, auchRecvBuffer + iFrameSize, sizeof(unsigned int));
             unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
             unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
-            unsigned int uiSendSize;
             int iResultSize;
-            /* === 명령 처리 === */
-            eErr = commandHandler(auchRecvBuffer, auchResult, &iResultSize);
+            RES_ID *pstResId;
+            RES_POSITIONER_AZ_EL_SET *pstResPositionerAzElSet;
+            RES_POSITIONER_DEG_SEND *pstResPositionerDegSend;
+            RES_ACU_MODE* pstResAcuMode;
+            RES_AZ_EL_OFFSET_SET* pstResAzElOffsetSet;
+            switch (unCmd) {        
+                case CMD_ID_INFO:
+                    pstResId = (RES_ID *)(auchResult);
+                    pstResId->chResult = (char)pstIoChannel->iWorkerId;
+                    break;
+                case CMD_IBIT:
+                    break;
+
+                case CMD_RBIT:
+                    break;
+
+                case CMD_CBIT:
+                    break;
+
+                case CMD_POSITIONER_AZ_EL_SET:
+                    pstResPositionerAzElSet = (RES_POSITIONER_AZ_EL_SET *)(auchResult);
+                    pstResPositionerAzElSet->chResult = 0x01;
+                    break;
+
+                case CMD_POSITIONER_DEG_SEND:
+                    pstResPositionerDegSend = (RES_POSITIONER_DEG_SEND *)(auchResult);
+                    pstResPositionerDegSend->chResult = 0x01;
+                    break;
+
+                case CMD_ACU_MODE_SELECT:
+                    pstResAcuMode = (RES_ACU_MODE *)(auchResult);
+                    pstResAcuMode->chResult = 0x01;
+                    break;
+
+                case CMD_AZ_EL_OFFSET_SET:
+                    pstResAzElOffsetSet = (RES_AZ_EL_OFFSET_SET *)(auchResult);
+                    pstResAzElOffsetSet->chResult = 0x1;
+                    break;                    
+
+                default:
+                    break;  
+            }
             MSG_ID stMsgId;
             ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-            uiSendSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
             makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-            memcpy(uchaSendBuf + uiSendSize, &uiReqId, sizeof(unsigned int));
+            unsigned int uiFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            fprintf(stderr,"===== RESPONSE DATA =====\n");
+            for(int i=0; i<uiFrameSize; i++){
+                fprintf(stderr, "%02X ",uchaSendBuf[i]);
+            }
+            memcpy(uchaSendBuf+uiFrameSize, &uiReqId, sizeof(unsigned int)); 
 
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiSendSize + sizeof(unsigned int));
+            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiFrameSize+sizeof(unsigned int));
             event_add(pstIoChannel->pstWriteEvent, NULL);
         }
         break;
@@ -223,11 +266,11 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
                                                     TYPE_UDS_CLI, ROLE_REQUESTER,
                                                     NULL, NULL, commandEventCb);
-
+if (!pstNewIo) {
+        close(iSock);
+        return;
+    }
     pstNewIo->iWorkerId = UDS_1_ACU_CONTROLLER;
-
-    /* worker register */
-    ipcSendWorkerRegister(pstNewIo, WORKER_IMU);
 }
 
 // static void uds3ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)

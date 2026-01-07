@@ -205,40 +205,30 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
                 auchResult[iResultLen++] = 0x02; /* RESULT_PARTIAL */
                 continue;
             }
+            fprintf(stderr,"### %s():%d WorkId is %d###\n",__func__,__LINE__,iWorkId);
 
             struct evbuffer* pstEventBuffer = pstReqCtx->apstWorkerBuf[iWorkId];
             if (!pstEventBuffer)
                 continue;
 
+            int iGetDataSize = evbuffer_get_length(pstEventBuffer);
+
             unsigned char auchBuffer[512];
-            int len = evbuffer_remove(pstEventBuffer, auchBuffer, sizeof(auchBuffer));
-            if (len <= 0)
+            int iSize = evbuffer_remove(pstEventBuffer, auchBuffer, iGetDataSize);
+            if (iSize <= 0)
                 continue;
 
-            /*
-             * buf 구성:
-             * [UDS_FRAME_HEADER][payload][UDS_FRAME_TAIL][requestId(4B)]
-             */
-            const unsigned char* puchPayload = NULL;
-            unsigned int uiPayloadLen = 0;
+            for(int i=1; i<=iSize; i++){
+                if(i&16 == 0)
+                    fprintf(stderr,"\n");
+                fprintf(stderr,"%02x ", auchBuffer[i-1]);
+            }
 
-            if (iResultLen + (int)uiPayloadLen > (int)sizeof(auchResult))
-                break;
-
-            memcpy(auchResult + iResultLen, puchPayload, uiPayloadLen);
-            iResultLen += uiPayloadLen;
+            memcpy(auchResult, auchBuffer, iSize);
+            iResultLen += iSize;
         }
     }
-
-    /* ========================================================
-     * 3. TCP Response Frame 생성 및 Queue
-     * ======================================================== */
-    if (makeResponseFrame(unCmd, &stMsgId, auchResult, auchSendBuf) != FRAME_OK) {
-        return;
-    }
-
-    int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-    evbuffer_add(pstTcpCh->pstWriteBuffer, auchSendBuf, iFrameSize);
+    evbuffer_add(pstTcpCh->pstWriteBuffer, auchResult, iResultLen);
 }
 
 void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
