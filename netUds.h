@@ -30,7 +30,7 @@ extern "C" {
 
 #define UDS_3_PATH              "/tmp/uds3.sock"
 #define UDS_3_SVR_ID            0x40
-#define UDS_3_ACU_CONTROLLER    0x41
+#define UDS_3_SENSOR_FUSION     0x41
 
 
 #define UDS_4_PATH              "/tmp/uds4.sock"

@@ -79,10 +79,6 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
         break;
 
     case IO_EVT_CHANNEL_CLOSED:
-        fprintf(stderr, "[IMU] UART channel closed fd=%d\n", pstIoChannel->iFd);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-        break;
-
     case IO_EVT_ERROR:
         fprintf(stderr, "[IMU] UART channel error fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
@@ -109,7 +105,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
         ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
     case IO_EVT_RX_DATA:
     default:

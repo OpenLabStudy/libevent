@@ -56,36 +56,35 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     printf("Lat   : %.8lf\n", stGpsInfo.m_stMsg3.m_dLatitude);
                     printf("Lon   : %.8lf\n", stGpsInfo.m_stMsg3.m_dLongitude);
                     printf("Alt   : %.3f m\n", stGpsInfo.m_stMsg3.m_fHeight);
-                    printf("Sat   : %u\n", stGpsInfo.m_stMsg3.m_wNumSatsUsed);
-                }
-                // UDS#2의 클라이언트를 찾기
-                IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_GPS_RECEIVER);
-                if (ioIsChannelAlive(pstGpsTxIo)) {
-                    unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
-                    /* === Payload 구성 === */
-                    RES_LLA_DATA stGpsData;
-                    stGpsData.dAltitude = stGpsInfo.m_stMsg3.m_fHeight;
-                    stGpsData.dLatitude = stGpsInfo.m_stMsg3.m_dLatitude;
-                    stGpsData.dLongitude = stGpsInfo.m_stMsg3.m_dLongitude;
+                    printf("Head  : %u\n", stGpsInfo.m_stMsg3.m_fStdevHeading);
+                
+                    // UDS#2의 클라이언트를 찾기
+                    IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, UDS_2_GPS_RECEIVER);
+                    if (ioIsChannelAlive(pstGpsTxIo)) {
+                        unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
+                        /* === Payload 구성 === */
+                        RES_LLA_DATA stGpsData;
+                        stGpsData.dAltitude = stGpsInfo.m_stMsg3.m_fHeight;
+                        stGpsData.dLatitude = stGpsInfo.m_stMsg3.m_dLatitude;
+                        stGpsData.dLongitude = stGpsInfo.m_stMsg3.m_dLongitude;
 
-                    /* === Frame 생성 === */
-                    MSG_ID stMsgId;
-                    ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-                    makeResponseFrame(CDM_GPS_DATA, &stMsgId, (unsigned char*)&stGpsData, uchaSendBuf);
-                    /* === Write buffer에 적재 === */
-                    evbuffer_add(pstGpsTxIo->pstWriteBuffer, uchaSendBuf, getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE));
-                    /* === Write 이벤트 발생 === */
-                    event_add(pstGpsTxIo->pstWriteEvent, NULL);
+                        /* === Frame 생성 === */
+                        MSG_ID stMsgId;
+                        ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
+                        makeResponseFrame(CDM_GPS_DATA, &stMsgId, (unsigned char*)&stGpsData, uchaSendBuf);
+                        /* === Write buffer에 적재 === */
+                        evbuffer_add(pstGpsTxIo->pstWriteBuffer, uchaSendBuf, getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE));
+                        /* === Write 이벤트 발생 === */
+                        event_add(pstGpsTxIo->pstWriteEvent, NULL);
+                    }                    
+                }else{
+
                 }
                 evbuffer_drain(pstIoChannel->pstReadBuffer, uiCopySize);
             }        
         break;
     
         case IO_EVT_CHANNEL_CLOSED:
-            printf("[GPS] channel closed fd=%d\n", pstIoChannel->iFd);
-            event_active(pstIoChannel->pstShutdownEvent, 0, 0);
-            break;
-    
         case IO_EVT_ERROR:
             printf("[GPS] channel error fd=%d\n", pstIoChannel->iFd);
             event_active(pstIoChannel->pstShutdownEvent, 0, 0);
@@ -110,7 +109,6 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
         ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
-        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
     case IO_EVT_RX_DATA:
     default:
@@ -127,7 +125,7 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
-    fprintf(stderr,"\n[UDP-SVR] SIGINT → shutdown\n");
+    fprintf(stderr,"\n[GPS-RX] SIGINT → shutdown\n");
     if(pstEventEngine->pstEventBase)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
@@ -184,7 +182,7 @@ int run(char* pchUartPath)
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        fprintf(stderr, "[UDS-Client] event_base_new() failed\n");
+        fprintf(stderr, "[GPS-RX] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
     eventEngineInit(&stEventEngine);
@@ -222,7 +220,7 @@ int run(char* pchUartPath)
     eventEngineCleanup(&stEventEngine);    
     event_base_free(stEventEngine.pstEventBase);
 
-    fprintf(stderr,"[UDP-SVR] Terminated.\n");
+    fprintf(stderr,"[GPS-RX] Terminated.\n");
     return EXIT_SUCCESS;
 }
 

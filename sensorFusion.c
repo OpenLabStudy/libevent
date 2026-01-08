@@ -72,6 +72,11 @@ typedef enum {
     TRIG_SP,
     TRIG_KEYBOARD
 } FUSION_TRIGGER;
+
+typedef struct{
+    char chTrackingSelect;
+    char chTrackingStartStop;
+}COMMNAD_STATE;
 /* ========================================================================== */
 /* SENSOR_STATE                                                               */
 /* ========================================================================== */
@@ -82,13 +87,14 @@ typedef struct {
     EXTERN_STATE    stExternState;
     KEYBOARD_STATE  stKeyboardState;
 
-    FUSION_TRIGGER  eLastTrig;
+    FUSION_TRIGGER  eLastTrig;    
     unsigned long   ulLastFusionUsec;
 } SENSOR_STATE;
 
 typedef struct {
     /* 🔹 기존 shared data */
     SENSOR_STATE    stSensor;
+    COMMNAD_STATE   stCommandState;
 
     /* 🔹 fusion 계산용 이벤트 */
     struct event*   pstFusionEvent;
@@ -116,7 +122,7 @@ static unsigned long nowUsec(void)
 /* Forward Declarations                                                       */
 /* ========================================================================== */
 static void fusionEventCb(evutil_socket_t fd, short what, void* arg);
-static void fusionDispatch(SENSOR_STATE* pstSensorState);
+static void fusionDispatch(EVENT_ENGINE* pstEventEngine);
 static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned long ulNowUsec);
 
 /* ========================================================================== */
@@ -139,6 +145,7 @@ static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned
         return TRIG_EXTERN;
 
     /* 4. GPS + IMU */
+    #if 0
     if (pstSensorState->stGpsState.chValid && pstSensorState->stImuState.chValid) {
         unsigned long dt =
             (pstSensorState->stGpsState.ulUsec > pstSensorState->stImuState.ulUsec) ?
@@ -154,6 +161,11 @@ static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned
         return (pstSensorState->stGpsState.ulUsec >= pstSensorState->stImuState.ulUsec) ?
             TRIG_GPS : TRIG_IMU;
     }
+    #else
+    //FOR TEST
+    if (pstSensorState->stGpsState.chValid )
+        return TRIG_GPS;
+    #endif
 
     return TRIG_NONE;
 }
@@ -161,34 +173,64 @@ static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned
 /* ========================================================================== */
 /* Fusion Dispatcher (계산 전용)                                              */
 /* ========================================================================== */
-static void fusionDispatch(SENSOR_STATE* pstSensorState)
+static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
 {
+    SENSOR_STATE* pstSensorState = &((SENSOR_FUSION_CTX*)pstEventEngine->pvSharedData)->stSensor;
     unsigned long ulNowUsec = nowUsec();
     FUSION_TRIGGER eTrigger = decideFusionTrigger(pstSensorState, ulNowUsec);
 
     if (eTrigger == TRIG_NONE)
         return;
 
+    IO_CHANNEL *pstIoChannel = ioFindChannelByWorkerId(pstEventEngine, UDS_3_SENSOR_FUSION);
+    if (!ioIsChannelAlive(pstIoChannel)){
+        return;
+    }
+
     switch (eTrigger) {
     case TRIG_KEYBOARD:
         fprintf(stderr, "[FUSION] KEYBOARD override\n");
         pstSensorState->stKeyboardState.chValid = 0;
+        //현재 수신된 키보드값으로 ACU제어 값 생성 후 UDS3으로 전송
+        pstSensorState->stKeyboardState.stKeyboard.dAz;
+        pstSensorState->stKeyboardState.stKeyboard.dEl;
         break;
 
     case TRIG_SP:
         fprintf(stderr, "[FUSION] SP PID control\n");
         pstSensorState->stSpState.chValid = 0;
+        // PID제어 알고리즘 수행 후 ACU제어 값 생성 후 UDS3으로 전송
+        pstSensorState->stSpState.stSp.dAz;
+        pstSensorState->stSpState.stSp.dEl;
         break;
 
     case TRIG_EXTERN:
         fprintf(stderr, "[FUSION] EXTERN target calculation\n");
         pstSensorState->stExternState.chValid = 0;
+        // GPS+IMU 융합 후 EXTERN 타겟 좌표 계산 → ACU제어 값 생성 후 UDS3으로 전송
+        pstSensorState->stExternState.stExtern.dLatitude;
+        pstSensorState->stExternState.stExtern.dLongitude;
+        pstSensorState->stExternState.stExtern.dAltitude;
         break;
 
     case TRIG_GPS:
     case TRIG_IMU:
         fprintf(stderr, "[FUSION] GPS+IMU attitude compensation (%s)\n",
                 eTrigger == TRIG_GPS ? "GPS-trigger" : "IMU-trigger");
+        pstSensorState->stGpsState.chValid = 0;
+        pstSensorState->stImuState.chValid = 0;
+        // GPS+IMU 융합 후 자세교정을 위한 알고리즘 수행후 → ACU제어 값 생성 후 UDS3으로 전송
+        unsigned char auchSendBuf[UDS_MAX_BUFFER_SIZE];
+        RES_AZ_EL_DATA stAzElData;
+        stAzElData.dAz  = 1.123;
+        stAzElData.dEl = -0.157;
+        MSG_ID stMsgId;
+        ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
+        if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, (unsigned char *)&stAzElData, auchSendBuf) == FRAME_OK) {
+            unsigned int uiSendSize = (size_t)getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, uiSendSize);
+            event_add(pstIoChannel->pstWriteEvent, NULL);
+        }        
         break;
 
     default:
@@ -208,6 +250,8 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+    SENSOR_FUSION_CTX* pstSensorFusionCtx =
+        (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
 
     unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
@@ -280,6 +324,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
                 case CMD_TRACKING_SELECT:
                     pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(auchRecvBuffer + sizeof(FRAME_HEADER));
                     fprintf(stderr,"Tracking Select: %d\n", pstReqTrackingSelect->chTrackingSelect);
+                    pstSensorFusionCtx->stCommandState.chTrackingSelect = pstReqTrackingSelect->chTrackingSelect;
                     pstResTrackingSelect = (RES_TRACKING_SELECT *)(auchResult);
                     pstResTrackingSelect->chResult = 1;
                     break;
@@ -287,6 +332,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
                 case CMD_TRACKING_CONTROL:
                     pstReqTrackingControl = (REQ_TRACKING_CONTROL *)(auchRecvBuffer + sizeof(FRAME_HEADER));
                     fprintf(stderr,"Tracking Control Start/Stop: %d\n", pstReqTrackingControl->chStartStop);
+                    pstSensorFusionCtx->stCommandState.chTrackingStartStop = pstReqTrackingControl->chStartStop;
                     pstResTrackingControl = (RES_TRACKING_CONTROL *)(auchResult);
                     pstResTrackingControl->chResult = 1;
                     break;
@@ -320,10 +366,11 @@ static void fusionEventCb(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
     (void)nEvent;
-    SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pvData;
+    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvData;
+    SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pstEventEngine->pvSharedData;
 
     pstSensorFusionCtx->chFusionPending = 0;
-    fusionDispatch(&pstSensorFusionCtx->stSensor);
+    fusionDispatch(pstEventEngine);
 }
 
 
@@ -414,8 +461,8 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                     pstSensorState->stKeyboardState.chValid = 1;
                     pstSensorState->stKeyboardState.ulUsec  = ulUsec;
                     fprintf(stderr,"KEYBOARD AZ %lf, EL %lf\n", pstSensorState->stKeyboardState.stKeyboard.dAz, pstSensorState->stKeyboardState.stKeyboard.dEl);
-                    break;                
-                }                
+                    break;
+                }
             }
             /*계산 이벤트 트리거 */
             if (!pstSensorFusionCtx->chFusionPending) {
@@ -479,7 +526,7 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
         event_base_loopexit(pstEventEngine->pstEventBase, NULL);
 }
 
-static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
+static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)// Tracking Controller 재접속 시도
 {
     (void)fd;
     (void)nEvent;
@@ -508,6 +555,36 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     pstNewIo->iWorkerId = UDS_1_SENSOR_FUSION;
 }
 
+static void uds3ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)//ACU Conroller 재접속 시도
+{
+    (void)fd;
+    (void)nEvent;
+
+    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
+    /* 이미 살아있으면 재접속 불필요 */
+    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_3_SENSOR_FUSION);    
+    if (ioIsChannelAlive(pstCmdIo)){
+        return;
+    }
+
+    int iSock = netUdsCreateClient(UDS_3_PATH);
+    if (iSock < 0) {
+        fprintf(stderr, "[UDS_3_SENSOR_FUSION] reconnect failed, retry later\n");
+        return; /* 타이머는 계속 살아있음 */
+    }
+
+    fprintf(stderr, "[UDS_3_SENSOR_FUSION] reconnected!\n");
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
+            TYPE_UDS_CLI, ROLE_REQUESTER,
+            NULL, NULL, commandEventCb);
+    if (!pstNewIo) {
+        close(iSock);
+        return;
+    }
+    pstNewIo->iWorkerId = UDS_3_SENSOR_FUSION;
+}
+
+
 
 /* ========================================================================== */
 /* Main Entry Point                                                           */
@@ -518,7 +595,8 @@ int run(void)
     EVENT_ENGINE    stEventEngine;
     struct event*   pstSignalEvent;
     struct event*   pstEventAccept;
-    struct event*   pstUdsRetryEvent = NULL;
+    struct event*   pstUds1RetryEvent = NULL;
+    struct event*   pstUds3RetryEvent = NULL;
     struct timeval stRertyTimeOut = {1, 0};
 
     stEventEngine.pstEventBase = event_base_new();
@@ -534,12 +612,18 @@ int run(void)
     stEventEngine.pvSharedData = pstSensorFusionCtx;
 
     pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase, -1, 0,
-                  fusionEventCb, pstSensorFusionCtx);
+                  fusionEventCb, &stEventEngine);
 
-    pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
+    pstUds1RetryEvent = event_new(stEventEngine.pstEventBase,
                   -1, EV_PERSIST | EV_TIMEOUT,
                   uds1ReconnectCb, &stEventEngine);
-    event_add(pstUdsRetryEvent, &stRertyTimeOut);
+    event_add(pstUds1RetryEvent, &stRertyTimeOut);
+
+    pstUds3RetryEvent = event_new(stEventEngine.pstEventBase,
+                  -1, EV_PERSIST | EV_TIMEOUT,
+                  uds3ReconnectCb, &stEventEngine);
+    event_add(pstUds3RetryEvent, &stRertyTimeOut);
+
 
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
     if (iListenFd < 0) {
@@ -559,10 +643,15 @@ int run(void)
     fprintf(stderr, "[SENSOR_FUSION] Listening at %s\n", UDS_2_PATH);
     
     event_base_dispatch(stEventEngine.pstEventBase);
-    if (pstUdsRetryEvent) {
-        event_del(pstUdsRetryEvent);
-        event_free(pstUdsRetryEvent);
-        pstUdsRetryEvent = NULL;   
+    if (pstUds1RetryEvent) {
+        event_del(pstUds1RetryEvent);
+        event_free(pstUds1RetryEvent);
+        pstUds1RetryEvent = NULL;   
+    }
+    if (pstUds3RetryEvent) {
+        event_del(pstUds3RetryEvent);
+        event_free(pstUds3RetryEvent);
+        pstUds3RetryEvent = NULL;   
     }
 
     if(pstSignalEvent){

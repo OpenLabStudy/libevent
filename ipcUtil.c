@@ -22,7 +22,7 @@ int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
         pstMsgId->uchDstId = UDS_2_SVR_ID;
         break;
 
-    case UDS_3_ACU_CONTROLLER:
+    case UDS_3_SENSOR_FUSION:
         pstMsgId->uchDstId = UDS_3_SVR_ID;
         break;
 
