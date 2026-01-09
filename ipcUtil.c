@@ -1,4 +1,6 @@
 #include "ipcUtil.h"
+#include "icdCommand.h"
+#include <string.h>
 
 int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
 {
@@ -55,3 +57,98 @@ void ipcSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerType
     fprintf(stderr, "[IPC] send worker register: type=%d, frame size=%d\n", uchWorkerType, iFrameSize);
     evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
 }
+
+int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC_CMD_CTX* pstCmdCtx)
+{
+    if (!pstCmdCtx)
+        return -1;
+
+    memset(pstCmdCtx, 0, sizeof(*pstCmdCtx));
+    pstCmdCtx->unCmd = unCmd;
+
+    switch (unCmd) {
+    case CMD_IBIT:
+    case CMD_RBIT:
+    case CMD_CBIT:{
+        const REQ_BIT* pstReqBit = (const REQ_BIT*)pReqPayload;
+        pstCmdCtx->u.stBit.chBit = pstReqBit->chBit;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_TRACKING_SELECT: {
+        const REQ_TRACKING_SELECT* pstReqTrackingSelect = (const REQ_TRACKING_SELECT*)pReqPayload;
+        pstCmdCtx->u.stTrackingSelect.chTrackingSelect = pstReqTrackingSelect->chTrackingSelect;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_TRACKING_CONTROL:{
+        const REQ_TRACKING_CONTROL* pstReqTrackingCtrl = (const REQ_TRACKING_CONTROL*)pReqPayload;
+        pstCmdCtx->u.stTrackingControl.chTrackingStartStop = pstReqTrackingCtrl->chStartStop;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_POSITIONER_AZ_EL_SET: {
+        const REQ_POSITIONER_AZ_EL_SET* pstReqPositionerAzElSet = (const REQ_POSITIONER_AZ_EL_SET*)pReqPayload;
+        pstCmdCtx->u.stPositionerAzElSet.dAz = atof(pstReqPositionerAzElSet->chAzimuthDeg);
+        pstCmdCtx->u.stPositionerAzElSet.dEl = atof(pstReqPositionerAzElSet->chElevationDeg);
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_POSITIONER_DEG_SEND: {
+        const REQ_POSITIONER_DEG_SEND* pstReqPositionerDegSend = (const REQ_POSITIONER_DEG_SEND*)pReqPayload;
+        pstCmdCtx->u.stPositionerAzElSendCtrl.chSendOnOff = pstReqPositionerDegSend->chSendOnOff;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_ACU_MODE_SELECT: {
+        const REQ_ACU_MODE* pstReqAcuMode = (const REQ_ACU_MODE*)pReqPayload;
+        pstCmdCtx->u.stAcuMode.chAcuMode = pstReqAcuMode->chAcuMode;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_AZ_EL_OFFSET_SET: {
+        const REQ_AZ_EL_OFFSET_SET* pstReqAzElOffsetSet = (const REQ_AZ_EL_OFFSET_SET*)pReqPayload;
+        pstCmdCtx->u.stAzElOffsetSet.iAzOffset = pstReqAzElOffsetSet->iAzOffset;
+        pstCmdCtx->u.stAzElOffsetSet.iElOffset = pstReqAzElOffsetSet->iElOffset;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    default:
+        pstCmdCtx->eResult = ACU_CMD_INVALID;
+        return -1;
+    }
+}
+
+/* ========================================================================== */
+/* Helper: send UDS response (frame + reqId)                                   */
+/* ========================================================================== */
+void sendUdsResponse(IO_CHANNEL* pstUdsIo, unsigned short unCmd, unsigned int uiReqId,
+                               const unsigned char* pPayload, unsigned int uiPayloadMax)
+{
+    if (!pstUdsIo)
+        return;
+
+    unsigned char aucSendBuf[UDS_MAX_BUFFER_SIZE];
+    unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
+
+    memset(aucSendBuf, 0, sizeof(aucSendBuf));
+    memset(aucPayload, 0, sizeof(aucPayload));
+
+    if (pPayload && uiPayloadMax > 0) {
+        /* payload는 각 RES_* 구조체 크기만큼만 실제로 의미 있음 */
+        memcpy(aucPayload, pPayload, (uiPayloadMax > sizeof(aucPayload)) ? sizeof(aucPayload) : uiPayloadMax);
+    }
+
+    MSG_ID stMsgId;
+    ipcBuildMsgIdFromWorker(pstUdsIo->iWorkerId, &stMsgId);
+    makeResponseFrame(unCmd, &stMsgId, aucPayload, aucSendBuf);
+    unsigned int uiFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+
+    /* append reqId */
+    memcpy(aucSendBuf + uiFrameSize, &uiReqId, sizeof(unsigned int));
+
+    /* queue */
+    evbuffer_add(pstUdsIo->pstWriteBuffer, aucSendBuf, uiFrameSize + sizeof(unsigned int));
+    event_add(pstUdsIo->pstWriteEvent, NULL);
+}
+

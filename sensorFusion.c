@@ -76,7 +76,7 @@ typedef enum {
 typedef struct{
     char chTrackingSelect;
     char chTrackingStartStop;
-}COMMNAD_STATE;
+} COMMAND_STATE;
 /* ========================================================================== */
 /* SENSOR_STATE                                                               */
 /* ========================================================================== */
@@ -94,7 +94,7 @@ typedef struct {
 typedef struct {
     /* 🔹 기존 shared data */
     SENSOR_STATE    stSensor;
-    COMMNAD_STATE   stCommandState;
+    COMMAND_STATE   stCommandState;
 
     /* 🔹 fusion 계산용 이벤트 */
     struct event*   pstFusionEvent;
@@ -244,6 +244,37 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
 /* ========================================================================== */
 /* Fusion Event Callback                                                      */
 /* ========================================================================== */
+static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo, unsigned int uiReqId)
+{
+    EVENT_ENGINE* pstEngine = pstUdsIo->pstEventEngine;
+    SENSOR_FUSION_CTX* pstSensorFusionCtx = (SENSOR_FUSION_CTX*)pstUdsIo->pstEventEngine->pvSharedData;
+
+    unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
+    memset(aucPayload, 0, sizeof(aucPayload));
+    switch (pstCmdCtx->unCmd)
+    {
+    case CMD_TRACKING_SELECT:
+        fprintf(stderr, "Tracking Select %s\n", 
+            pstCmdCtx->u.stTrackingSelect.chTrackingSelect == SELF_TRACKING ? "SELF_TRACKING" : 
+            pstCmdCtx->u.stTrackingSelect.chTrackingSelect == EXTERNAL_DEV_TRACKING ? "EXTERNAL_DEV_TRACKING" : "UNKNOWN");
+        pstSensorFusionCtx->stCommandState.chTrackingSelect = pstCmdCtx->u.stTrackingSelect.chTrackingSelect;
+        ((RES_TRACKING_SELECT*)aucPayload)->chResult = (char)RESP_OK;
+        sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
+        break;
+
+    case CMD_TRACKING_CONTROL:
+            fprintf(stderr, "Tracking %s\n", pstCmdCtx->u.stTrackingControl.chTrackingStartStop == TRACKING_START ? "START" : "STOP");
+        pstSensorFusionCtx->stCommandState.chTrackingStartStop = pstCmdCtx->u.stTrackingControl.chTrackingStartStop;    
+        ((RES_AZ_EL_OFFSET_SET*)aucPayload)->chResult = (char)RESP_OK;
+        sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
+        break; 
+
+    default:
+        fprintf(stderr, "[ACU] Unsupported CMD\n");
+        break;
+    }
+}
+
 static void commandEventCb(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
@@ -256,6 +287,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
+    IPC_CMD_CTX stCmdCtx;
     
     switch (eEventType) {
     case IO_EVT_CHANNEL_CLOSED:
@@ -299,59 +331,21 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
             unsigned int uiReqId;
             memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
-            unsigned char uchaSendBuf[UDS_MAX_BUFFER_SIZE];
-            unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
-            int iResultSize;
-            RES_ID *pstResId;
-            REQ_TRACKING_SELECT *pstReqTrackingSelect;
-            RES_TRACKING_SELECT *pstResTrackingSelect;
-            REQ_TRACKING_CONTROL *pstReqTrackingControl;
-            RES_TRACKING_CONTROL *pstResTrackingControl;
-            switch (unCmd) {        
-                case CMD_ID_INFO:
-                    pstResId = (RES_ID *)(auchResult);
-                    pstResId->chResult = (char)pstIoChannel->iWorkerId;
-                    break;
-                case CMD_IBIT:
-                    break;
-
-                case CMD_RBIT:
-                    break;
-
-                case CMD_CBIT:
-                    break;
-
-                case CMD_TRACKING_SELECT:
-                    pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(auchRecvBuffer + sizeof(FRAME_HEADER));
-                    fprintf(stderr,"Tracking Select: %d\n", pstReqTrackingSelect->chTrackingSelect);
-                    pstSensorFusionCtx->stCommandState.chTrackingSelect = pstReqTrackingSelect->chTrackingSelect;
-                    pstResTrackingSelect = (RES_TRACKING_SELECT *)(auchResult);
-                    pstResTrackingSelect->chResult = 1;
-                    break;
-
-                case CMD_TRACKING_CONTROL:
-                    pstReqTrackingControl = (REQ_TRACKING_CONTROL *)(auchRecvBuffer + sizeof(FRAME_HEADER));
-                    fprintf(stderr,"Tracking Control Start/Stop: %d\n", pstReqTrackingControl->chStartStop);
-                    pstSensorFusionCtx->stCommandState.chTrackingStartStop = pstReqTrackingControl->chStartStop;
-                    pstResTrackingControl = (RES_TRACKING_CONTROL *)(auchResult);
-                    pstResTrackingControl->chResult = 1;
-                    break;
-
-                default:
-                    break;  
+            /* parse payload -> IPC_CMD_CTX */
+            if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
+                fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
+                /* 최소한의 즉시 실패 응답 */
+                sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
+                continue;
             }
-            MSG_ID stMsgId;
-            ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-            makeResponseFrame(unCmd, &stMsgId, auchResult, uchaSendBuf);
-            unsigned int uiFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-            fprintf(stderr,"===== RESPONSE DATA =====\n");
-            for(int i=0; i<uiFrameSize; i++){
-                fprintf(stderr, "%02X ",uchaSendBuf[i]);
-            }
-            memcpy(uchaSendBuf+uiFrameSize, &uiReqId, sizeof(unsigned int)); 
 
-            evbuffer_add(pstIoChannel->pstWriteBuffer, uchaSendBuf, uiFrameSize+sizeof(unsigned int));
-            event_add(pstIoChannel->pstWriteEvent, NULL);
+            /* execute command (immediate or deferred) */
+            executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId);
+
+            /* NOTE:
+             * - immediate cmd: acuExecuteIpcCommand() sends UDS response here
+             * - deferred cmd: UDS response will be sent in uartReadCallback() or timeout cb
+             */
             
         }
         break;
@@ -607,7 +601,7 @@ int run(void)
 
     /* Dispatcher 초기화 */
     eventEngineInit(&stEventEngine);
-    /* 🔹 shared context는 여기서 1회만 생성 */
+    /* shared context는 여기서 1회만 생성 */
     SENSOR_FUSION_CTX* pstSensorFusionCtx = calloc(1, sizeof(SENSOR_FUSION_CTX));
     stEventEngine.pvSharedData = pstSensorFusionCtx;
 
