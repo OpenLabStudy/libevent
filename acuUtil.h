@@ -49,42 +49,13 @@ typedef struct {
 	double dEl;
 }AZ_EL_INFO;
 
-bool moveAzElRate(int i_iAcuFd, double i_dAz, double i_dEl);
-bool moveAzRate(int i_iAcuFd, double i_dAz);
-bool moveElRate(int i_iAcuFd, double i_dEl);
-
-bool moveAzElPosition(int i_iAcuFd, double i_dAz, double i_dEl);
-
-/**
- * @brief ACU구조체 초기화(ACU와 시리얼 연결 및 변수 초기화)
- * @param i_pstAcu ACU구조체(acu와 연결된 시리얼 파일디스크립트, acu로 전송할 데이터 참조)
- * @return 명령 수행 결과 반환 [성공 : true , 실패 : false]
- */
-//bool acuStructInit(ACU* i_pstAcu);
-
-/**
- * @brief ACU DSA Online BIT 수행
- * @param i_iAcuFd ACU와 연결된 시리얼 파일 디스크립터
- * @param i_chBitFlag BIT선택 플래그(AZ DSA Online BIT or EL DSA Online BIT)
- * @return BIT명령 수행 결과 반환 [성공 : true , 실패 : false]
- */
-bool bitCheck(int i_iAcuFd, char i_chBitFlag);
-
-/**
- * @brief ACU 동작 모드 변경(POSITION or RATE)
- * @param i_pstAcu ACU구조체(acu와 연결된 시리얼 파일디스크립트, acu로 전송할 데이터 참조)
- * @param i_chMode 동작 모드 변경 플래그(POSITION or RATE)
- * @return 동작 모드 변경 수행 결과 반환 [성공 : true , 실패 : false]
- */
-bool modeChange(int i_iAcuFd, char i_chMode);
-
-/**
- * @brief ACU 현재 방위각/고각 읽기
- * @param i_iAcuFd ACU와 연결된 시리얼 파일 디스크립터
- * @param i_pstReadAzEl ACU로 부터 읽어들인 방위각/고각 저장 구조체
- * @return ACU 현재 방위각/고각 읽기 수행 결과 반환 [성공 : true , 실패 : false]
- */
-bool readAzElFromAcu(int i_iAcuFd, AZ_EL_INFO* i_pstReadAzEl);
+int moveAzElPosition(double i_dAz, double i_dEl, char* pchOutData);
+int moveAzElRate(double i_dAz, double i_dEl, char* pchOutData);
+int moveAzRate(int i_iAcuFd, double i_dAz, char* pchOutData);
+int moveElRate(int i_iAcuFd, double i_dEl, char* pchOutData);
+int splitAcuDataString(char* chpStringData, char chSeparate, char** chppStorage, int iMaxSplitCount);
+int modeChange(char i_chMode, char* pchOutData);
+int readAzElFromAcu(char* pchOutData);
 
 
 #ifdef __cplusplus
