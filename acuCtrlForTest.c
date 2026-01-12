@@ -140,12 +140,10 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, unsigned short unCmd, IO_CHA
     if (!pstCtx || !pstUartIo)
         return -1;
 
-    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
     if (pstCtx->eState != ACU_STATE_IDLE || pstCtx->stPending.bInUse) {
         return -1;
     }
 
-    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
     if(pstCtx->iIsUartAlive == 0){
         fprintf(stderr, "[ACU] UART not alive, cannot send CMD=0x%04X\n", unCmd);
         return -1;
@@ -155,15 +153,12 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, unsigned short unCmd, IO_CHA
     pstCtx->stPending.unCmd    = unCmd;
     pstCtx->stPending.uiReqId++;
     pstCtx->stPending.pstUdsIo = pstUartIo;
-    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
     /* UART write queue */
     evbuffer_add(pstUartIo->pstWriteBuffer, aucFrame, uiFrameLen);
     event_active(pstUartIo->pstWriteEvent, EV_WRITE, 0);
-    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
-    /* 300ms timeout start (reuse event) */
+    /* 500ms timeout start (reuse event) */
     if (pstCtx->pstTimeoutEvt) {
-        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
-        struct timeval tv = {0, 300 * 1000};
+        struct timeval tv = {1, 100 * 1000};
         evtimer_del(pstCtx->pstTimeoutEvt);
         evtimer_add(pstCtx->pstTimeoutEvt, &tv);
     }
@@ -179,9 +174,9 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, unsigned short unCmd, IO_CHA
 /* ========================================================================== */
 static void uartReadCallback(int iFd, short nEvent, void *pvData)
 {
+    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
     (void)iFd;
     (void)nEvent;
-    fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
     IO_CHANNEL* pstUartIo = (IO_CHANNEL*)pvData;
     IO_EVENT_TYPE eEventType = pstUartIo->ePendingLogicEvent;
 
@@ -189,17 +184,14 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
     ACU_CTRL_CTX* pstCtx = (ACU_CTRL_CTX*)pstEngine->pvSharedData;
 
     unsigned char aucUartBuf[2048];
-fprintf(stderr,"### %s():%d %d ###\n", __func__, __LINE__,eEventType);
     switch (eEventType)
     {
     case IO_EVT_RX_DATA: {
-        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         pstCtx->iIsUartAlive = 1;
         int iLen = evbuffer_remove(pstUartIo->pstReadBuffer, aucUartBuf, sizeof(aucUartBuf));
         if (iLen <= 0)
             break;
 
-        fprintf(stderr, "[ACU] UART RX %d bytes\n", iLen);
         /* pending 없으면 버리고 끝 */
         if (!pstCtx->stPending.bInUse || pstCtx->eState != ACU_STATE_WAIT_RESPONSE) {
             fprintf(stderr, "[ACU] UART RX but no pending\n");
@@ -210,10 +202,8 @@ fprintf(stderr,"### %s():%d %d ###\n", __func__, __LINE__,eEventType);
         if (pstCtx->pstTimeoutEvt) {
             evtimer_del(pstCtx->pstTimeoutEvt);
         }
-        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         /* parse response -> OK/FAIL */
         unsigned char ucResult = parseAcuUartResponse(aucUartBuf, iLen, pstCtx->stPending.unCmd);
-        fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         /* build payload and send UDS response */
         unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
         memset(aucPayload, 0, sizeof(aucPayload));
@@ -244,8 +234,8 @@ fprintf(stderr,"### %s():%d %d ###\n", __func__, __LINE__,eEventType);
             break;
         }
 
-        sendUdsResponse(pstCtx->stPending.pstUdsIo, pstCtx->stPending.unCmd, 
-                           pstCtx->stPending.uiReqId, aucPayload, sizeof(aucPayload));
+        // sendUdsResponse(pstCtx->stPending.pstUdsIo, pstCtx->stPending.unCmd, 
+        //                    pstCtx->stPending.uiReqId, aucPayload, sizeof(aucPayload));
 
         /* clear pending */
         pstCtx->stPending.bInUse = 0;
@@ -463,6 +453,7 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
             pstCtx->stCommandState.chAcuMode = RATE_SLAVE;
         }        
         iSendLen = modeChange(pstCtx->stCommandState.chAcuMode, auSendBuf);
+        fprintf(stderr,"Mode Change Command Sent: %d\n", pstCtx->stCommandState.chAcuMode);
         break;
 
     case 2:
@@ -558,7 +549,7 @@ int run(char *pchUartPath)
     pstIoChannel->iWorkerId = ACU_UART;
 
     pstAzElPollEvt = event_new(stEventEngine.pstEventBase, -1, EV_PERSIST, acuPeriodicReadCb, pstIoChannel);
-    struct timeval tv = {0, 500 * 1000};  // 100ms
+    struct timeval tv = {4, 500 * 1000};  // 100ms
     event_add(pstAzElPollEvt, &tv);
 
     /* ------------------- */

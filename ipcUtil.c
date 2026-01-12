@@ -2,6 +2,7 @@
 #include "icdCommand.h"
 #include <string.h>
 
+
 int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
 {
     MSG_ID* pstMsgId = (MSG_ID *)pvMsgId;
@@ -65,6 +66,7 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
 
     memset(pstCmdCtx, 0, sizeof(*pstCmdCtx));
     pstCmdCtx->unCmd = unCmd;
+    fprintf(stderr, "### %s():%d CMD=0x%04X ###\n", __func__, __LINE__, unCmd);
 
     switch (unCmd) {
     case CMD_IBIT:
@@ -88,9 +90,18 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
         return 0;
     }
     case CMD_POSITIONER_AZ_EL_SET: {
+        
         const REQ_POSITIONER_AZ_EL_SET* pstReqPositionerAzElSet = (const REQ_POSITIONER_AZ_EL_SET*)pReqPayload;
-        pstCmdCtx->u.stPositionerAzElSet.dAz = atof(pstReqPositionerAzElSet->chAzimuthDeg);
-        pstCmdCtx->u.stPositionerAzElSet.dEl = atof(pstReqPositionerAzElSet->chElevationDeg);
+        pstCmdCtx->u.stPositionerAzElSet.dAz = endianChange(pstReqPositionerAzElSet->chAzimuthDeg);
+        pstCmdCtx->u.stPositionerAzElSet.dEl = endianChange(pstReqPositionerAzElSet->chElevationDeg);
+        fprintf(stderr," ### %s():%d AZ=%.2f EL=%.2f ###\n", __func__, __LINE__,
+                pstCmdCtx->u.stPositionerAzElSet.dAz, pstCmdCtx->u.stPositionerAzElSet.dEl);
+        fprintf(stderr,"\n");
+        for(int i=1; i<=34; i++){
+            if(i&16 == 0)
+                fprintf(stderr,"\n");
+            fprintf(stderr,"%02x ", pReqPayload[i-1]);
+        }  
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
@@ -103,6 +114,7 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
     case CMD_ACU_MODE_SELECT: {
         const REQ_ACU_MODE* pstReqAcuMode = (const REQ_ACU_MODE*)pReqPayload;
         pstCmdCtx->u.stAcuMode.chAcuMode = pstReqAcuMode->chAcuMode;
+        fprintf(stderr, "### %s():%d ACU MODE=%d ###\n", __func__, __LINE__, pstCmdCtx->u.stAcuMode.chAcuMode);
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
@@ -110,6 +122,10 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
         const REQ_AZ_EL_OFFSET_SET* pstReqAzElOffsetSet = (const REQ_AZ_EL_OFFSET_SET*)pReqPayload;
         pstCmdCtx->u.stAzElOffsetSet.iAzOffset = pstReqAzElOffsetSet->iAzOffset;
         pstCmdCtx->u.stAzElOffsetSet.iElOffset = pstReqAzElOffsetSet->iElOffset;
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    case CMD_ID_INFO: {
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }

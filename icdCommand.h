@@ -45,7 +45,7 @@ enum AZ_EL_SEND_FLAG {
 };
 
 enum ACU_MODE {
-	RATE = 0x00,
+	RATE = 0x01,
 	POSITION
 };
 
@@ -73,6 +73,7 @@ enum COMMAND_ID
     CDM_SP_DATA,
     CDM_EXTERN_DATA,
     CDM_KEYBOARD_DATA,
+	CMD_GET_AZ_EL_DATA = 0x0012,
     CMD_COMMAND_FAIL = 0x00FF,
     CMD_ID_INFO     = 0x1000, /**< 장비 정보 요청 */
 };

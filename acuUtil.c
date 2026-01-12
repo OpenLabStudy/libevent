@@ -95,11 +95,10 @@ int splitAcuDataString(char* chpStringData, char chSeparate, char** chppStorage,
 
 int modeChange(char i_chMode, char* pchOutData)
 {
-	if(i_chMode == POSITION_SLAVE){
-		memset(pchOutData, 0x0, ACU_COMMAND_LEN);
+	memset(pchOutData, 0x0, ACU_COMMAND_LEN);
+	if(i_chMode == 0x01){//POSITION MODE		
 		strcpy(pchOutData, REMOTE_POSITION_MODE);
-	}else if(i_chMode == RATE_SLAVE){
-		memset(pchOutData, 0x0, ACU_COMMAND_LEN);
+	}else if(i_chMode == 0x00){//RATE MODE
 		strcpy(pchOutData, REMOTE_RATE_MODE);		
 	}
 	return strlen(pchOutData);

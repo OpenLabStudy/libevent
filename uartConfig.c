@@ -74,10 +74,8 @@ int uartOpen(UART_CTX *pstUartCtx)
 {
     if (!pstUartCtx || !pstUartCtx->pchDevPath)
         return -1;
-
-    int iFd = open(pstUartCtx->pchDevPath,
-                   O_RDWR | O_NOCTTY | O_NONBLOCK);
-
+    
+    int iFd = open(pstUartCtx->pchDevPath, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (iFd < 0) {
         fprintf(stderr, "[UART] open(%s) failed: %s\n",
                 pstUartCtx->pchDevPath, strerror(errno));

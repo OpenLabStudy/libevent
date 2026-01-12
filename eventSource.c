@@ -40,7 +40,6 @@ void readCallback(int iFd, short nEvent, void* pvData)
 void writeCallback(int iFd, short nEvent, void* pvData)
 {
     (void)nEvent;
-    fprintf(stderr, "### %s():%d ###\n", __func__, __LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;
@@ -55,7 +54,7 @@ void writeCallback(int iFd, short nEvent, void* pvData)
         perror("write");
         return;
     }
-
+    fprintf(stderr,"\n");
     for(int i=1; i<=iWriteSize; i++){
         if(i&16 == 0)
             fprintf(stderr,"\n");

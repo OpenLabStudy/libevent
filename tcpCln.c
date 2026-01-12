@@ -316,7 +316,7 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
         }
 
         REQ_ACU_MODE stReqAcuMode;
-        stReqAcuMode.chAcuMode = (char)iSelect;
+        stReqAcuMode.chAcuMode = (iSelect == 0) ? RATE : POSITION;
         eErr = makeRequestFrame(CMD_ACU_MODE_SELECT, &stMsgId, &stReqAcuMode, auSendBuf);
         break;
     }

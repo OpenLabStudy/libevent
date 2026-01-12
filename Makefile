@@ -46,7 +46,7 @@ acuCtrlForTest: acuCtrlForTest.o acuUtil.o $(COMMON_OBJS) $(UART_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
 # --- ACU Controller ---
-acuCtrl: acuCtrl.o $(COMMON_OBJS) $(UART_OBJS)
+acuCtrl: acuCtrl.o acuUtil.o $(COMMON_OBJS) $(UART_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_COMMON) $(LDFLAGS)
 
 # --- Sensor Fusion ---
