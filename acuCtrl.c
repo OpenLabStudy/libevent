@@ -220,7 +220,7 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx
     evbuffer_add(pstCtx->pstUartIo->pstWriteBuffer, aucFrame, uiFrameLen);
     event_active(pstCtx->pstUartIo->pstWriteEvent, EV_WRITE, 0);
 
-    /* 200ms timeout start (reuse event) */
+    /* 200ms timeout start (reuse event) 응답이 없는경우 처리 필요*/
     if (pstCtx->pstTimeoutEvt) {
         struct timeval tv = {0, 200 * 1000};
         evtimer_del(pstCtx->pstTimeoutEvt);
