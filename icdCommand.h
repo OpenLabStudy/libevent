@@ -348,7 +348,8 @@ typedef struct PACKED
 /* ========================================================================== */
 /* Public API                                                                 */
 /* ========================================================================== */
-
+double endianChange(char* i_chData);
+void endianChange1(double dValue, char* pchData);
 int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
 

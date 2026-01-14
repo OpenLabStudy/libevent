@@ -18,7 +18,6 @@ static unsigned char frameCalcCrc(const unsigned char *puchBuf, int iTotalSize)
     for (int i = iOffset; i < iTotalSize - sizeof(FRAME_TAIL); i++) {
         uchCrc += puchBuf[i];
     }
-
     return ((uchCrc & 0xFF) == 0xFF) ? 0x00 : uchCrc;
 }
 
@@ -81,7 +80,7 @@ static void frameMakeHeader(unsigned short unCmd,
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchBuf;
 
     pstHeader->unStx        = htons(STX_CONST);
-    pstHeader->iDataLength  = htonl(getDataSize(unCmd, eFrameType));
+    pstHeader->iDataLength  = htonl(getDataSize(unCmd, eFrameType)+8); // MSG_ID(2) + SubModule(1) + CMD(2) + Tail(3)
     pstHeader->stMsgId      = *pstMsgId;
     pstHeader->uchSubModule = 0x00;
     pstHeader->unCmd        = htons(unCmd);
@@ -234,6 +233,17 @@ FRAME_ERR makeResponseFrame(unsigned short unCmd, MSG_ID *pstMsgId,
     return FRAME_OK;
 }
 
+FRAME_ERR makeRepackageResponseFrame(unsigned short unCmd, MSG_ID *pstMsgId,
+                            unsigned char *puchCmdResult, unsigned char *puchSendData)
+{
+    if (!pstMsgId || !puchCmdResult || !puchSendData)
+        return FRAME_ERR_NULL_PTR;
+    
+    frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
+    memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
+    frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
+    return FRAME_OK;
+}
 /* ========================================================================== */
 /*  Decode / Validate (NEW STRUCTURE)                                          */
 /* ========================================================================== */
@@ -267,9 +277,9 @@ static FRAME_ERR frameCheckDataLength(const FRAME_HEADER *pstHeader,
 {
     unsigned short unCmd = ntohs(pstHeader->unCmd);
 
-    if (ntohl(pstHeader->iDataLength) != getDataSize(unCmd, eFrameType)){
+    if (ntohl(pstHeader->iDataLength) != (getDataSize(unCmd, eFrameType)+8)){
         fprintf(stderr,"### %s():%d  %s %d %d ###\n", __func__,__LINE__, getCmdString(unCmd, eFrameType), 
-            ntohl(pstHeader->iDataLength), getDataSize(unCmd, eFrameType));
+            ntohl(pstHeader->iDataLength), getDataSize(unCmd, eFrameType)+8);
         return FRAME_ERR_INVALID_LENGTH;
     }
 
@@ -328,10 +338,10 @@ static FRAME_ERR frameCheckTail(unsigned short unCmd,
                                 FRAME_TYPE eFrameType)
 {
     FRAME_TAIL *pstTail = frameGetTailPtr(puchData, unCmd, eFrameType);
-
     FRAME_ERR eErr = frameCheckEtx(pstTail);
-    if (eErr != FRAME_OK) return eErr;
-
+    if (eErr != FRAME_OK) 
+        return eErr;
+        
     return frameCheckCrc(puchData,
                           getFrameSizeWithCmd(unCmd, eFrameType),
                           pstTail->uchCrc);
@@ -346,23 +356,23 @@ FRAME_ERR frameDecode(unsigned char *puchBuf,
 {
     if (!puchBuf || !punOutCmd)
         return FRAME_ERR_NULL_PTR;
-
+        
     FRAME_ERR eErr;
     eErr = frameCheckBasic(puchBuf, iFrameSize);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
     FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchBuf;
     unsigned short unCmd = ntohs(pstHeader->unCmd);
-
+    
     eErr = frameCheckHeader(unCmd, puchBuf, iFrameSize, eFrameType);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
     eErr = frameCheckTail(unCmd, puchBuf, eFrameType);
     if (eErr != FRAME_OK)
         return eErr;
-
+        
     *punOutCmd = unCmd;
     return FRAME_OK;
 }
@@ -535,7 +545,7 @@ int getFrameSizeWithCmd(unsigned short unCmd, FRAME_TYPE eFrameType)
     int iDataSize = getDataSize(unCmd, eFrameType);
     if (iDataSize <= 0)
         return -1;
-
+    
     return sizeof(FRAME_HEADER) + iDataSize + sizeof(FRAME_TAIL);
 }
 
@@ -943,6 +953,6 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
 
 char getIdInfo(unsigned char *puchData)
 {
-    RES_ID *pstResId = (RES_ID *)(puchData+sizeof(FRAME_HEADER));
+    RES_ID *pstResId = (RES_ID *)(puchData);
     return pstResId->chResult;
 }

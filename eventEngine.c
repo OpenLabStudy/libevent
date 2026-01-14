@@ -228,6 +228,7 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
             iResultLen += iSize;
         }
     }
+
     evbuffer_add(pstTcpCh->pstWriteBuffer, auchResult, iResultLen);
 }
 
@@ -272,7 +273,13 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         int iFrameSize = getFrameSizeWithData(auchBuf, FRAME_TYPE_REQUEST);
         if (iFrameSize <= 0 || uiCopySize < (unsigned int)iFrameSize)
             break;
-
+        fprintf(stderr,"### %s():%d Processing Path:%d Copy Size:%d Frame Size:%d ###\n", __func__,__LINE__, eProcPath, uiCopySize, iFrameSize);        
+        for(int i=1; i<=iFrameSize; i++){
+            if(i&16 == 0)
+                fprintf(stderr,"\n");
+            fprintf(stderr,"%02x ", auchBuf[i-1]);
+        }
+        fprintf(stderr,"\n");
         /* =========================================================
          * REQUEST_CONTEXT 생성
          * ========================================================= */
@@ -343,8 +350,8 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
                 if ((size_t)iFrameSize + sizeof(unsigned int) > sizeof(auchBuf))
                     continue;
                 /* requestId를 프레임 끝에 부착 */
-                memcpy(auchBuf + iFrameSize, &pstReq->uiRequestId, sizeof(unsigned int));
-                evbuffer_add(pstIo->pstWriteBuffer, auchBuf, iFrameSize + sizeof(unsigned int));
+                evbuffer_add(pstIo->pstWriteBuffer, auchBuf, iFrameSize);
+                evbuffer_add(pstIo->pstWriteBuffer, &pstReq->uiRequestId, sizeof(unsigned int));
                 /* write 이벤트 트리거 */
                 event_add(pstIo->pstWriteEvent, NULL);
             }
@@ -363,13 +370,8 @@ static inline int isReqAllDone(const REQUEST_CONTEXT* pstReqCtx) {
 
 void eventEngineHandleWorkerResponse(
     EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstUdsIoCh,
-    const unsigned char* data, int iLen)
+    int iReqId, const unsigned char* data, int iLen)
 {
-    unsigned int iReqId;
-    if (iLen < (int)sizeof(unsigned int))
-        return;
-
-    memcpy(&iReqId, data + iLen, sizeof(unsigned int));
     fprintf(stderr,"### %s():%d Request ID : %d###\n",__func__,__LINE__, iReqId);
     REQUEST_CONTEXT* pstReqCtx = eventEngineFindReq(pstEventEngine, iReqId);
     if (!pstReqCtx)

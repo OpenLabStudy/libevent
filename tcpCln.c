@@ -247,11 +247,11 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
             fprintf(stderr, "[TCP-CLI] 잘못된 값입니다.\n");
             return;
         }
-
+        //f0 f0 00 00 00 18 10 b1 00 00 04 3f f1 f7 ce d9 16 87 2b 40 02 91 68 72 b0 20 c5 9d ff ff 
         REQ_POSITIONER_AZ_EL_SET stReqPositionAzElSet;
         memset(&stReqPositionAzElSet, 0, sizeof(stReqPositionAzElSet));
-        snprintf(stReqPositionAzElSet.chAzimuthDeg,  sizeof(stReqPositionAzElSet.chAzimuthDeg),  "%.3f", az);
-        snprintf(stReqPositionAzElSet.chElevationDeg,sizeof(stReqPositionAzElSet.chElevationDeg),"%.3f", el);
+        endianChange1(az, stReqPositionAzElSet.chAzimuthDeg);
+        endianChange1(el, stReqPositionAzElSet.chElevationDeg);        
         eErr = makeRequestFrame(CMD_POSITIONER_AZ_EL_SET, &stMsgId, &stReqPositionAzElSet, auSendBuf);
         break;
     }
@@ -322,6 +322,8 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
     }
 
     case 8: {
+        //f0 f0 00 00 00 10 10 b1 00 00 10 00 00 00 0c 00 00 00 62 3f ff ff 06 00 00 00 
+        //0.123, 0.987
         fprintf(stderr,"[TCP-CLI] REQ_AZ_EL_OFFSET_SET\n");
         double az = 0.0, el = 0.0;
         fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
@@ -332,8 +334,8 @@ static void stdinReadCb(int iFd, short nEvents, void* pvData)
         fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
 
         REQ_AZ_EL_OFFSET_SET stReqAzElOffsetSet;
-        stReqAzElOffsetSet.iAzOffset = (int)(az * 100.0);
-        stReqAzElOffsetSet.iElOffset = (int)(el * 100.0);
+        stReqAzElOffsetSet.iAzOffset = htonl((int)(az * 100.0));
+        stReqAzElOffsetSet.iElOffset = htonl((int)(el * 100.0));
         fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);
         eErr = makeRequestFrame(CMD_AZ_EL_OFFSET_SET, &stMsgId, &stReqAzElOffsetSet, auSendBuf);
         fprintf(stderr,"### %s():%d ###\n", __func__, __LINE__);

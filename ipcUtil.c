@@ -89,19 +89,10 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
-    case CMD_POSITIONER_AZ_EL_SET: {
-        
+    case CMD_POSITIONER_AZ_EL_SET: {        
         const REQ_POSITIONER_AZ_EL_SET* pstReqPositionerAzElSet = (const REQ_POSITIONER_AZ_EL_SET*)pReqPayload;
         pstCmdCtx->u.stPositionerAzElSet.dAz = endianChange(pstReqPositionerAzElSet->chAzimuthDeg);
-        pstCmdCtx->u.stPositionerAzElSet.dEl = endianChange(pstReqPositionerAzElSet->chElevationDeg);
-        fprintf(stderr," ### %s():%d AZ=%.2f EL=%.2f ###\n", __func__, __LINE__,
-                pstCmdCtx->u.stPositionerAzElSet.dAz, pstCmdCtx->u.stPositionerAzElSet.dEl);
-        fprintf(stderr,"\n");
-        for(int i=1; i<=34; i++){
-            if(i&16 == 0)
-                fprintf(stderr,"\n");
-            fprintf(stderr,"%02x ", pReqPayload[i-1]);
-        }  
+        pstCmdCtx->u.stPositionerAzElSet.dEl = endianChange(pstReqPositionerAzElSet->chElevationDeg);          
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
@@ -155,16 +146,21 @@ void sendUdsResponse(IO_CHANNEL* pstUdsIo, unsigned short unCmd, unsigned int ui
         memcpy(aucPayload, pPayload, (uiPayloadMax > sizeof(aucPayload)) ? sizeof(aucPayload) : uiPayloadMax);
     }
 
-    MSG_ID stMsgId;
-    ipcBuildMsgIdFromWorker(pstUdsIo->iWorkerId, &stMsgId);
-    makeResponseFrame(unCmd, &stMsgId, aucPayload, aucSendBuf);
-    unsigned int uiFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+    // MSG_ID stMsgId;
+    // ipcBuildMsgIdFromWorker(pstUdsIo->iWorkerId, &stMsgId);
+    // makeResponseFrame(unCmd, &stMsgId, aucPayload, aucSendBuf);
+    // unsigned int uiFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+    unsigned int uiFrameSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
 
     /* append reqId */
-    memcpy(aucSendBuf + uiFrameSize, &uiReqId, sizeof(unsigned int));
+    // memcpy(aucSendBuf + uiFrameSize, &uiReqId, sizeof(unsigned int));
 
     /* queue */
-    evbuffer_add(pstUdsIo->pstWriteBuffer, aucSendBuf, uiFrameSize + sizeof(unsigned int));
+    evbuffer_add(pstUdsIo->pstWriteBuffer, &unCmd, sizeof(unsigned short));
+    evbuffer_add(pstUdsIo->pstWriteBuffer, pPayload, uiFrameSize);
+    evbuffer_add(pstUdsIo->pstWriteBuffer, &uiReqId, sizeof(unsigned int));
+    fprintf(stderr, "[IPC] send UDS response CMD=0x%04X, REQ ID=%u, frame size=%u\n",
+            unCmd, uiReqId, uiFrameSize + (unsigned int)sizeof(unsigned int));
     event_add(pstUdsIo->pstWriteEvent, NULL);
 }
 

@@ -184,23 +184,20 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx
     if (!pstCtx || !pstCmdCtx ||!pstUdsIo ||!pstCtx->pstUartIo)
         return -1;
 
-    fprintf(stderr, "### %s():%d %d ###\n", __func__, __LINE__, pstCtx->eState);
     if (pstCtx->eState != ACU_STATE_IDLE) {
         return -1;
     }
 
-    fprintf(stderr, "### %s():%d ###\n", __func__, __LINE__);
     if (pstCtx->stPending.bInUse) {
         return -1;
     }
 
-    fprintf(stderr, "### %s():%d ###\n", __func__, __LINE__);
 
     if(pstCtx->iIsUartAlive == 0){
+        //UART가 정상적으로 연결되었는지 확인 필요
         fprintf(stderr, "[ACU] UART not alive, cannot send CMD=0x%04X\n", pstCmdCtx->unCmd);
         return -1;
     }
-    fprintf(stderr, "### %s():%d ###\n", __func__, __LINE__);
 
     unsigned char aucFrame[256];
     unsigned int  uiFrameLen = 0;
@@ -208,7 +205,7 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx
     if (buildAcuUartFrame(pstCmdCtx, aucFrame, &uiFrameLen) < 0 || uiFrameLen == 0) {
         return -1;
     }
-    fprintf(stderr, "### %s():%d ###\n", __func__, __LINE__);
+    fprintf(stderr, "\n### %s():%d ###\n", __func__, __LINE__);
 
     /* pending 등록 */
     pstCtx->stPending.bInUse   = 1;
@@ -350,6 +347,10 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
         break;
 
     case CMD_AZ_EL_OFFSET_SET:
+    //f0 f0 00 00 00 10 10 b1 00 00 10 00 00 00 14 00 00 00 17 fc ff ff 01 00 00 00
+    //0.2, 0.23
+    //f0 f0 00 00 00 10 10 b1 00 00 10 00 00 00 0c 00 00 00 62 3f ff ff 02 00 00 00 
+    //0.123, 0.987
         fprintf(stderr, "ACU AZ Offset=%.2f EL Offset=%.2f\n",
             ((double)pstCmdCtx->u.stAzElOffsetSet.iAzOffset) / 100.0,
             ((double)pstCmdCtx->u.stAzElOffsetSet.iElOffset) / 100.0);
@@ -411,6 +412,12 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
             fprintf(stderr, "Recv Size is %d\n", iRecvLen);
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
+            fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
+            for(int i=1; i<=iCopyLen; i++){
+                if(i&16 == 0)
+                    fprintf(stderr,"\n");
+                fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
+            }
             /* frameDecode에 대한 처리가 완전한지 확인 필요*/
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK)

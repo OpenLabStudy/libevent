@@ -71,9 +71,8 @@ void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChan
 
 void eventEngineHandleRequest(int iFd, short nEvent, void* pvData);
 
-void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine,
-                                    IO_CHANNEL* pstIoChannel,
-                                    const unsigned char* puchData, int iLen);
+void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel,
+                                    int iReqId, const unsigned char* puchData, int iLen);
 
 #ifdef __cplusplus
 }

@@ -14,15 +14,49 @@
 double endianChange(char* i_chData)
 {
 	int i;
-	double dValue;
+	double dValue=0.0;
 	char chChangeEndian[8];
+	fprintf(stderr,"### endianChange() ###\n");
 	for(i=0; i<8; i++){
+		fprintf(stderr,"i_chData[%d]: %02X\n", i, (unsigned char)i_chData[i]);
 		chChangeEndian[7-i] = i_chData[i];
-	}
-	memset((void*)&dValue, 0x0, sizeof(double));
+	}	
 	memcpy((void*)&dValue, chChangeEndian, sizeof(double));
+	fprintf(stderr,"### Changed Endian Value: %lf ###\n", dValue);
 	return dValue;
 }
+
+void endianChange1(double dValue, char* pchData)
+{
+	int i;
+	char chChangeEndian[8];
+	memcpy(chChangeEndian, (void*)&dValue, sizeof(double));
+	fprintf(stderr,"### endianChange() ###\n");
+	for(i=0; i<8; i++){
+		pchData[7-i] = chChangeEndian[i];
+		fprintf(stderr,"pchData[%d]: %02X\n", i, (unsigned char)chChangeEndian[i]);
+	}	
+}
+
+double swapDouble(char* i_chData)
+{
+    uint64_t x;
+    memcpy(&x, i_chData, 8);
+
+    x = ((x & 0x00000000000000FFULL) << 56) |
+        ((x & 0x000000000000FF00ULL) << 40) |
+        ((x & 0x0000000000FF0000ULL) << 24) |
+        ((x & 0x00000000FF000000ULL) << 8 ) |
+        ((x & 0x000000FF00000000ULL) >> 8 ) |
+        ((x & 0x0000FF0000000000ULL) >> 24) |
+        ((x & 0x00FF000000000000ULL) >> 40) |
+        ((x & 0xFF00000000000000ULL) >> 56);
+
+    double out;
+    memcpy(&out, &x, 8);
+    return out;
+}
+
 
 /**
  * @brief Keep-Alive 명령 처리 (통신 활성 여부 확인)
