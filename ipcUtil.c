@@ -89,7 +89,9 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
-    case CMD_POSITIONER_AZ_EL_SET: {        
+    case CMD_POSITIONER_AZ_EL_SET: {
+        fprintf(stderr, "### %s():%d ACU MODE=%d ###\n", __func__, __LINE__, pstCmdCtx->u.stAcuMode.chAcuMode);
+        fprintf(stderr,"iAzOffset:%d, iElOffset:%d\n", pstCmdCtx->u.stAzElOffsetSet.iAzOffset, pstCmdCtx->u.stAzElOffsetSet.iElOffset);
         const REQ_POSITIONER_AZ_EL_SET* pstReqPositionerAzElSet = (const REQ_POSITIONER_AZ_EL_SET*)pReqPayload;
         pstCmdCtx->u.stPositionerAzElSet.dAz = endianChange(pstReqPositionerAzElSet->chAzimuthDeg);
         pstCmdCtx->u.stPositionerAzElSet.dEl = endianChange(pstReqPositionerAzElSet->chElevationDeg);          
@@ -111,8 +113,10 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
     }
     case CMD_AZ_EL_OFFSET_SET: {
         const REQ_AZ_EL_OFFSET_SET* pstReqAzElOffsetSet = (const REQ_AZ_EL_OFFSET_SET*)pReqPayload;
-        pstCmdCtx->u.stAzElOffsetSet.iAzOffset = pstReqAzElOffsetSet->iAzOffset;
-        pstCmdCtx->u.stAzElOffsetSet.iElOffset = pstReqAzElOffsetSet->iElOffset;
+        pstCmdCtx->u.stAzElOffsetSet.iAzOffset = ntohl(pstReqAzElOffsetSet->iAzOffset);
+        pstCmdCtx->u.stAzElOffsetSet.iElOffset = ntohl(pstReqAzElOffsetSet->iElOffset);
+        fprintf(stderr,"iAzOffset:%d, iElOffset:%d\n", pstReqAzElOffsetSet->iAzOffset, pstReqAzElOffsetSet->iElOffset);
+        fprintf(stderr,"iAzOffset:%d, iElOffset:%d\n", pstCmdCtx->u.stAzElOffsetSet.iAzOffset, pstCmdCtx->u.stAzElOffsetSet.iElOffset);
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
@@ -163,4 +167,3 @@ void sendUdsResponse(IO_CHANNEL* pstUdsIo, unsigned short unCmd, unsigned int ui
             unCmd, uiReqId, uiFrameSize + (unsigned int)sizeof(unsigned int));
     event_add(pstUdsIo->pstWriteEvent, NULL);
 }
-
