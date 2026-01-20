@@ -502,9 +502,10 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 
     netSetNonblock(iClientSock);
 
-    eventSourceCreateWithBev(pstEventEngine, iClientSock,
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iClientSock,
         TYPE_TCP_SVR, ROLE_REQUESTER,
         NULL, NULL, sensorFusionRead);
+    pstNewIo->chFdCloseSet =  FD_OPENED;
 }
 
 
@@ -542,6 +543,7 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)// Tra
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, commandEventCb);
+    pstNewIo->chFdCloseSet =  FD_OPENED;
     if (!pstNewIo) {
         close(iSock);
         return;
@@ -575,6 +577,7 @@ static void uds3ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)//ACU 
         close(iSock);
         return;
     }
+    pstNewIo->chFdCloseSet =  FD_OPENED;
     pstNewIo->iWorkerId = UDS_3_SENSOR_FUSION;
 }
 

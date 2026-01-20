@@ -41,6 +41,11 @@ typedef enum {
     IO_EVT_ERROR
 } IO_EVENT_TYPE;
 
+typedef enum {
+    FD_CLOSED = 0,
+    FD_OPENED
+} FD_STATE;
+
 
 typedef struct _IO_CHANNEL {
     int                 iFd;

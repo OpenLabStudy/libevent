@@ -194,8 +194,6 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-
-
 /* ============================================================
 * Accept 콜백
 * ============================================================ */
@@ -228,11 +226,13 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
                     TYPE_TCP_SVR, ROLE_REQUESTER,
                     NULL, tcpWriteCallback, tcpIoChannelHandleEvent);
             pstIoChannel->iWorkerId = UDS_1_SVR_ID;
+            pstIoChannel->chFdCloseSet = FD_OPENED;
         } else if (stSockAddrStorage.ss_family == AF_UNIX) {
             fprintf(stderr, "[UDS-SVR] New client FD=%d\n", iClientSock);
             pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_UDS_SVR, ROLE_WORKER,
                     NULL, NULL, udsIoChannelHandleEvent);
+            pstIoChannel->chFdCloseSet = FD_OPENED;
             REQ_ID stReqId;
             MSG_ID stMsgId = { UDS_1_SVR_ID,  UDS_1_SENSOR_FUSION|UDS_1_ACU_CONTROLLER};
             unsigned char auSendBuf[64];            

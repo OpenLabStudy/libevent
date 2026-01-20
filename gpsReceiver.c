@@ -157,6 +157,7 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
             NULL, NULL, ioChannelHandleEvent);
 
     pstNewIo->iWorkerId = UDS_2_GPS_RECEIVER;
+    pstNewIo->chFdCloseSet =  FD_OPENED;
 
     /* worker register */
     ipcSendWorkerRegister(pstNewIo, WORKER_IMU);

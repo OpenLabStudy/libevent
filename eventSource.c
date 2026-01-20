@@ -13,7 +13,7 @@ void readCallback(int iFd, short nEvent, void* pvData)
     unsigned char auchRecvBuffer[2048];
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
 
-    if (pstIoChannel->chFdCloseSet == 0x01)
+    if (pstIoChannel->chFdCloseSet == FD_CLOSED)
         return;
 
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
@@ -21,13 +21,13 @@ void readCallback(int iFd, short nEvent, void* pvData)
     if (iReadSize == 0) {
         /* ===== 상대 정상 종료 ===== */
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
-        pstIoChannel->chFdCloseSet = 0x01;
+        pstIoChannel->chFdCloseSet = FD_CLOSED;
     }else if (iReadSize < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return;   /* 아무 이벤트도 발생시키지 않음 */
         }
         /* ===== 에러 ===== */
-        pstIoChannel->chFdCloseSet = 0x01;
+        pstIoChannel->chFdCloseSet = FD_CLOSED;
         pstIoChannel->ePendingLogicEvent = IO_EVT_ERROR;
     }else{        
         pstIoChannel->ePendingLogicEvent = IO_EVT_RX_DATA;
@@ -116,7 +116,7 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
         return NULL;
 
     pstIoChannel->iFd                   = iFd;
-    pstIoChannel->chFdCloseSet          = 0x00;
+    pstIoChannel->chFdCloseSet          = FD_CLOSED;
     pstIoChannel->iWorkerId             = 0;
     pstIoChannel->eType                 = eType;
     pstIoChannel->eRole                 = eRole;

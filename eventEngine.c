@@ -252,6 +252,71 @@ void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
     eventEngineFreeReq(pstReqCtx);
 }
 
+/* =========================================================
+* REQUEST_CONTEXT 생성
+* ========================================================= */
+void makeRequest(REQUEST_CONTEXT* pstReq, PROCESS_PATH eProcPath, EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstRequester)
+{
+    pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
+    if (!pstReq)
+        return;
+
+    pstReq->uiRequestId     = pstEventEngine->uiRequestSeq++;
+    pstReq->pstTcpIoChannel = pstRequester;
+    pstReq->uiExpectedMask  = 0;
+    pstReq->uiReceivedMask  = 0;
+    pstReq->iFinalizeQueued = 0;
+    pstReq->iTimedOut       = 0;
+    pstReq->unCmd          = 0; // TODO: 프레임에서 cmd 추출하여 저장 auchBuf
+    /* === ADD: finalize event 생성 === */
+    pstReq->pstFinalizeEvent = event_new(pstEventEngine->pstEventBase, -1, 0,
+        eventEngineFinalizeRequestCb, pstReq );
+    if (!pstReq->pstFinalizeEvent) {
+        free(pstReq);
+        pstReq = NULL;
+        return;
+    }        
+
+    /* =========================================================
+        * Worker 대상 결정 (Fan-out 대상 계산)
+        * ========================================================= */
+    IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
+    while (pstIo) {
+        if (pstIo->eRole == ROLE_WORKER) {
+            int iWorkerId = pstIo->iWorkerId;
+            if (iWorkerId >= 0 && iWorkerId < WORKER_MAX && iWorkerId == eProcPath) {
+                pstReq->uiExpectedMask |= (1u << iWorkerId);
+            }
+        }
+        pstIo = pstIo->pstNextIoChannel;
+    }
+
+    /* Worker가 하나도 없으면 즉시 finalize 대상으로 넘겨도 됨 */
+    if (pstReq->uiExpectedMask == 0) {
+        /* 바로 finalize 큐에 넣는 것도 가능 */
+    }
+
+    /* =========================================================
+        * Timeout 이벤트 등록
+        * ========================================================= */
+    pstReq->pstTimeoutEvent = evtimer_new(
+        pstEventEngine->pstEventBase,
+        eventEngineReqTimeoutCb,
+        pstReq);
+
+    struct timeval stTimeout = {
+        .tv_sec  = REQ_TIMEOUT_SEC,
+        .tv_usec = REQ_TIMEOUT_MSEC
+    };
+    evtimer_add(pstReq->pstTimeoutEvent, &stTimeout);
+
+    /* =========================================================
+        * Request 리스트에 연결
+        * ========================================================= */
+    pstReq->pstNextReqCtx = pstEventEngine->pstReqList;
+    pstEventEngine->pstReqList = pstReq;
+}
+
 /* ============================================================ */
 void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 {
@@ -261,6 +326,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstRequester = (IO_CHANNEL*)pvData;
     EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
     PROCESS_PATH eProcPath = PROCESS_UNKNOWN;
+    REQUEST_CONTEXT* pstReq = NULL;
 
     while (1) {
         if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(PROCESS_PATH))
@@ -280,72 +346,14 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
             fprintf(stderr,"%02x ", auchBuf[i-1]);
         }
         fprintf(stderr,"\n");
+        
+        makeRequest(pstReq, eProcPath, pstEventEngine, pstRequester);
+        
         /* =========================================================
-         * REQUEST_CONTEXT 생성
-         * ========================================================= */
-        REQUEST_CONTEXT* pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
-        if (!pstReq)
-            return;
-
-        pstReq->uiRequestId      = pstEventEngine->uiRequestSeq++;
-        pstReq->pstTcpIoChannel = pstRequester;
-        pstReq->uiExpectedMask  = 0;
-        pstReq->uiReceivedMask  = 0;
-        pstReq->iFinalizeQueued = 0;
-        pstReq->iTimedOut       = 0;
-        pstReq->unCmd          = 0; // TODO: 프레임에서 cmd 추출하여 저장 auchBuf
-        /* === ADD: finalize event 생성 === */
-        pstReq->pstFinalizeEvent = event_new(pstEventEngine->pstEventBase, -1, 0,
-            eventEngineFinalizeRequestCb, pstReq );
-        if (!pstReq->pstFinalizeEvent) {
-            free(pstReq);
-            return;
-        }        
-
-        /* =========================================================
-         * Worker 대상 결정 (Fan-out 대상 계산)
-         * ========================================================= */
+        * Fan-out: 모든 대상 Worker에게 전송
+        * ========================================================= */
         IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
-        while (pstIo) {
-            if (pstIo->eRole == ROLE_WORKER) {
-                int iWorkerId = pstIo->iWorkerId;
-                if (iWorkerId >= 0 && iWorkerId < WORKER_MAX && iWorkerId == eProcPath) {
-                    pstReq->uiExpectedMask |= (1u << iWorkerId);
-                }
-            }
-            pstIo = pstIo->pstNextIoChannel;
-        }
-
-        /* Worker가 하나도 없으면 즉시 finalize 대상으로 넘겨도 됨 */
-        if (pstReq->uiExpectedMask == 0) {
-            /* 바로 finalize 큐에 넣는 것도 가능 */
-        }
-
-        /* =========================================================
-         * Timeout 이벤트 등록
-         * ========================================================= */
-        pstReq->pstTimeoutEvent = evtimer_new(
-            pstEventEngine->pstEventBase,
-            eventEngineReqTimeoutCb,
-            pstReq);
-
-        struct timeval stTimeout = {
-            .tv_sec  = REQ_TIMEOUT_SEC,
-            .tv_usec = REQ_TIMEOUT_MSEC
-        };
-        evtimer_add(pstReq->pstTimeoutEvent, &stTimeout);
-
-        /* =========================================================
-         * Request 리스트에 연결
-         * ========================================================= */
-        pstReq->pstNextReqCtx = pstEventEngine->pstReqList;
-        pstEventEngine->pstReqList = pstReq;
-
-        /* =========================================================
-         * Fan-out: 모든 대상 Worker에게 전송
-         * ========================================================= */
-        pstIo = pstEventEngine->pstIoChannelList;
-        while (pstIo) {
+        while (pstIo && pstReq) {
             if (pstIo->eRole == ROLE_WORKER && pstIo->pstWriteBuffer && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))) {                    
                 if ((size_t)iFrameSize + sizeof(unsigned int) > sizeof(auchBuf))
                     continue;
