@@ -428,7 +428,7 @@ int run()
         printf("[TCP-CLI] event_base_new failed\n");
         return -1;
     }
-    eventEngineInit(&stEventEngine);
+    eventEngineInit(&stEventEngine, 0);
 
     /* ------------------- */
     /* TCP 연결            */

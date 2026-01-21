@@ -66,7 +66,6 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
             evbuffer_add(pstIoChannel->pstRequestBuffer, &eProcPath, sizeof(PROCESS_PATH));
             evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
             event_active(pstIoChannel->pstRequestEvent, 0, 0);
-
         }
         break;
     default:

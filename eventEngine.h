@@ -13,46 +13,40 @@ struct _REQUEST_CONTEXT;
 typedef struct _REQUEST_CONTEXT REQUEST_CONTEXT;
 typedef struct event_base       EVENT_BASE;
 
-/* ================================================================ */
-/* 요청 상태                                                         */
-/* ================================================================ */
-// 삭제 및 수정 필요
-typedef enum {
-    WORKER_NONE = 0,
-    WORKER_GPS,
-    WORKER_IMU,
-    WORKER_SP,
-    WORKER_EXTERN,
-    WORKER_SENSOR_FUSION,
-    WORKER_MAX
-} WORKER_ID;
+
 #define WORKER_MASK(id) (1u << (id))
 
+typedef struct _WORKER_INFO {
+    int                 iWorkerId;
+    struct evbuffer*    pstWorkerBuf;
+} WORKER_INFO;
 
 /* ============================================================
  * Request Context
  * ============================================================ */
 typedef struct _REQUEST_CONTEXT {
-    unsigned int uiRequestId;
-    IO_CHANNEL* pstTcpIoChannel;
+    unsigned int                uiRequestId;
+    IO_CHANNEL*                 pstTcpIoChannel;
 
-    unsigned int uiExpectedMask;
-    unsigned int uiReceivedMask;
+    unsigned int                uiExpectedMask;
+    unsigned int                uiReceivedMask;
 
-    unsigned short  unCmd;
+    unsigned short              unCmd;
+    unsigned int                uiWorkerCount;
 
-    struct evbuffer* apstWorkerBuf[WORKER_MAX];
+    WORKER_INFO*                pstWorkerInfoList;
 
     /* finalize 분리용 */
-    struct event* pstFinalizeEvent;
-    int iFinalizeQueued;
+    struct event*               pstFinalizeEvent;
+    int                         iFinalizeQueued;
 
     /* timeout용 */
-    struct event* pstTimeoutEvent;
-    int iTimedOut;
+    struct event*               pstTimeoutEvent;
+    int                         iTimedOut;
 
-    struct _REQUEST_CONTEXT* pstNextReqCtx;
+    struct _REQUEST_CONTEXT*    pstNextReqCtx;
 } REQUEST_CONTEXT;
+
 
 typedef struct _EVENT_ENGINE {
     struct event_base*  pstEventBase;
@@ -60,11 +54,12 @@ typedef struct _EVENT_ENGINE {
     REQUEST_CONTEXT*    pstReqList;
     struct event*       pstFlushEvent;
     unsigned int        uiRequestSeq;
+    unsigned int        uiMaxWorkers;
     void*               pvSharedData;
 } EVENT_ENGINE;
 
 /* API */
-void eventEngineInit(EVENT_ENGINE* pstEventEngine);
+void eventEngineInit(EVENT_ENGINE* pstEventEngine, unsigned int uiMaxWorkers);
 void eventEngineCleanup(EVENT_ENGINE* pstEventEngine);
 
 void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel);

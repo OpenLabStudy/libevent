@@ -154,7 +154,8 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     pstNewIo->chFdCloseSet =  FD_OPENED;
 
     /* worker register */
-    ipcSendWorkerRegister(pstNewIo, WORKER_IMU);
+    //todo ID 설정 필요
+    ipcSendWorkerRegister(pstNewIo, 2);
 }
 
 
@@ -182,7 +183,7 @@ int run(char* pchUartPath)
         fprintf(stderr, "[IMU-RX] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
-    eventEngineInit(&stEventEngine);
+    eventEngineInit(&stEventEngine, 0);
 
     /* UART open */
     if (uartOpen(&stUartCtx) < 0) {

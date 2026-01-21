@@ -38,8 +38,7 @@ typedef enum {
 
 typedef enum {
     PROCESS_UNKNOWN=0,
-    PROCESS_VIA_IPC_SENSOR_FUSION,
-    PROCESS_VIA_IPC_ACU_CTRL,
+    PROCESS_VIA_IPC_SINGLE,
     PROCESS_VIA_IPC_BRODCAST,
     PROCESS_LOCAL
 } PROCESS_PATH;
@@ -152,10 +151,6 @@ const char* frameErrToStr(FRAME_ERR eErr);
 /*  Processing Decision                                                       */
 /* ========================================================================== */
 
-/**
- * @brief CMD 기반 처리 경로 결정
- */
-PROCESS_PATH decideProcessingPath(unsigned char *puchRecvData);
 
 /* ========================================================================== */
 /*  Command Handler                                                           */

@@ -15,14 +15,11 @@ void ioIgnoreSigpipeOnce(void)
 int ioIsChannelAlive(const IO_CHANNEL* pstIoChannel)
 {
     if (!pstIoChannel) 
+        return 0; 
+    if (pstIoChannel->chFdCloseSet == FD_CLOSED) 
         return 0;
-        
-    if (pstIoChannel->chFdCloseSet == 0x01) 
-        return 0;
-    
     if (pstIoChannel->iFd < 0) 
         return 0;
-        
     return 1;
 }
 

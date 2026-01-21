@@ -618,40 +618,7 @@ FRAME_ERR getCmdFromFrame(unsigned char *puchData,
     return FRAME_OK;
 }
 
-/* ========================================================================== */
-/*  Processing Path Decision                                                  */
-/* ========================================================================== */
 
-PROCESS_PATH decideProcessingPath(unsigned char *puchRecvData)
-{
-    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchRecvData;
-    unsigned short unCmd = ntohs(pstHeader->unCmd);
-
-    switch (unCmd) {        
-        case CMD_TIME_SYNQ_CHECK:
-        case CMD_TIME_SYNQ_SET:
-        case CMD_KEEP_ALIVE:
-            return PROCESS_LOCAL;
-        
-        case CMD_TRACKING_SELECT:
-        case CMD_TRACKING_CONTROL:
-            return PROCESS_VIA_IPC_SENSOR_FUSION;
-
-        case CMD_POSITIONER_AZ_EL_SET:
-        case CMD_POSITIONER_DEG_SEND:
-        case CMD_ACU_MODE_SELECT:
-        case CMD_AZ_EL_OFFSET_SET:
-            return PROCESS_VIA_IPC_ACU_CTRL;
-
-        case CMD_IBIT:
-        case CMD_RBIT:
-        case CMD_CBIT:
-            return PROCESS_VIA_IPC_BRODCAST;
-
-        default:
-            return PROCESS_UNKNOWN;
-    }
-}
 
 /* ========================================================================== */
 /*  Command Handler                                                           */

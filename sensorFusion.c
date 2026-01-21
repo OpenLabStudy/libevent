@@ -20,7 +20,7 @@
 
 #include "eventEngine.h"
 #include "ipcUtil.h"
-
+#include "processIdInfo.h"
 
 typedef struct {
     char            chValid;
@@ -263,12 +263,16 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
         break;
 
     case CMD_TRACKING_CONTROL:
-            fprintf(stderr, "Tracking %s\n", pstCmdCtx->u.stTrackingControl.chTrackingStartStop == TRACKING_START ? "START" : "STOP");
+        fprintf(stderr, "Tracking %s\n", pstCmdCtx->u.stTrackingControl.chTrackingStartStop == TRACKING_START ? "START" : "STOP");
         pstSensorFusionCtx->stCommandState.chTrackingStartStop = pstCmdCtx->u.stTrackingControl.chTrackingStartStop;    
         ((RES_AZ_EL_OFFSET_SET*)aucPayload)->chResult = (char)RESP_OK;
         sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
         break; 
-
+    case CMD_ID_INFO:
+        pstSensorFusionCtx->stCommandState.chTrackingStartStop = pstCmdCtx->u.stTrackingControl.chTrackingStartStop;    
+        ((RES_ID*)aucPayload)->chResult = (char)pstUdsIo->iWorkerId;
+        sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
+        break; 
     default:
         fprintf(stderr, "[ACU] Unsupported CMD\n");
         break;
@@ -603,7 +607,7 @@ int run(void)
     }
 
     /* Dispatcher 초기화 */
-    eventEngineInit(&stEventEngine);
+    eventEngineInit(&stEventEngine, 0);
     /* shared context는 여기서 1회만 생성 */
     SENSOR_FUSION_CTX* pstSensorFusionCtx = calloc(1, sizeof(SENSOR_FUSION_CTX));
     stEventEngine.pvSharedData = pstSensorFusionCtx;
@@ -616,10 +620,10 @@ int run(void)
                   uds1ReconnectCb, &stEventEngine);
     event_add(pstUds1RetryEvent, &stRertyTimeOut);
 
-    pstUds3RetryEvent = event_new(stEventEngine.pstEventBase,
-                  -1, EV_PERSIST | EV_TIMEOUT,
-                  uds3ReconnectCb, &stEventEngine);
-    event_add(pstUds3RetryEvent, &stRertyTimeOut);
+    // pstUds3RetryEvent = event_new(stEventEngine.pstEventBase,
+    //               -1, EV_PERSIST | EV_TIMEOUT,
+    //               uds3ReconnectCb, &stEventEngine);
+    // event_add(pstUds3RetryEvent, &stRertyTimeOut);
 
 
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
