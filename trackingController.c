@@ -204,7 +204,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             evbuffer_remove(pstIoChannel->pstReadBuffer, &iReqId, sizeof(unsigned int));                                
             if(unCmd == CMD_ID_INFO){
                 //CMD_ID_INFO
-                pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer);
+                pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer+sizeof(unCmd));
                 fprintf(stderr,"ID is %d\n", pstIoChannel->iWorkerId);
             }else{
                 fprintf(stderr,"ReqID is %d Cmd is %d\n", iReqId, unCmd);

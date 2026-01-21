@@ -263,8 +263,7 @@ void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
 * REQUEST_CONTEXT 생성
 * ========================================================= */
 REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstRequester)
-{
-    int iWorkerIndex=0;
+{    
     REQUEST_CONTEXT* pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
     if (!pstReq)
         return;
@@ -298,15 +297,16 @@ REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, 
     * Worker 대상 결정 (Fan-out 대상 계산)
     * ========================================================= */
     IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
+    int iWorkerIndex=0;
     while (pstIo) {
-        if (pstIo->eRole == ROLE_WORKER) {
-            fprintf(stderr,"### %s():%d  %d:%d:%d ###\n", __func__,__LINE__, iWorkerIndex, pstIo->iWorkerId, iUdsId);
+        if (pstIo->eRole == ROLE_WORKER) {            
             int iWorkerId = pstIo->iWorkerId;
-            if(iWorkerId == (iUdsId && iWorkerId)){
+            if(iWorkerId == (iUdsId & iWorkerId)){
+                fprintf(stderr,"### %s():%d  %d:%d:%d ###\n", __func__,__LINE__, iWorkerIndex, pstIo->iWorkerId, iUdsId);
                 pstReq->pstWorkerInfoList[iWorkerIndex].iWorkerId = iWorkerId;
                 pstReq->pstWorkerInfoList[iWorkerIndex].pstWorkerBuf = evbuffer_new();
                 pstReq->uiExpectedMask |= (1u << iWorkerId);
-                iWorkerIndex++;                
+                iWorkerIndex++;
             }
         }
         pstIo = pstIo->pstNextIoChannel;
@@ -370,12 +370,16 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         * ========================================================= */
         IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
         while (pstIo && pstReq) {
-            if (pstIo->eRole == ROLE_WORKER && pstIo->pstWriteBuffer && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))) {
-                /* requestId를 프레임 끝에 부착 */
-                evbuffer_add(pstIo->pstWriteBuffer, auchBuf, iFrameSize);
-                evbuffer_add(pstIo->pstWriteBuffer, &pstReq->uiRequestId, sizeof(unsigned int));
-                /* write 이벤트 트리거 */
-                event_add(pstIo->pstWriteEvent, NULL);
+            if (pstIo->eRole == ROLE_WORKER){
+                int iWorkerId = pstIo->iWorkerId;
+                if(iWorkerId == (iUdsId & iWorkerId) && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))){    
+                    fprintf(stderr,"### %s():%d  %d:%d ###\n", __func__,__LINE__, pstIo->iWorkerId, iUdsId);        
+                    /* requestId를 프레임 끝에 부착 */
+                    evbuffer_add(pstIo->pstWriteBuffer, auchBuf, iFrameSize);
+                    evbuffer_add(pstIo->pstWriteBuffer, &pstReq->uiRequestId, sizeof(unsigned int));
+                    /* write 이벤트 트리거 */
+                    event_add(pstIo->pstWriteEvent, NULL);
+                }
             }
             pstIo = pstIo->pstNextIoChannel;
         }

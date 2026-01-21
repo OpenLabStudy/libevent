@@ -20,7 +20,6 @@
 
 #include "eventEngine.h"
 #include "ipcUtil.h"
-#include "processIdInfo.h"
 
 typedef struct {
     char            chValid;
@@ -620,10 +619,10 @@ int run(void)
                   uds1ReconnectCb, &stEventEngine);
     event_add(pstUds1RetryEvent, &stRertyTimeOut);
 
-    // pstUds3RetryEvent = event_new(stEventEngine.pstEventBase,
-    //               -1, EV_PERSIST | EV_TIMEOUT,
-    //               uds3ReconnectCb, &stEventEngine);
-    // event_add(pstUds3RetryEvent, &stRertyTimeOut);
+    pstUds3RetryEvent = event_new(stEventEngine.pstEventBase,
+                  -1, EV_PERSIST | EV_TIMEOUT,
+                  uds3ReconnectCb, &stEventEngine);
+    event_add(pstUds3RetryEvent, &stRertyTimeOut);
 
 
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
