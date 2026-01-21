@@ -36,12 +36,7 @@ typedef enum {
     FRAME_TYPE_RESPONSE
 } FRAME_TYPE;
 
-typedef enum {
-    PROCESS_UNKNOWN=0,
-    PROCESS_VIA_IPC_SINGLE,
-    PROCESS_VIA_IPC_BRODCAST,
-    PROCESS_LOCAL
-} PROCESS_PATH;
+
 /* ========================================================================== */
 /*  Structures                                                                */
 /* ========================================================================== */

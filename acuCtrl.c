@@ -193,7 +193,7 @@ static void acuUartTimeoutCb(evutil_socket_t fd, short what, void* arg)
 /* Send UART + register pending                                                */
 /* ========================================================================== */
 static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx,
-                              IO_CHANNEL* pstUdsIo, unsigned int uiReqId)
+                              IO_CHANNEL* pstUdsIo, unsigned int uiReqId, unsigned char *puchUartSndData)
 {
     if (!pstCtx || !pstCmdCtx ||!pstUdsIo ||!pstCtx->pstUartIo)
         return -1;
@@ -211,32 +211,10 @@ static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx
         return -1;
     }
 
-    unsigned char aucFrame[256];
     unsigned int  uiFrameLen = 0;
-    memset(aucFrame, 0, sizeof(aucFrame));
-    if (buildAcuUartFrame(pstCtx, pstCmdCtx, aucFrame, &uiFrameLen) < 0 || uiFrameLen == 0) {
-        return -1;
-    }
-
-    /* pending 등록 */
-    pstCtx->stPending.bInUse   = 1;
-    pstCtx->stPending.unCmd    = pstCmdCtx->unCmd;
-    pstCtx->stPending.uiReqId  = uiReqId;
-    pstCtx->stPending.pstUdsIo = pstUdsIo;
-
-    /* UART write queue */
-    evbuffer_add(pstCtx->pstUartIo->pstWriteBuffer, aucFrame, uiFrameLen);
-    event_active(pstCtx->pstUartIo->pstWriteEvent, EV_WRITE, 0);
-
-    /* 200ms timeout start (reuse event) 응답이 없는경우 처리*/
-    if (pstCtx->pstTimeoutEvt) {
-        struct timeval tv = {0, 200 * 1000};
-        evtimer_del(pstCtx->pstTimeoutEvt);
-        evtimer_add(pstCtx->pstTimeoutEvt, &tv);
-    }
-
-    pstCtx->eState = ACU_STATE_WAIT_RESPONSE;
-    return 0;
+    memset(puchUartSndData, 0, sizeof(puchUartSndData));
+    
+    return uiFrameLen;
 }
 
 
@@ -419,11 +397,12 @@ static void acuAzElPollingCb(int iFd, short nEvent, void *pvData)
 //* ========================================================================== */
 /* ACU Command Execute                                                        */
 /* ========================================================================== */
-static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo, unsigned int uiReqId)
+static int executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo, unsigned int uiReqId, unsigned char *puchUartSndData)
 {
     EVENT_ENGINE* pstEngine = pstUdsIo->pstEventEngine;
     ACU_CTRL_CTX* pstCtx = (ACU_CTRL_CTX*)pstEngine->pvSharedData;
 
+    int iRetSize=0;
     unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
     memset(aucPayload, 0, sizeof(aucPayload));
     switch (pstCmdCtx->unCmd)
@@ -453,36 +432,18 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
         break;
 
     case CMD_POSITIONER_AZ_EL_SET:
-        fprintf(stderr, "[ACU] Sending CMD=0x%04X to UART\n", pstCmdCtx->unCmd);
-        if (acuSendUartAndPend(pstCtx, pstCmdCtx, pstUdsIo, uiReqId) < 0) {
-            /* busy or internal error => 즉시 실패 응답 */
-            if (pstCmdCtx->unCmd == CMD_POSITIONER_AZ_EL_SET){                
-                ((RES_POSITIONER_AZ_EL_SET*)aucPayload)->chResult = (char)RESP_OK;
-            } else {
-                ((RES_ACU_MODE*)aucPayload)->chResult = (char)RESP_OK;
-            }
-
-            sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
-        }
-        break;
     case CMD_ACU_MODE_SELECT:
-        fprintf(stderr, "[ACU] Sending CMD=0x%04X to UART\n", pstCmdCtx->unCmd);
-        if (acuSendUartAndPend(pstCtx, pstCmdCtx, pstUdsIo, uiReqId) < 0) {
-            /* busy or internal error => 즉시 실패 응답 */
-            if (pstCmdCtx->unCmd == CMD_POSITIONER_AZ_EL_SET){                
-                ((RES_POSITIONER_AZ_EL_SET*)aucPayload)->chResult = (char)RESP_OK;
-            } else {
-                ((RES_ACU_MODE*)aucPayload)->chResult = (char)RESP_OK;
-            }
-
-            sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
-        }
-        break;    
+    {
+        fprintf(stderr, "[ACU] Sending CMD=0x%04X to UART\n", pstCmdCtx->unCmd);        
+        buildAcuUartFrame(pstCtx, pstCmdCtx, puchUartSndData, &iRetSize);    
+        break;
+    }
 
     default:
         fprintf(stderr, "[ACU] Unsupported CMD\n");
         break;
     }
+    return iRetSize;
 }
 
 static void commandEventCb(int iFd, short nEvent, void *pvData)
@@ -539,28 +500,26 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
             }
             fprintf(stderr, "Recv CMD is %d\n", unCmd);
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
-
-            /* consume frame(+reqId) */
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + (int)sizeof(unsigned int));
-
-            unsigned int uiReqId = 0;
-            memcpy(&uiReqId, auchRecvBuffer + iFrameSize, sizeof(unsigned int));
-
-            /* parse payload -> IPC_CMD_CTX */
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            unsigned int uiReqId;
+            evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
+            
             if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
                 fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
-                /* 최소한의 즉시 실패 응답 */
+                //todo 실패시 처리 필요
                 sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
-                continue;
             }
-
-            /* execute command (immediate or deferred) */
-            executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId);
-
-            /* NOTE:
-             * - immediate cmd: executeIpcCommand() sends UDS response here
-             * - deferred cmd: UDS response will be sent in uartReadCallback() or timeout cb
-             */
+            unsigned char auchUartWriteData[256];
+            if(executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId, auchUartWriteData) > 0){
+                int iUdsId = ACU_UART;
+                evbuffer_add(pstIoChannel->pstRequestBuffer, &iUdsId, sizeof(int));
+                evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
+                event_active(pstIoChannel->pstRequestEvent, 0, 0);
+                
+                evbuffer_add(pstIoChannel->pstWriteBuffer, &uiReqId, sizeof(unsigned int));
+            }
+            //수신된 명령에 Requst ID가 포함되어 있으며, 응답을 전송할때 이 Requst ID를 응답 데이터 뒤에 붙여서 보내야 한다.
+            // 어떻게 Request Context를 생성시 이 Request ID정보를 알게하지?            
         }
         break;
     default:
