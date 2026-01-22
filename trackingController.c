@@ -90,6 +90,7 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
     unsigned char auchRecvBuffer[2048];
@@ -156,6 +157,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             } else if (iUdsId == UDS_1_SENSOR_FUSION || iUdsId == UDS_1_ACU_CONTROLLER || 
                 iUdsId == (UDS_1_SENSOR_FUSION|UDS_1_ACU_CONTROLLER)) {
                 /* === IPC 전달 (Fan-out 진입점) === */
+                pstEventEngine->uiRequestSeq++;
                 fprintf(stderr,"### %s():%d IPC Forwarding CMD:0x%04x Path:%d Copy Size:%d ###\n", __func__, __LINE__, unCmd, iUdsId, iFrameSize);
                 evbuffer_add(pstIoChannel->pstRequestBuffer, &iUdsId, sizeof(int));
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);

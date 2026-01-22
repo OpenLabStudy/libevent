@@ -37,31 +37,18 @@ typedef struct {
 /*  - "현재 1개 pending"만 처리 (필요시 큐로 확장)                            */
 /* ========================================================================== */
 typedef struct {
-    int             bInUse;
     unsigned short  unCmd;
     unsigned int    uiReqId;
-    IO_CHANNEL*     pstUdsIo;   /* 응답을 보낼 UDS 채널 */
 } ACU_PENDING_CMD;
 
 /* ========================================================================== */
 /* ACU CONTEXT (전역 대체)                                                     */
 /* ========================================================================== */
 typedef struct {
-    ACU_STATE        eState;
-    ACU_PENDING_CMD  stPending;
-
-    struct event*    pstTimeoutEvt; /* 200ms timer (reused) */
-    IO_CHANNEL*      pstUartIo;     /* UART IO channel */
-
-    int              iIsUartAlive;     /* 1: 정상, 0: 비정상 */
-
-    /* ============================= */
-    /* [ADDED] AZ/EL Polling 관련   */
-    /* ============================= */
-    int              iIsSendCommand;     // polling 명령 전송 중 여부
-    struct timeval   stLastAzElRxTime;         // 마지막 AZ/EL 수신 시간
-
-    COMMAND_STATE    stCommandState;
+    ACU_STATE           eState;
+    ACU_PENDING_CMD     stAcuPendingCmd;
+    struct timeval      stLastAzElRxTime;         // 마지막 AZ/EL 수신 시간
+    COMMAND_STATE       stCommandState;
 } ACU_CTRL_CTX;
 
 #define ACU_UART 0x0400
@@ -87,6 +74,7 @@ static int buildAcuUartFrame(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx,
             *pOutLen = readAzElFromAcu(pOut);
         break;
     }
+
     case CMD_POSITIONER_AZ_EL_SET: {
         fprintf(stderr, "\nACU Mode is %s\n",
             pstCtx->stCommandState.chAcuMode == POSITION ? "POSITION MODE" : "RATE MODE");
@@ -98,6 +86,7 @@ static int buildAcuUartFrame(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx,
         }
         break;
     }
+
     case CMD_ACU_MODE_SELECT:
         fprintf(stderr, "\nACU Mode Change to %s\n",
                 pstCmdCtx->u.stAcuMode.chAcuMode == POSITION ? "POSITION MODE" : "RATE MODE");
@@ -109,14 +98,13 @@ static int buildAcuUartFrame(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx,
                 fprintf(stderr,"\n");
             fprintf(stderr,"%02x ", pOut[i-1]);
         }
+        *pOutLen = iSendLen;
         break;
+
     default:
         break;
     }
-
-    /* checksum 등... */
-
-    *pOutLen = 16; /* 예시 */
+    fprintf(stderr,"### %s():%d %d ###\n",__func__,__LINE__,*pOutLen);
     return 0;
 }
 
@@ -140,83 +128,56 @@ static unsigned char parseAcuUartResponse(const unsigned char* pBuf, int iLen,
     return RESP_FAIL;
 }
 
-/* ========================================================================== */
-/* UART Timeout Callback (200ms)                                               */
-/*  - pending cmd에 대해 TIMEOUT 응답 전송                                    */
-/* ========================================================================== */
-static void acuUartTimeoutCb(evutil_socket_t fd, short what, void* arg)
+
+static int findCrLf(const unsigned char *puchBuf, int iBufLen)
 {
-    (void)fd; (void)what;
+    int i;
 
-    ACU_CTRL_CTX* pstCtx = (ACU_CTRL_CTX*)arg;
-    if (!pstCtx)
-        return;
-
-    if (pstCtx->eState != ACU_STATE_WAIT_RESPONSE || !pstCtx->stPending.bInUse) {
-        return;
+    for (i = 0; i < iBufLen - 1; i++) {
+        if (puchBuf[i] == 0x0D && puchBuf[i + 1] == 0x0A) {
+            return i+2;   // 0x0A 위치 반환
+        }
     }
 
-    fprintf(stderr, "[ACU] UART TIMEOUT CMD=0x%04X\n", pstCtx->stPending.unCmd);
-
-    /* build payload with TIMEOUT */
-    unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
-    memset(aucPayload, 0, sizeof(aucPayload));
-
-    switch (pstCtx->stPending.unCmd) {
-    case CMD_POSITIONER_AZ_EL_SET:
-        ((RES_POSITIONER_AZ_EL_SET*)aucPayload)->chResult = (char)RESP_TIMEOUT;
-        break;
-    case CMD_ACU_MODE_SELECT:
-        ((RES_ACU_MODE*)aucPayload)->chResult = (char)RESP_TIMEOUT;
-        break;
-    default:
-        /* not expected */
-        break;
-    }
-
-    /* send UDS response now */
-    sendUdsResponse(pstCtx->stPending.pstUdsIo, pstCtx->stPending.unCmd, 
-                       pstCtx->stPending.uiReqId, aucPayload, sizeof(aucPayload));
-
-    /* clear pending */
-    pstCtx->stPending.bInUse = 0;
-    pstCtx->stPending.unCmd = 0;
-    pstCtx->stPending.uiReqId = 0;
-    pstCtx->stPending.pstUdsIo = NULL;
-
-    pstCtx->eState = ACU_STATE_IDLE;
-    pstCtx->iIsUartAlive = 0;
+    return -1;  // 못 찾은 경우
 }
 
-
-/* ========================================================================== */
-/* Send UART + register pending                                                */
-/* ========================================================================== */
-static int acuSendUartAndPend(ACU_CTRL_CTX* pstCtx, const IPC_CMD_CTX* pstCmdCtx,
-                              IO_CHANNEL* pstUdsIo, unsigned int uiReqId, unsigned char *puchUartSndData)
+static void uartWriteCallback(int iFd, short nEvent, void *pvData)
 {
-    if (!pstCtx || !pstCmdCtx ||!pstUdsIo ||!pstCtx->pstUartIo)
-        return -1;
-
-    if (pstCtx->eState != ACU_STATE_IDLE) {
-        return -1;
+    (void)nEvent;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    unsigned char auchWriteEvBuffer[2048];
+    unsigned char auchUartWriteData[2048];
+    unsigned int uiReqId;
+    int iTotalSize, iWriteSize;
+    iTotalSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
+    if (iTotalSize == 0) {
+        event_del(pstIoChannel->pstWriteEvent);
+        return;
     }
-
-    if (pstCtx->stPending.bInUse) {
-        return -1;
+    iTotalSize = evbuffer_copyout(pstIoChannel->pstWriteBuffer, auchWriteEvBuffer, iTotalSize);    
+    iWriteSize = findCrLf(auchWriteEvBuffer, iTotalSize);
+    if(iWriteSize > 0){
+        evbuffer_remove(pstIoChannel->pstWriteBuffer, auchUartWriteData, iWriteSize);
+        evbuffer_remove(pstIoChannel->pstWriteBuffer, &uiReqId, iTotalSize - iWriteSize);
+        fprintf(stderr,"### TotalSize is %d, ACU Write Size is %d [Req ID%d]###\n", iTotalSize, iWriteSize, uiReqId);
+        
+        iWriteSize = write(pstIoChannel->iFd, auchUartWriteData, iWriteSize);
+        if (iWriteSize <= 0) {
+            perror("write");
+            return;
+        }
+        fprintf(stderr,"\n");
+        fprintf(stderr,"### %s():%d Write Size:%d ###\n", __func__,__LINE__, iWriteSize);
+        for(int i=1; i<=iWriteSize; i++){
+            if(i&16 == 0)
+                fprintf(stderr,"\n");
+            fprintf(stderr,"%02x ", auchWriteEvBuffer[i-1]);
+        }  
+        fprintf(stderr,"\n");
+        event_del(pstIoChannel->pstWriteEvent);
     }
-
-    if(pstCtx->iIsUartAlive == 0){
-        fprintf(stderr, "[ACU] UART not alive, cannot send CMD=0x%04X\n", pstCmdCtx->unCmd);
-        return -1;
-    }
-
-    unsigned int  uiFrameLen = 0;
-    memset(puchUartSndData, 0, sizeof(puchUartSndData));
-    
-    return uiFrameLen;
 }
-
 
 /* ========================================================================== */
 /* UART Read Callback (응답 수신)                                              */
@@ -234,74 +195,74 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
     ACU_CTRL_CTX* pstCtx = (ACU_CTRL_CTX*)pstEngine->pvSharedData;
 
     unsigned char aucUartBuf[2048];
-
+    int iFrameSize = 0;
     switch (eEventType)
     {
     case IO_EVT_RX_DATA: {
-        pstCtx->iIsUartAlive = 1;
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        pstUartIo->chFdCloseSet = FD_OPENED;
         int iLen = evbuffer_remove(pstUartIo->pstReadBuffer, aucUartBuf, sizeof(aucUartBuf));
+        fprintf(stderr,"### %s():%d %d###\n",__func__,__LINE__, iLen);
         if (iLen <= 0)
             break;
 
-        fprintf(stderr, "[ACU] UART RX %d bytes\n", iLen);
+        fprintf(stderr, "[ACU] UART RX %d bytes, Request ID %d, CMD is %04X\n", 
+            iLen, pstCtx->stAcuPendingCmd.uiReqId, pstCtx->stAcuPendingCmd.unCmd);
 
         /* pending 없으면 버리고 끝 */
-        if (!pstCtx->stPending.bInUse || pstCtx->eState != ACU_STATE_WAIT_RESPONSE) {
-            fprintf(stderr, "[ACU] UART RX but no pending bInUse:%d eState:%d\n", pstCtx->stPending.bInUse, pstCtx->eState);
-            break;
-        }
-
-        /* timeout stop */
-        if (pstCtx->pstTimeoutEvt) {
-            evtimer_del(pstCtx->pstTimeoutEvt);
-        }
+        // if (pstCtx->eState != ACU_STATE_WAIT_RESPONSE) {
+        //     fprintf(stderr, "[ACU] UART RX but no pending eState:%d\n", pstCtx->eState);
+        //     break;
+        // }
 
         /* parse response -> OK/FAIL */
-        unsigned char ucResult = parseAcuUartResponse(aucUartBuf, iLen, pstCtx->stPending.unCmd);
+        unsigned char ucResult = parseAcuUartResponse(aucUartBuf, iLen, pstCtx->stAcuPendingCmd.unCmd);
 
         /* build payload and send UDS response */
         unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
         memset(aucPayload, 0, sizeof(aucPayload));
-
-        switch (pstCtx->stPending.unCmd) {
+        memcpy(aucPayload, &pstCtx->stAcuPendingCmd.unCmd, sizeof(unsigned short));
+        iFrameSize = getDataSize(pstCtx->stAcuPendingCmd.unCmd, FRAME_TYPE_RESPONSE);
+        switch (pstCtx->stAcuPendingCmd.unCmd) {
         case CMD_POSITIONER_AZ_EL_SET:
-            ((RES_POSITIONER_AZ_EL_SET*)aucPayload)->chResult = (ucResult == RESP_OK) ? 0x01 : 0x00;
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            ((RES_POSITIONER_AZ_EL_SET*)(aucPayload+sizeof(unsigned short)))->chResult = (ucResult == RESP_OK) ? 0x01 : 0x00;
+            memcpy(aucPayload+3, &pstEngine->uiRequestSeq, sizeof(unsigned int));         
             break;
         case CMD_ACU_MODE_SELECT:
-            ((RES_ACU_MODE*)aucPayload)->chResult = (ucResult == RESP_OK) ? 0x01 : 0x00;
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            ((RES_ACU_MODE*)(aucPayload+sizeof(unsigned short)))->chResult = (ucResult == RESP_OK) ? 0x01 : 0x00;
+            memcpy(aucPayload+3, &pstEngine->uiRequestSeq, sizeof(unsigned int));         
             break;
         case CMD_GET_AZ_EL_DATA:
         {
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             double dAz, dEl;
             char *chSplitData[8];
-            pstCtx->iIsSendCommand = 0;
             gettimeofday(&pstCtx->stLastAzElRxTime, NULL);
             int iSplitCnt = splitAcuDataString(aucUartBuf, ';', chSplitData, 2);
             if(iSplitCnt == 2){
                 dAz = atof(chSplitData[0]);
                 dEl = atof(chSplitData[1]);
                 fprintf(stderr,"ACU Current AZ EL Value is %.03lf, %.03lf\n", dAz, dEl);
-            }
-            
+            }            
         }
         break;
         default:
             break;
         }
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 
-        /* clear pending */
-        pstCtx->stPending.bInUse = 0;
-        pstCtx->stPending.unCmd = 0;
-        pstCtx->stPending.uiReqId = 0;
-        pstCtx->stPending.pstUdsIo = NULL;
+        eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
+                    pstCtx->stAcuPendingCmd.uiReqId, aucPayload, iFrameSize+5);
 
-        pstCtx->eState = ACU_STATE_IDLE;
-        break;
-    }
+    }    
+    pstCtx->eState = ACU_STATE_IDLE;
+    break;
 
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
-        pstCtx->iIsUartAlive = 0;
+        pstUartIo->chFdCloseSet = FD_CLOSED;
         fprintf(stderr, "[ACU] UART channel closed fd=%d\n", pstUartIo->iFd);
         event_active(pstUartIo->pstShutdownEvent, 0, 0);
         break;
@@ -318,25 +279,25 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
  * ============================================================ */
 static void uartAliveMonitorCb(int iFd, short nEvent, void *pvData)
 {
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-    (void)iFd;
-    (void)nEvent;
-    ACU_CTRL_CTX* pstCtx = pvData;
+    // fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    // (void)iFd;
+    // (void)nEvent;
+    // ACU_CTRL_CTX* pstCtx = pvData;
 
-    struct timeval now;
-    gettimeofday(&now, NULL);
+    // struct timeval now;
+    // gettimeofday(&now, NULL);
 
-    long diffMs =
-        (now.tv_sec  - pstCtx->stLastAzElRxTime.tv_sec) * 1000 +
-        (now.tv_usec - pstCtx->stLastAzElRxTime.tv_usec) / 1000;
+    // long diffMs =
+    //     (now.tv_sec  - pstCtx->stLastAzElRxTime.tv_sec) * 1000 +
+    //     (now.tv_usec - pstCtx->stLastAzElRxTime.tv_usec) / 1000;
 
-    if (diffMs >= ACU_UART_MONITORING_MSEC) {
-        if (pstCtx->iIsUartAlive) {
-            fprintf(stderr, "[ACU] AZ/EL polling timeout (%ld ms)\n", diffMs);
-        }
-        pstCtx->iIsUartAlive = 0;
-        pstCtx->iIsSendCommand = 0;
-    }
+    // if (diffMs >= ACU_UART_MONITORING_MSEC) {
+    //     if (pstCtx->iIsUartAlive) {
+    //         fprintf(stderr, "[ACU] AZ/EL polling timeout (%ld ms)\n", diffMs);
+    //     }
+    //     pstCtx->iIsUartAlive = 0;
+    //     pstCtx->iIsSendCommand = 0;
+    // }
 }
 
 /* ============================================================
@@ -405,6 +366,8 @@ static int executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo,
     int iRetSize=0;
     unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
     memset(aucPayload, 0, sizeof(aucPayload));
+    pstCtx->stAcuPendingCmd.unCmd = pstCmdCtx->unCmd;
+    pstCtx->stAcuPendingCmd.uiReqId = uiReqId;
     switch (pstCmdCtx->unCmd)
     {
     case CMD_ID_INFO: 
@@ -446,11 +409,13 @@ static int executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo,
     return iRetSize;
 }
 
+
 static void commandEventCb(int iFd, short nEvent, void *pvData)
 {
     (void)iFd;
     (void)nEvent;
     IO_CHANNEL *pstIoChannel = (IO_CHANNEL *)pvData;
+    EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
     unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
@@ -510,13 +475,20 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
                 sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
             }
             unsigned char auchUartWriteData[256];
-            if(executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId, auchUartWriteData) > 0){
+            int iUartDataSize = executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId, auchUartWriteData);
+            fprintf(stderr,"Uart Data Size is %d\n", iUartDataSize);
+            if(iUartDataSize > 0){
                 int iUdsId = ACU_UART;
+                for(int i=1; i<=iUartDataSize; i++){
+                    if(i&16 == 0)
+                        fprintf(stderr,"\n");
+                    fprintf(stderr,"%02x ", auchUartWriteData[i-1]);
+                }
+                fprintf(stderr,"\n");
+                pstEventEngine->uiRequestSeq = uiReqId;
                 evbuffer_add(pstIoChannel->pstRequestBuffer, &iUdsId, sizeof(int));
-                evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
-                event_active(pstIoChannel->pstRequestEvent, 0, 0);
-                
-                evbuffer_add(pstIoChannel->pstWriteBuffer, &uiReqId, sizeof(unsigned int));
+                evbuffer_add(pstIoChannel->pstRequestBuffer, auchUartWriteData, iUartDataSize);
+                event_active(pstIoChannel->pstRequestEvent, 0, 0);                
             }
             //수신된 명령에 Requst ID가 포함되어 있으며, 응답을 전송할때 이 Requst ID를 응답 데이터 뒤에 붙여서 보내야 한다.
             // 어떻게 Request Context를 생성시 이 Request ID정보를 알게하지?            
@@ -715,16 +687,15 @@ int run(char *pchUartPath)
         .iFd            = -1,
         .iBackoffMsec   = 200
     };
-    struct timeval stRertyTimeOut = {1, 0};
+    struct timeval stRertyTimeOut = {3, 0};
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
         fprintf(stderr, "[ACU] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
-    eventEngineInit(&stEventEngine, 0);
+    eventEngineInit(&stEventEngine, 1);
     ACU_CTRL_CTX* pstAcuCtrlCtx = calloc(1, sizeof(ACU_CTRL_CTX));
-    pstAcuCtrlCtx->iIsUartAlive = 0;
     stEventEngine.pvSharedData = pstAcuCtrlCtx;
 
     /* UART open */
@@ -732,11 +703,9 @@ int run(char *pchUartPath)
         fprintf(stderr, "[ACU] uartOpen failed: %s\n", strerror(errno));
         return EXIT_FAILURE;
     }
-    pstAcuCtrlCtx->iIsUartAlive = 1;
     pstIoChannel = eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
-        TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
+        TYPE_UART, ROLE_WORKER, NULL, uartWriteCallback, uartReadCallback);
     pstIoChannel->iWorkerId = ACU_UART;
-    pstAcuCtrlCtx->pstUartIo = pstIoChannel;
 
     pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
                                  -1, EV_PERSIST | EV_TIMEOUT,
@@ -765,22 +734,22 @@ int run(char *pchUartPath)
     /* ============================
     * [ADDED] Polling Timer
     * ============================ */
-    struct timeval tvPoll = {0, 100 * 1000}; // 100ms
-    struct event* pstPollEvt =
-        event_new(stEventEngine.pstEventBase,
-                -1, EV_PERSIST | EV_TIMEOUT,
-                acuAzElPollingCb, pstAcuCtrlCtx);
-    event_add(pstPollEvt, &tvPoll);
+    // struct timeval tvPoll = {0, 100 * 1000}; // 100ms
+    // struct event* pstPollEvt =
+    //     event_new(stEventEngine.pstEventBase,
+    //             -1, EV_PERSIST | EV_TIMEOUT,
+    //             acuAzElPollingCb, pstAcuCtrlCtx);
+    // event_add(pstPollEvt, &tvPoll);
 
-    /* ============================
-    * [ADDED] Alive Monitor Timer
-    * ============================ */
-    struct timeval tvAlive = {0, ACU_UART_MONITORING_MSEC * 1000};
-    struct event* pstAliveEvt =
-        event_new(stEventEngine.pstEventBase,
-                -1, EV_PERSIST | EV_TIMEOUT,
-                uartAliveMonitorCb, pstAcuCtrlCtx);
-    event_add(pstAliveEvt, &tvAlive);
+    // /* ============================
+    // * [ADDED] Alive Monitor Timer
+    // * ============================ */
+    // struct timeval tvAlive = {0, ACU_UART_MONITORING_MSEC * 1000};
+    // struct event* pstAliveEvt =
+    //     event_new(stEventEngine.pstEventBase,
+    //             -1, EV_PERSIST | EV_TIMEOUT,
+    //             uartAliveMonitorCb, pstAcuCtrlCtx);
+    // event_add(pstAliveEvt, &tvAlive);
 
 
 

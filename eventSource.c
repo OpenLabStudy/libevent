@@ -7,17 +7,15 @@
 #include <stdio.h>
 
 void readCallback(int iFd, short nEvent, void* pvData)
-{
+{    
     (void)iFd;
     (void)nEvent;
     unsigned char auchRecvBuffer[2048];
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-
-    if (pstIoChannel->chFdCloseSet == FD_CLOSED)
-        return;
-
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;    
+    
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     int iReadSize = read(pstIoChannel->iFd, auchRecvBuffer, sizeof(auchRecvBuffer));    
+    fprintf(stderr,"### %s():%d recv size is %d ###\n",__func__,__LINE__, iReadSize);
     if (iReadSize == 0) {
         /* ===== 상대 정상 종료 ===== */
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
@@ -29,7 +27,7 @@ void readCallback(int iFd, short nEvent, void* pvData)
         /* ===== 에러 ===== */
         pstIoChannel->chFdCloseSet = FD_CLOSED;
         pstIoChannel->ePendingLogicEvent = IO_EVT_ERROR;
-    }else{        
+    }else{
         pstIoChannel->ePendingLogicEvent = IO_EVT_RX_DATA;
         evbuffer_add(pstIoChannel->pstReadBuffer, auchRecvBuffer, iReadSize);
     }

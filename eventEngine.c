@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 /* timeout */
-#define REQ_TIMEOUT_SEC      0
+#define REQ_TIMEOUT_SEC      1
 #define REQ_TIMEOUT_MSEC     (300*1000)
 
 /* forward declarations */
@@ -53,7 +53,7 @@ void eventEngineInit(EVENT_ENGINE* pstEventEngine, unsigned int uiMaxWorkers)
     pstEventEngine->pvSharedData        = NULL;
 
     /* Request ID 시퀀스 초기화 */
-    pstEventEngine->uiRequestSeq = 1;
+    pstEventEngine->uiRequestSeq = 0;
     pstEventEngine->uiMaxWorkers = uiMaxWorkers;
 
     pstEventEngine->pstFlushEvent = event_new(
@@ -114,8 +114,9 @@ static REQUEST_CONTEXT* eventEngineFindReq(EVENT_ENGINE* pstEventEngine,
                    unsigned int uiRequestId)
 {
     REQUEST_CONTEXT* pstReqCtx = pstEventEngine->pstReqList;
-
+    fprintf(stderr,"### %s():%d iRequest ID is %d###\n", __func__,__LINE__,uiRequestId);
     while (pstReqCtx) {
+        fprintf(stderr,"### %s():%d iRequest ID is %d,%d###\n", __func__,__LINE__,pstReqCtx->uiRequestId, uiRequestId);
         if (pstReqCtx->uiRequestId == uiRequestId)
             return pstReqCtx;
 
@@ -177,7 +178,7 @@ static void eventEngineRemoveReq(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT* 
 void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT* pstReqCtx)
 {
     (void)pstEventEngine;
-    IO_CHANNEL* pstTcpCh = pstReqCtx->pstTcpIoChannel;
+    IO_CHANNEL* pstIoChannel = pstReqCtx->pstTcpIoChannel;
 
     unsigned char auchResult[1024];
     int iResultLen = 0;
@@ -236,7 +237,8 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
             iResultLen += iSize;
         }
     }
-    evbuffer_add(pstTcpCh->pstWriteBuffer, auchResult, iResultLen);
+    fprintf(stderr,"Worker ID is %d\n", pstIoChannel->iWorkerId);
+    evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultLen);
 }
 
 void eventEngineFinalizeRequestCb(int iFd, short nEvent, void* pvArg)
@@ -268,7 +270,7 @@ REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, 
     if (!pstReq)
         return;
 
-    pstReq->uiRequestId         = pstEventEngine->uiRequestSeq++;
+    pstReq->uiRequestId         = pstEventEngine->uiRequestSeq;
     pstReq->pstTcpIoChannel     = pstRequester;
     pstReq->uiWorkerCount       = pstEventEngine->uiMaxWorkers;
     pstReq->pstWorkerInfoList   = calloc(pstReq->uiWorkerCount, sizeof(WORKER_INFO));
@@ -338,7 +340,6 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
     (void)nEvent;
-
     IO_CHANNEL* pstRequester = (IO_CHANNEL*)pvData;
     EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
     int iUdsId = 0;
@@ -347,17 +348,13 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
     while (1) {
         if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(int))
             break;
-
+            
         evbuffer_remove(pstRequester->pstRequestBuffer, &iUdsId, sizeof(int));
         unsigned int uiRemain = evbuffer_get_length(pstRequester->pstRequestBuffer);
         unsigned char auchBuf[2048];
         unsigned int uiCopySize = evbuffer_remove(pstRequester->pstRequestBuffer, auchBuf, uiRemain);
-
-        int iFrameSize = getFrameSizeWithData(auchBuf, FRAME_TYPE_REQUEST);
-        if (iFrameSize <= 0 || uiCopySize < (unsigned int)iFrameSize)
-            break;
-        fprintf(stderr,"### %s():%d Processing Path:%d Copy Size:%d Frame Size:%d ###\n", __func__,__LINE__, iUdsId, uiCopySize, iFrameSize);        
-        for(int i=1; i<=iFrameSize; i++){
+        fprintf(stderr,"### %s():%d Processing Path:%d Copy Size:%d ###\n", __func__,__LINE__, iUdsId, uiCopySize);        
+        for(int i=1; i<=uiCopySize; i++){
             if(i&16 == 0)
                 fprintf(stderr,"\n");
             fprintf(stderr,"%02x ", auchBuf[i-1]);
@@ -373,9 +370,8 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
             if (pstIo->eRole == ROLE_WORKER){
                 int iWorkerId = pstIo->iWorkerId;
                 if(iWorkerId == (iUdsId & iWorkerId) && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))){    
-                    fprintf(stderr,"### %s():%d  %d:%d ###\n", __func__,__LINE__, pstIo->iWorkerId, iUdsId);        
                     /* requestId를 프레임 끝에 부착 */
-                    evbuffer_add(pstIo->pstWriteBuffer, auchBuf, iFrameSize);
+                    evbuffer_add(pstIo->pstWriteBuffer, auchBuf, uiCopySize);
                     evbuffer_add(pstIo->pstWriteBuffer, &pstReq->uiRequestId, sizeof(unsigned int));
                     /* write 이벤트 트리거 */
                     event_add(pstIo->pstWriteEvent, NULL);
@@ -402,21 +398,24 @@ void eventEngineHandleWorkerResponse(
     REQUEST_CONTEXT* pstReqCtx = eventEngineFindReq(pstEventEngine, iReqId);
     if (!pstReqCtx)
         return;
-
+ 
     int iWorkerId = pstUdsIoCh->iWorkerId;        
     unsigned int uiWorkerMask = WORKER_MASK(iWorkerId);
     if (!(pstReqCtx->uiExpectedMask & uiWorkerMask))
         return;
-    
+ 
     if (pstReqCtx->uiReceivedMask & uiWorkerMask)
         return;
-    
+ 
     for(iWorkerIndex=0; iWorkerIndex < pstReqCtx->uiWorkerCount; iWorkerIndex++){
         if(pstReqCtx->pstWorkerInfoList[iWorkerIndex].iWorkerId == iWorkerId){
+            fprintf(stderr,"### %s():%d [%d,%d,%d]###\n",__func__,__LINE__, 
+                iWorkerIndex, pstReqCtx->pstWorkerInfoList[iWorkerIndex].iWorkerId, iWorkerId);
             break;
         }
     }
-    fprintf(stderr,"### %s():%d DataSize is %d ###\n",__func__, __LINE__, iLen);
+
+    // evbuffer_add(pstReqCtx->pstWorkerInfoList[iWorkerIndex].pstWorkerBuf, data, iLen);
     evbuffer_add(pstReqCtx->pstWorkerInfoList[iWorkerIndex].pstWorkerBuf, data, iLen);
     pstReqCtx->uiReceivedMask |= uiWorkerMask;
     
