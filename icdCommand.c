@@ -57,51 +57,36 @@ double swapDouble(char* i_chData)
     return out;
 }
 
-
-/**
- * @brief Keep-Alive 명령 처리 (통신 활성 여부 확인)
- *
- * 장비 또는 소프트웨어 측에서 연결 유지 여부를 판단하기 위한 명령이며,
- * 응답은 항상 `chResult = 0x01` 로 설정된다.
- *
- * @param puchRecvData     수신 원본 요청 데이터 버퍼 (미사용)
- * @param puchCmdResult    응답 데이터가 기록될 버퍼
- *
- * @return 응답 데이터 크기 (sizeof(RES_KEEP_ALIVE))
- *
- * @see RES_KEEP_ALIVE
- */
-int keepAlive(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int reqIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData)
 {
-	(void)puchRecvData; /* 사용하지 않음을 명시 */
-
-	RES_KEEP_ALIVE *pstResKeepAlive = (RES_KEEP_ALIVE *)(puchCmdResult);
-
-	pstResKeepAlive->chResult = 0x01;
-
-	fprintf(stderr, "ICD_KEEP_ALIVE executed\n");
-	return sizeof(RES_KEEP_ALIVE);
+	REQ_ID stReqId = { .chTmp = 1};
+	memcpy(pvOutData, &stReqId, sizeof(stReqId));
+	return sizeof(RES_ID);
 }
 
-
-/**
- * @brief 초기 Built-In-Test (IBIT) 명령 처리 함수
- *
- * 장비의 상태를 확인하기 위한 테스트 기능이며
- * 총 결과와 Position 결과를 모두 `0x01` 로 반환한다.
- *
- * @param puchRecvData     수신 원본 요청 데이터 버퍼(미사용)
- * @param puchCmdResult    응답 데이터 저장 버퍼
- *
- * @return 응답 데이터 크기(sizeof(RES_IBIT))
- *
- * @see RES_IBIT
- */
-int iBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int resIDInfo(const void* pvRecvData, void* pvUserData, void* pvOutData)
 {
-	(void)puchRecvData;
+	REQ_ID *pstReqId = (REQ_ID *)(pvRecvData);
+	RES_ID *pstResId = (RES_ID *)(pvUserData);
+	RES_ID *pstOutResId = (RES_ID *)(pvOutData);
+	pstOutResId->chResult = pstResId->chResult;
+	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+	return sizeof(RES_ID);
+}
 
-	RES_BIT *pstResIBit = (RES_BIT *)(puchCmdResult);
+int resKeepAlive(const void* pvRecvData, void* pvUserData, void* pvOutData)
+{
+    RES_KEEP_ALIVE* pstResKeepalive = (RES_KEEP_ALIVE *)pvOutData;
+    pstResKeepalive->chResult = 0x01;
+    printf("[RES] KEEP_ALIVE status=%u\n", pstResKeepalive->chResult);
+    return sizeof(RES_KEEP_ALIVE);
+}
+
+int resIBit(const void* pvRecvData, void* pvUserData, void* pvOutData)
+{
+	(void)pvRecvData;
+
+	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
 
 	pstResIBit->chBitTotResult    = 0x01;
 	pstResIBit->chPositionResult  = 0x01;
@@ -110,11 +95,11 @@ int iBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_BIT);
 }
 
-int rBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int resRBit(const void* pvRecvData, void* pvUserData, void* pvOutData)
 {
-	(void)puchRecvData;
+	(void)pvRecvData;
 
-	RES_BIT *pstResIBit = (RES_BIT *)(puchCmdResult);
+	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
 
 	pstResIBit->chBitTotResult    = 0x01;
 	pstResIBit->chPositionResult  = 0x01;
@@ -123,11 +108,11 @@ int rBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_BIT);
 }
 
-int cBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int resCBit(const void* pvRecvData, void* pvUserData, void* pvOutData)
 {
-	(void)puchRecvData;
+	(void)pvRecvData;
 
-	RES_BIT *pstResIBit = (RES_BIT *)(puchCmdResult);
+	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
 
 	pstResIBit->chBitTotResult    = 0x01;
 	pstResIBit->chPositionResult  = 0x01;
@@ -136,11 +121,11 @@ int cBit(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_BIT);
 }
 
-int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult/*, double* dAz, double* dEl*/)
+int resPositionAzElSet(const void* pvRecvData, void* pvUserData, void* pvOutData)
 {
 	double dAz, dEl;
-	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_POSITIONER_AZ_EL_SET *pstResAzElSet = (RES_POSITIONER_AZ_EL_SET *)(puchCmdResult);
+	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(pvRecvData + sizeof(FRAME_HEADER));
+	RES_POSITIONER_AZ_EL_SET *pstResAzElSet = (RES_POSITIONER_AZ_EL_SET *)(pvOutData);
 	dAz = endianChange(pstReqAzElSet->chAzimuthDeg);
 	dEl = endianChange(pstReqAzElSet->chElevationDeg);	
 	//todo Az,El설정에 대한 명령 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
@@ -151,10 +136,10 @@ int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult/*,
 	return sizeof(RES_POSITIONER_AZ_EL_SET);
 }
 
-int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int resTrackingSelect(const void* pvRecvData, void* pvUserData, void* pvOutData)
 {
-	REQ_TRACKING_SELECT *pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_TRACKING_SELECT *pstResTrackingSelect = (RES_TRACKING_SELECT *)(puchCmdResult);
+	REQ_TRACKING_SELECT *pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(pvRecvData + sizeof(FRAME_HEADER));
+	RES_TRACKING_SELECT *pstResTrackingSelect = (RES_TRACKING_SELECT *)(pvOutData);
 
 	pstResTrackingSelect->chResult = 0x01;
 	if(pstReqTrackingSelect->chTrackingSelect == SELF_TRACKING){
@@ -327,40 +312,12 @@ int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 	return sizeof(RES_AZ_EL_OFFSET_SET);
 }
 
-int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+
+
+int setAutoTrackingWati(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
-	REQ_ID *pstReqId = (REQ_ID *)(puchRecvData);
-	RES_ID *pstResId = (RES_ID *)(puchCmdResult);
-	pstResId->chResult = 0x01;
-	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
-	return sizeof(RES_ID);
+	REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait = (REQ_AUTO_TRACKING_WAIT *)(puchRecvData + sizeof(FRAME_HEADER));
+	fprintf(stderr,"Auto Tracking Wait %s\n", pstReqAutoTrackingWait->chWaitOnOff == 0x01 ? "ON" : "OFF");
+	fprintf(stderr,"Standby AZ : %lf, EL : %lf\n", pstReqAutoTrackingWait->dStandbyAz, pstReqAutoTrackingWait->dStandbyEl);
+	return sizeof(RES_AUTO_TRACKING_WAIT);
 }
-// int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-// {
-
-// }
-
-// int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-// {
-
-// }
-
-// int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-// {
-
-// }
-
-// int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-// {
-
-// }
-
-// int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-// {
-
-// }
-
-// int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-// {
-
-// }

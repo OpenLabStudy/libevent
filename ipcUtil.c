@@ -2,6 +2,29 @@
 #include "icdCommand.h"
 #include <string.h>
 
+uint64_t swap_uint64(uint64_t val) {
+    return ((val << 56) & 0xFF00000000000000ULL) |
+           ((val << 40) & 0x00FF000000000000ULL) |
+           ((val << 24) & 0x0000FF0000000000ULL) |
+           ((val <<  8) & 0x000000FF00000000ULL) |
+           ((val >>  8) & 0x00000000FF000000ULL) |
+           ((val >> 24) & 0x0000000000FF0000ULL) |
+           ((val >> 40) & 0x000000000000FF00ULL) |
+           ((val >> 56) & 0x00000000000000FFULL);
+}
+
+// double 타입 데이터를 little endian과 big endian 간에 변환
+double swap_double(double val) {
+    uint64_t temp;
+    double result;
+    // double 값을 uint64_t로 안전하게 복사
+    memcpy(&temp, &val, sizeof(double));
+    // 바이트 순서를 변환
+    temp = swap_uint64(temp);
+    // 변환된 값을 다시 double로 복사
+    memcpy(&result, &temp, sizeof(double));
+    return result;
+}
 
 int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
 {
@@ -40,24 +63,24 @@ int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
     return 0;
 }
 
-void ipcSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerType)
-{
-    if (!ioIsChannelAlive(pstIoChannel))
-        return;
+// void ipcSendWorkerRegister(IO_CHANNEL* pstIoChannel, unsigned char uchWorkerType)
+// {
+//     if (!ioIsChannelAlive(pstIoChannel))
+//         return;
         
-    unsigned char auchSendBuf[128];
-    RES_ID stReg = { .chResult = uchWorkerType };    
-    MSG_ID stMsgId;
-    if (ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId) < 0)
-        return;
+//     unsigned char auchSendBuf[128];
+//     RES_ID stReg = { .chResult = uchWorkerType };    
+//     MSG_ID stMsgId;
+//     if (ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId) < 0)
+//         return;
         
-    if (makeResponseFrame(CMD_ID_INFO, &stMsgId, (unsigned char *)&stReg, auchSendBuf) != FRAME_OK)
-        return;
+//     if (makeResponseFrame(CMD_ID_INFO, &stMsgId, (unsigned char *)&stReg, auchSendBuf) != FRAME_OK)
+//         return;
         
-    int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
-    fprintf(stderr, "[IPC] send worker register: type=%d, frame size=%d\n", uchWorkerType, iFrameSize);
-    evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
-}
+//     int iFrameSize = getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_RESPONSE);
+//     fprintf(stderr, "[IPC] send worker register: type=%d, frame size=%d\n", uchWorkerType, iFrameSize);
+//     evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iFrameSize);
+// }
 
 int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC_CMD_CTX* pstCmdCtx)
 {
@@ -120,6 +143,17 @@ int ipcHandleCommand(unsigned short unCmd, const unsigned char* pReqPayload, IPC
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;
     }
+    case CMD_AUTO_TRACKING_WAIT: {
+        const REQ_AUTO_TRACKING_WAIT* pstReqAutoTrackingWait = (const REQ_AUTO_TRACKING_WAIT*)pReqPayload;
+        pstCmdCtx->u.stAutoTrackingWait.chWaitOnOff = pstReqAutoTrackingWait->chWaitOnOff;
+        pstCmdCtx->u.stAutoTrackingWait.dStandbyAz = swap_double(pstReqAutoTrackingWait->dStandbyAz);
+        pstCmdCtx->u.stAutoTrackingWait.dStandbyEl = swap_double(pstReqAutoTrackingWait->dStandbyEl);
+        fprintf(stderr,"Auto Tracking Wait %s\n", pstReqAutoTrackingWait->chWaitOnOff == 0x01 ? "ON" : "OFF");
+	    fprintf(stderr,"Standby AZ : %lf, EL : %lf\n", pstReqAutoTrackingWait->dStandbyAz, pstReqAutoTrackingWait->dStandbyEl);
+        pstCmdCtx->eResult = ACU_CMD_OK;
+        return 0;
+    }
+    
     case CMD_ID_INFO: {
         pstCmdCtx->eResult = ACU_CMD_OK;
         return 0;

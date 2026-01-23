@@ -38,8 +38,7 @@ static FRAME_ERR checkCmd(unsigned short unCmd)
     switch (unCmd) {
         case CMD_ID_INFO:
         case CMD_KEEP_ALIVE:
-        case CMD_IBIT:
-        
+        case CMD_IBIT:        
         case CMD_RBIT:
         case CMD_CBIT:
         case CMD_POSITIONER_AZ_EL_SET:
@@ -59,7 +58,8 @@ static FRAME_ERR checkCmd(unsigned short unCmd)
         case CDM_IMU_DATA:
         case CDM_SP_DATA:
         case CDM_EXTERN_DATA:
-        case CDM_KEYBOARD_DATA:        
+        case CDM_KEYBOARD_DATA:
+        case CMD_AUTO_TRACKING_WAIT:
             return FRAME_OK;
         default:
             return FRAME_ERR_INVALID_CMD;
@@ -211,6 +211,9 @@ FRAME_ERR makeRequestFrame(unsigned short unCmd,
 
         case CMD_AZ_EL_OFFSET_SET:
             memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_AZ_EL_OFFSET_SET));
+            break;
+        case CMD_AUTO_TRACKING_WAIT:
+            memcpy(puchSendData + sizeof(FRAME_HEADER), pvData, sizeof(REQ_AUTO_TRACKING_WAIT));
             break;
                     
         default:
@@ -437,6 +440,9 @@ int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
         case CMD_AZ_EL_OFFSET_SET:
             return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_AZ_EL_OFFSET_SET) : sizeof(RES_AZ_EL_OFFSET_SET);
 
+        case CMD_AUTO_TRACKING_WAIT:
+            return (eFrameType == FRAME_TYPE_REQUEST) ? sizeof(REQ_AUTO_TRACKING_WAIT) : sizeof(RES_AUTO_TRACKING_WAIT);
+
         case CDM_GPS_DATA:
             return (eFrameType == FRAME_TYPE_REQUEST) ? 0 : sizeof(RES_LLA_DATA);
 
@@ -516,6 +522,9 @@ const char* getCmdString(unsigned short unCmd, FRAME_TYPE eFrameType)
 
     case CMD_AZ_EL_OFFSET_SET:
         return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_AZ_EL_OFFSET_SET" : "RES_AZ_EL_OFFSET_SET";
+
+    case CMD_AUTO_TRACKING_WAIT:
+        return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_AUTO_TRACKING_WAIT" : "RES_AUTO_TRACKING_WAIT";
 
     case CDM_GPS_DATA:
         return (eFrameType == FRAME_TYPE_REQUEST) ? "REQ_GPS_DATA" : "RES_GPS_DATA";
@@ -707,6 +716,10 @@ FRAME_ERR commandHandler(unsigned char *puchRecvData,
 
         case CMD_AZ_EL_OFFSET_SET:
             *piSendDataSize = azElOffset(puchRecvData, puchCmdResult);
+            break;
+
+        case CMD_AUTO_TRACKING_WAIT:
+            *piSendDataSize = setAutoTrackingWati(puchRecvData, puchCmdResult);
             break;
 
 
@@ -907,6 +920,14 @@ FRAME_ERR parseAndDumpResponse(unsigned char *puchRecvData, unsigned char *puchR
             RES_AZ_EL_OFFSET_SET* pstResAzElOffsetSet = (RES_AZ_EL_OFFSET_SET *)(puchRecvData+sizeof(FRAME_HEADER));
             puchResult[0] = pstResAzElOffsetSet->chResult;
             fprintf(stderr,"Az El Offset Set Result %02x\n", pstResAzElOffsetSet->chResult);
+            break;
+        }
+
+        case CMD_AUTO_TRACKING_WAIT:
+        {
+            RES_AUTO_TRACKING_WAIT* pstResAutoTrackingWait = (RES_AUTO_TRACKING_WAIT *)(puchRecvData+sizeof(FRAME_HEADER));
+            puchResult[0] = pstResAutoTrackingWait->chResult;
+            fprintf(stderr,"Auto Tracking Wait Result %02x\n", pstResAutoTrackingWait->chResult);
             break;
         }
         default:

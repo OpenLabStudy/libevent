@@ -2,7 +2,7 @@
 #define IPC_UTIL_H
 
 #include "icdCommand.h"
-#include "frame.h"
+#include "cmdRegistry.h"
 #include "netUds.h"
 #include "netCore.h"
 #include "ioChannelUtil.h"
@@ -60,6 +60,12 @@ typedef struct {
             int iAzOffset;
 	        int iElOffset;
         } stAzElOffsetSet;
+
+        struct {
+            char chWaitOnOff;
+            double dStandbyAz;
+            double dStandbyEl;
+        } stAutoTrackingWait;
     } u;
 } IPC_CMD_CTX;
 

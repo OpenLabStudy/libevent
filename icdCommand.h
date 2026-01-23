@@ -68,55 +68,34 @@ enum COMMAND_ID
     CMD_TIME_SYNQ_CHECK,
     CMD_TIME_SYNQ_SET,
     CMD_AZ_EL_OFFSET_SET = 0x0010,
+	CMD_EXTERN_DEV_SAMPLE_COUNT, //ICD v3.0에서 삭제함
+	CMD_GET_ACU_AZ_EL_DATA,
+	CMD_FPGA_TIME_SYNQ_SET,
+	CMD_FPGA_TIME_SYNQ_CHECK,
+	CMD_RADAR_COORDINATE_INFO,//ICD v3.0에서 삭제함
+	CMD_PRE_PROGRAM_START_POINT,
+	CMD_EL_CALIBRATION_CONFIG,
+	CMD_TRUE_NORTH_SET,
+	CMD_SCAN_START_STOP,//ICD v3.0에서 삭제함
+	CMD_KALMAN_FILTER_SET,
+	CMD_ALTITUDE_OFFSET_SET,
+	CMD_EXTERN_PARAM_SET,
+	CMD_IMU_OFFSET_SET,
+	CMD_TARGET_LLA_SET,
+	CMD_AUTO_TRACKING_WAIT,
+	CMD_POSITIONER_AZ_EL = 0x0020,
+	CMD_AN_HEUNG_TEST_SET,
+	CMD_KEYBOARD_AZ_EL = 0x0030,
+	CMD_SRIP_RING_SET = 0x0090,
+	CMD_COMMAND_FAIL = 0x00FF,
 	CMD_GET_CURRENT_AZ_EL_SET = 0x0200,
     CDM_GPS_DATA = 0x7001,
     CDM_IMU_DATA,
     CDM_SP_DATA,
     CDM_EXTERN_DATA,
     CDM_KEYBOARD_DATA,
-	CMD_GET_AZ_EL_DATA = 0x0012,
-    CMD_COMMAND_FAIL = 0x00FF,
     CMD_ID_INFO     = 0x1000, /**< 장비 정보 요청 */
 };
-// #define CMD_KEEP_ALIVE							(0x0000)
-// #define CMD_IBIT								(0x0001)
-// #define CMD_RBIT								(0x0002)
-// #define CMD_CBIT								(0x0003)
-// #define CMD_POSITIONER_AZ_EL_SET			(0x0004)
-// #define CMD_TRACKING_SELECT					(0x0005)
-// #define CMD_TRACKING_START_POINT_SET		(0x0006)
-// #define CMD_CANNON_BALL_TRAJECTORY_INFO	(0x0007)
-// #define CMD_SHELTER_COORDINATE_INFO			(0x0008)
-// #define CMD_MCC_COORDINATE_INFO				(0x0009)
-// #define CMD_CANNON_COORDINATE_INFO			(0x000A)
-// #define CMD_TRACKING_CONTROL					(0x000B)
-// #define CMD_POSITIONER_DEG_SEND				(0x000C)
-// #define CMD_ACU_MODE_SELECT					(0x000D)
-// #define CMD_TIME_SYNQ_CHECK					(0x000E)
-// #define CMD_TIME_SYNQ_SET						(0x000F)
-// #define CMD_AZ_EL_OFFSET_SET					(0x0010)
-// #define CMD_EXTERN_DEV_SAMPLE_COUNT			(0x0011)//ICD v3.0에서 삭제함
-// #define CMD_GET_ACU_AZ_EL_DATA 				(0x0012)
-// #define CMD_FPGA_TIME_SYNQ_SET 				(0x0013)
-// #define CMD_FPGA_TIME_SYNQ_CHECK 			(0x0014)
-// #define CMD_RADAR_COORDINATE_INFO			(0x0015)//ICD v3.0에서 삭제함
-// #define CMD_PRE_PROGRAM_START_POINT			(0x0016)
-// #define CMD_EL_CALIBRATION_CONFIG			(0x0017)
-// #define CMD_TRUE_NORTH_SET					(0x0018)
-// #define CMD_SCAN_START_STOP					(0x0019)//ICD v3.0에서 삭제함
-// #define CMD_KALMAN_FILTER_SET				(0x001A)
-// #define CMD_ALTITUDE_OFFSET_SET				(0x001B)
-// #define CMD_EXTERN_PARAM_SET					(0x001C)
-// #define CMD_IMU_OFFSET_SET					(0x001D)
-// #define CMD_TARGET_LLA_SET					(0x001E)
-// #define CMD_AUTO_TRACKING_WAIT				(0x001F)
-
-// #define CMD_POSITIONER_AZ_EL					(0x0020)
-// #define CMD_AN_HEUNG_TEST_SET				(0x0021)
-// #define CMD_KEYBOARD_AZ_EL					(0x0030)
-// #define CMD_SRIP_RING_SET						(0x0090)
-
-// #define CMD_COMMAND_FAIL						(0x00FF)
 
 
 
@@ -131,8 +110,7 @@ enum COMMAND_ID
  * @struct REQ_ID
  * @brief CMD_ID_INFO 요청 구조체
  */
-typedef struct PACKED
-{
+typedef struct PACKED {
     char chTmp;
 } REQ_ID;
 
@@ -140,8 +118,7 @@ typedef struct PACKED
  * @struct RES_ID
  * @brief CMD_ID_INFO 응답 구조체
  */
-typedef struct PACKED
-{
+typedef struct PACKED {
     char chResult;
 } RES_ID;
 
@@ -149,8 +126,7 @@ typedef struct PACKED
  * @struct REQ_KEEP_ALIVE
  * @brief Keep-Alive 요청 구조체
  */
-typedef struct PACKED
-{
+typedef struct PACKED {
     char chTmp;
 } REQ_KEEP_ALIVE;
 
@@ -158,8 +134,7 @@ typedef struct PACKED
  * @struct RES_KEEP_ALIVE
  * @brief Keep-Alive 응답 구조체
  */
-typedef struct PACKED
-{
+typedef struct PACKED {
     char chResult;
 } RES_KEEP_ALIVE;
 
@@ -167,8 +142,7 @@ typedef struct PACKED
  * @struct REQ_IBIT
  * @brief IBIT 요청 구조체
  */
-typedef struct PACKED
-{
+typedef struct PACKED {
     char chBit;
 } REQ_BIT;
 
@@ -176,172 +150,168 @@ typedef struct PACKED
  * @struct RES_IBIT
  * @brief IBIT 응답 구조체
  */
-typedef struct PACKED
-{
+typedef struct PACKED {
     char chBitTotResult;
     char chPositionResult;
 } RES_BIT;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chAzimuthDeg[8];
 	char chElevationDeg[8];
-}REQ_POSITIONER_AZ_EL_SET;
+} REQ_POSITIONER_AZ_EL_SET;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_POSITIONER_AZ_EL_SET;
+} RES_POSITIONER_AZ_EL_SET;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chTrackingSelect;
-}REQ_TRACKING_SELECT;
+} REQ_TRACKING_SELECT;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_TRACKING_SELECT;
+} RES_TRACKING_SELECT;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chTrackingStartPoint;
-}REQ_TRACKING_START_POINT_SET;
+} REQ_TRACKING_START_POINT_SET;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_TRACKING_START_POINT_SET;
+} RES_TRACKING_START_POINT_SET;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	void* pvData;
-}REQ_CANNON_BALL_TRAJECTORY_INFO;
+} REQ_CANNON_BALL_TRAJECTORY_INFO;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_CANNON_BALL_TRAJECTORY_INFO;
+} RES_CANNON_BALL_TRAJECTORY_INFO;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chLatitude[8];
 	char chLongitude[8];
 	char chHeight[8];
-}REQ_SHELTER_COORDINATE_INFO;
+} REQ_SHELTER_COORDINATE_INFO;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_SHELTER_COORDINATE_INFO;
+} RES_SHELTER_COORDINATE_INFO;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chLatitude[8];
 	char chLongitude[8];
 	char chHeight[8];
-}REQ_EXTERN_DEV_COORDINATE_INFO;
+} REQ_EXTERN_DEV_COORDINATE_INFO;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_EXTERN_DEV_COORDINATE_INFO;
+} RES_EXTERN_DEV_COORDINATE_INFO;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chLatitude[8];
 	char chLongitude[8];
 	char chHeight[8];
-}REQ_CANNON_COORDINATE_INFO;
+} REQ_CANNON_COORDINATE_INFO;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_CANNON_COORDINATE_INFO;
+} RES_CANNON_COORDINATE_INFO;
 
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chStartStop;
-}REQ_TRACKING_CONTROL;
+} REQ_TRACKING_CONTROL;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_TRACKING_CONTROL;
+} RES_TRACKING_CONTROL;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chSendOnOff;
-}REQ_POSITIONER_DEG_SEND;
+} REQ_POSITIONER_DEG_SEND;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_POSITIONER_DEG_SEND;
+} RES_POSITIONER_DEG_SEND;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chAcuMode;
-}REQ_ACU_MODE;
+} REQ_ACU_MODE;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_ACU_MODE;
+} RES_ACU_MODE;
 
-
-typedef struct PACKED{
+typedef struct PACKED {
 	char chTimeSynqCheck;
-}REQ_TIME_SYNQ_CHECK;
+} REQ_TIME_SYNQ_CHECK;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_TIME_SYNQ_CHECK;
+} RES_TIME_SYNQ_CHECK;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	short nYear;
 	char chMon;
 	char chDay;
 	char chHour;
 	char chMin;
 	char chSec;
-}REQ_TIME_SYNQ_SET;
+} REQ_TIME_SYNQ_SET;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	short nYear;
 	char chMon;
 	char chDay;
 	char chHour;
 	char chMin;
 	char chSec;
-}RES_TIME_SYNQ_SET;
+} RES_TIME_SYNQ_SET;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	int iAzOffset;
 	int iElOffset;
-}REQ_AZ_EL_OFFSET_SET;
+} REQ_AZ_EL_OFFSET_SET;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_AZ_EL_OFFSET_SET;
+} RES_AZ_EL_OFFSET_SET;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chSelect;
-}REQ_EXTERN_DEV_SELECT;
+} REQ_EXTERN_DEV_SELECT;
 
-typedef struct PACKED{
+typedef struct PACKED {
 	char chResult;
-}RES_EXTERN_DEV_SELECT;
+} RES_EXTERN_DEV_SELECT;
 
-
-typedef struct PACKED
-{
+typedef struct PACKED {
     double dLatitude;
     double dLongitude;
     double dAltitude;
 } RES_LLA_DATA;
 
-typedef struct PACKED
-{
+typedef struct PACKED {
     double dRoll;
     double dPitch;
     double dYaw;
 } RES_RPY_DATA;
 
-typedef struct PACKED
-{
+typedef struct PACKED {
     double dAz;
     double dEl;
 } RES_AZ_EL_DATA;
+
+typedef struct PACKED {
+	char chWaitOnOff;
+	double dStandbyAz;
+	double dStandbyEl;
+} REQ_AUTO_TRACKING_WAIT;
+
+typedef struct PACKED {
+	char chResult;
+} RES_AUTO_TRACKING_WAIT;
 
 
 
@@ -367,26 +337,15 @@ int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
  *
  * @see RES_KEEP_ALIVE
  */
-int keepAlive(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
-/**
- * @brief 초기 Built-In-Test (IBIT) 명령 처리 함수
- *
- * 장비의 상태를 확인하기 위한 테스트 기능이며
- * 총 결과와 Position 결과를 모두 `0x01` 로 반환한다.
- *
- * @param puchRecvData     수신 원본 요청 데이터 버퍼(미사용)
- * @param puchCmdResult    응답 데이터 저장 버퍼
- *
- * @return 응답 데이터 크기(sizeof(RES_IBIT))
- *
- * @see RES_IBIT
- */
-int iBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int rBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int cBit(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int positionAzElSet(unsigned char* puchRecvData, unsigned char* puchCmdResult/*, double* dAz, double* dEl*/);
-int trackingSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int reqIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData);
+int resIDInfo(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int resKeepAlive(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int resIBit(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int resRBit(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int resCBit(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int resPositionAzElSet(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int resTrackingSelect(const void* pvRecvData, void* pvUserData, void* pvOutData);
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
@@ -398,7 +357,7 @@ int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-
+int setAutoTrackingWati(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
 #endif /* ICD_COMMAND_H */
  

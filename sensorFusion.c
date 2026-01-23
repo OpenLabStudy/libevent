@@ -75,6 +75,9 @@ typedef enum {
 typedef struct{
     char chTrackingSelect;
     char chTrackingStartStop;
+    char chWaitOnOff;
+    double dStandbyAz;
+    double dStandbyEl;
 } COMMAND_STATE;
 /* ========================================================================== */
 /* SENSOR_STATE                                                               */
@@ -225,11 +228,11 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         stAzElData.dEl = -0.157;
         MSG_ID stMsgId;
         ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-        if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, (unsigned char *)&stAzElData, auchSendBuf) == FRAME_OK) {
-            unsigned int uiSendSize = (size_t)getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
-            evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, uiSendSize);
-            event_add(pstIoChannel->pstWriteEvent, NULL);
-        }        
+        // if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, (unsigned char *)&stAzElData, auchSendBuf) == FRAME_OK) {
+        //     unsigned int uiSendSize = (size_t)getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
+        //     evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, uiSendSize);
+        //     event_add(pstIoChannel->pstWriteEvent, NULL);
+        // }        
         break;
 
     default:
@@ -267,6 +270,12 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
         ((RES_AZ_EL_OFFSET_SET*)aucPayload)->chResult = (char)RESP_OK;
         sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
         break; 
+    case CMD_AUTO_TRACKING_WAIT:
+        pstSensorFusionCtx->stCommandState.chWaitOnOff = pstCmdCtx->u.stAutoTrackingWait.chWaitOnOff;
+        pstSensorFusionCtx->stCommandState.dStandbyAz = pstCmdCtx->u.stAutoTrackingWait.dStandbyAz;
+        pstSensorFusionCtx->stCommandState.dStandbyEl = pstCmdCtx->u.stAutoTrackingWait.dStandbyEl;
+        ((RES_AUTO_TRACKING_WAIT*)aucPayload)->chResult = (char)RESP_OK;
+        sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
     case CMD_ID_INFO:
         pstSensorFusionCtx->stCommandState.chTrackingStartStop = pstCmdCtx->u.stTrackingControl.chTrackingStartStop;    
         ((RES_ID*)aucPayload)->chResult = (char)pstUdsIo->iWorkerId;

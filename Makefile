@@ -19,7 +19,7 @@ LIBS_COMMON = -levent
 # ============================================================
 
 # 프레임 / ICD
-FRAME_OBJS   = frame.o icdCommand.o
+FRAME_OBJS   = cmdRegistry.o icdCommand.o
 
 # 네트워크 (TCP/UDP/UDS 공통)
 NET_OBJS     = netCore.o netTcp.o netUdp.o netUds.o
@@ -39,7 +39,7 @@ COMMON_OBJS  = $(FRAME_OBJS) $(NET_OBJS) $(ENGINE_OBJS)
 .PHONY: all clean gtest
 
 # 기본 빌드: 주요 프로세스
-all: trackingController tcpCln gpsReceiver imuReceiver sensorFusion acuCtrl acuCtrlForTest
+all: trackingController sensorFusion#tcpCln gpsReceiver imuReceiver  acuCtrl acuCtrlForTest
 
 # ============================================================
 acuCtrlForTest: acuCtrlForTest.o acuUtil.o $(COMMON_OBJS) $(UART_OBJS)

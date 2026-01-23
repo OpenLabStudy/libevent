@@ -234,7 +234,7 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
             ((RES_ACU_MODE*)(aucPayload+sizeof(unsigned short)))->chResult = (ucResult == RESP_OK) ? 0x01 : 0x00;
             memcpy(aucPayload+3, &pstEngine->uiRequestSeq, sizeof(unsigned int));         
             break;
-        case CMD_GET_AZ_EL_DATA:
+        case CMD_GET_ACU_AZ_EL_DATA:
         {
             fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             double dAz, dEl;
