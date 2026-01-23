@@ -27,7 +27,7 @@
 /* ----------------------------------------------------------------------
  *  커맨드 테이블: 여기만 수정하면 “명령 추가”가 끝
  * ---------------------------------------------------------------------- */
-static const CMD_DESC g_cmdTable[] = {
+static CMD_DESC g_cmdTable[] = {
     {   
         CMD_KEEP_ALIVE, "KEEP_ALIVE",
         sizeof(REQ_KEEP_ALIVE), sizeof(RES_KEEP_ALIVE),
@@ -71,6 +71,8 @@ static const CMD_DESC g_cmdTable[] = {
 
 static const size_t g_cmdCount = sizeof(g_cmdTable) / sizeof(g_cmdTable[0]);
 
+
+
 /* ----------------------------------------------------------------------
  *  공통 Lookup
  * ---------------------------------------------------------------------- */
@@ -81,6 +83,24 @@ static const CMD_DESC* cmdFind(unsigned short unCmd)
             return &g_cmdTable[i];
     }
     return NULL;
+}
+
+FRAME_ERR cmdRegistryOverrideHandler(
+    unsigned short unCmd,
+    createReqCommand buildReq,
+    respProcFunction parseRes
+)
+{
+    for (size_t i = 0; i < g_cmdCount; ++i) {
+        if (g_cmdTable[i].unCmd == unCmd) {
+            if (buildReq)
+                g_cmdTable[i].buildReq = buildReq;
+            if (parseRes)
+                g_cmdTable[i].parseRes = parseRes;
+            return FRAME_OK;
+        }
+    }
+    return FRAME_ERR_INVALID_CMD;
 }
 
 static FRAME_ERR frameCheckBasic(const unsigned char *puchData, int iFrameSize)
@@ -274,7 +294,6 @@ FRAME_ERR cmdParseResponsePayload(const void* pvRecvData, int iFrameSize, void* 
 {
     unsigned short unCmd;
     FRAME_ERR eErr;
-    unsigned char uchUserData[256];
 
     eErr = getCmdCode(pvRecvData, iFrameSize, &unCmd);
     if(eErr != FRAME_OK)
@@ -283,7 +302,8 @@ FRAME_ERR cmdParseResponsePayload(const void* pvRecvData, int iFrameSize, void* 
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
     if (!pstCmdDesc || !pstCmdDesc->parseRes)
         return FRAME_ERR_INVALID_CMD;
-    *iResultSize = pstCmdDesc->parseRes(pvRecvData, uchUserData, pvOutData);
+
+    *iResultSize = pstCmdDesc->parseRes(pvRecvData, pvOutData, pvOutData);
     return FRAME_OK;
 }
 

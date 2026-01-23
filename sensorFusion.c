@@ -287,6 +287,22 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
     }
 }
 
+int reqSensorIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData)
+{
+	REQ_ID stReqId = { .chTmp = 1};
+	memcpy(pvOutData, &stReqId, sizeof(stReqId));
+	return sizeof(RES_ID);
+}
+
+int resSensorIDInfo(const void* pvRecvData, void* pvUserData, void* pvOutData)
+{
+	REQ_ID *pstReqId = (REQ_ID *)(pvRecvData);
+	RES_ID *pstResId = (RES_ID *)(pvOutData);
+	pstResId->chResult = (char)UDS_1_SENSOR_FUSION;
+	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+	return sizeof(RES_ID);
+}
+
 static void commandEventCb(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
@@ -341,18 +357,33 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             /* === 프레임 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
+            unsigned char auchResult[128];
             unsigned int uiReqId;
             memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
-            /* parse payload -> IPC_CMD_CTX */
-            if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
-                fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
-                /* 최소한의 즉시 실패 응답 */
-                sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
+            int iResultSize;
+            eErr = cmdParseResponsePayload(auchRecvBuffer, iFrameSize, auchResult, &iResultSize);
+            if (eErr != FRAME_OK || iResultSize <= 0)
                 continue;
-            }
+            sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
 
-            /* execute command (immediate or deferred) */
-            executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId);
+
+
+
+            
+
+
+
+
+            // /* parse payload -> IPC_CMD_CTX */
+            // if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
+            //     fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
+            //     /* 최소한의 즉시 실패 응답 */
+            //     sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
+            //     continue;
+            // }
+
+            // /* execute command (immediate or deferred) */
+            // executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId);
 
             /* NOTE:
              * - immediate cmd: acuExecuteIpcCommand() sends UDS response here
@@ -560,6 +591,11 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)// Tra
         close(iSock);
         return;
     }
+    cmdRegistryOverrideHandler(
+        CMD_ID_INFO,
+        reqSensorIDInfo,
+        resSensorIDInfo
+    );
     pstNewIo->iWorkerId = UDS_1_SENSOR_FUSION;
 }
 

@@ -75,11 +75,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
-                for(int i=1; i<=iCopyLen; i++){
-                    if(i&16 == 0)
-                        fprintf(stderr,"\n");
-                    fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
-                }
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
@@ -109,7 +104,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             if (eCommandPath == COMMAND_PATH_NONE) {
                 /* === 명령 처리 === */
                 unsigned char auchResult[128];
-                // unsigned char auchSendBuf[1024];
                 int iResultSize;
                 eErr = cmdParseResponsePayload(auchRecvBuffer, iCopyLen, auchResult, &iResultSize);
                 if (eErr != FRAME_OK || iResultSize <= 0)
