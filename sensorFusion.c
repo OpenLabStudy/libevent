@@ -370,11 +370,6 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
 
 
 
-            
-
-
-
-
             // /* parse payload -> IPC_CMD_CTX */
             // if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
             //     fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
