@@ -357,6 +357,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             /* === 프레임 소비 === */
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
+            unsigned char auchCmdResult[128];
             unsigned char auchResult[128];
             unsigned int uiReqId;
             memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));

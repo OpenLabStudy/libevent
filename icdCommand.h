@@ -321,7 +321,7 @@ typedef struct PACKED {
 /* ========================================================================== */
 double endianChange(char* i_chData);
 void endianChange1(double dValue, char* pchData);
-int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+// int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
 
 /**
@@ -339,13 +339,27 @@ int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
  */
 
 int reqIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData);
-int resIDInfo(const void* pvRecvData, void* pvUserData, void* pvOutData);
-int resKeepAlive(const void* pvRecvData, void* pvUserData, void* pvOutData);
-int resIBit(const void* pvRecvData, void* pvUserData, void* pvOutData);
-int resRBit(const void* pvRecvData, void* pvUserData, void* pvOutData);
-int resCBit(const void* pvRecvData, void* pvUserData, void* pvOutData);
-int resPositionAzElSet(const void* pvRecvData, void* pvUserData, void* pvOutData);
-int resTrackingSelect(const void* pvRecvData, void* pvUserData, void* pvOutData);
+int iDInfo(const void* pvRecvData, void* pvOutData);
+int resIDInfo(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
+int keepAlive(const void* pvRecvData, void* pvOutData);
+int resKeepAlive(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
+int iBit(const void* pvRecvData, void* pvOutData);
+int resIBit(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
+int rBit(const void* pvRecvData, void* pvOutData);
+int resRBit(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
+int cBit(const void* pvRecvData, void* pvOutData);
+int resCBit(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
+int positionAzElSet(const void* pvRecvData, void* pvOutData);
+int resPositionAzElSet(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
+int trackingSelect(const void* pvRecvData, void* pvOutData);
+int resTrackingSelect(const void* pvUserData, void* pvMsgId, void* pvOutData);
+
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);

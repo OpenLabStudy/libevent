@@ -32,41 +32,39 @@ static CMD_DESC g_cmdTable[] = {
         CMD_KEEP_ALIVE, "KEEP_ALIVE",
         sizeof(REQ_KEEP_ALIVE), sizeof(RES_KEEP_ALIVE),
         COMMAND_PATH_NONE,
-        NULL, resKeepAlive 
+        NULL, keepAlive, resKeepAlive
     },
     {   
         CMD_IBIT, "IBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
         TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, resIBit 
+        NULL, iBit, resIBit 
     },
     {   CMD_RBIT, "RBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
         TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, resRBit 
+        NULL, rBit, resRBit 
     },
     {   CMD_CBIT, "CBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
         TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, resCBit 
+        NULL, cBit, resCBit 
     },
     {   CMD_POSITIONER_AZ_EL_SET, "POSITIONER_AZ_EL_SET",
         sizeof(REQ_POSITIONER_AZ_EL_SET), sizeof(RES_POSITIONER_AZ_EL_SET),
         TRACKING_CTRL_2_ACU_CTRL,
-        NULL, resPositionAzElSet 
+        NULL, positionAzElSet, resPositionAzElSet 
     },
     {   CMD_TRACKING_SELECT, "TRACKING_SELECT",
         sizeof(REQ_TRACKING_SELECT), sizeof(RES_TRACKING_SELECT),
         TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, resTrackingSelect 
+        NULL, trackingSelect, resTrackingSelect 
     },
-
     {   CMD_ID_INFO, "ID_INFO",
         sizeof(REQ_ID), sizeof(RES_ID),
         TRACKING_CTRL_2_SENSOR_FUSTION,
-        reqIDInfo, resIDInfo 
+        reqIDInfo, iDInfo, resIDInfo 
     },
-
 };
 
 static const size_t g_cmdCount = sizeof(g_cmdTable) / sizeof(g_cmdTable[0]);
@@ -87,16 +85,19 @@ static const CMD_DESC* cmdFind(unsigned short unCmd)
 
 FRAME_ERR cmdRegistryOverrideHandler(
     unsigned short unCmd,
-    createReqCommand buildReq,
-    respProcFunction parseRes
+    createReqCommand fnCreateCmd,
+    dispatchCommand fnDispatchCmd,
+    createReCommand fnCreateResp
 )
 {
     for (size_t i = 0; i < g_cmdCount; ++i) {
         if (g_cmdTable[i].unCmd == unCmd) {
-            if (buildReq)
-                g_cmdTable[i].buildReq = buildReq;
-            if (parseRes)
-                g_cmdTable[i].parseRes = parseRes;
+            if (fnCreateCmd)
+                g_cmdTable[i].fnCreateCmd = fnCreateCmd;
+            if (fnDispatchCmd)
+                g_cmdTable[i].fnDispatchCmd = fnDispatchCmd;
+            if (fnCreateResp)
+                g_cmdTable[i].fnCreateResp = fnCreateResp;
             return FRAME_OK;
         }
     }
@@ -183,7 +184,6 @@ static FRAME_ERR frameCheckHeader(unsigned short unCmd, unsigned char *puchData,
 }
 
 /* ---- Tail ---- */
-
 static FRAME_ERR frameCheckEtx(const FRAME_TAIL *pstTail)
 {
     return (ntohs(pstTail->unEtx) == ETX_CONST) ? FRAME_OK : FRAME_ERR_INVALID_ETX;
@@ -280,17 +280,17 @@ FRAME_ERR createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* pvCmdDa
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
     unsigned char uchUserData[256];
     frameMakeHeader(unCmd, pstMsgId, pvOutData, FRAME_TYPE_REQUEST);
-    if (!pstCmdDesc || !pstCmdDesc->buildReq)
+    if (!pstCmdDesc || !pstCmdDesc->fnCreateCmd)
         return -1;
 
-    if(pstCmdDesc->buildReq(pvCmdData, uchUserData, pvOutData+sizeof(FRAME_HEADER))){
+    if(pstCmdDesc->fnCreateCmd(pvCmdData, uchUserData, pvOutData+sizeof(FRAME_HEADER))){
 
     }
     frameMakeTail(unCmd, pvOutData, FRAME_TYPE_REQUEST);
     return FRAME_OK;
 }
 
-FRAME_ERR cmdParseResponsePayload(const void* pvRecvData, int iFrameSize, void* pvOutData, int *iResultSize)
+FRAME_ERR cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData)
 {
     unsigned short unCmd;
     FRAME_ERR eErr;
@@ -300,10 +300,21 @@ FRAME_ERR cmdParseResponsePayload(const void* pvRecvData, int iFrameSize, void* 
         return eErr;
 
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
-    if (!pstCmdDesc || !pstCmdDesc->parseRes)
+    if (!pstCmdDesc || !pstCmdDesc->fnDispatchCmd)
         return FRAME_ERR_INVALID_CMD;
 
-    *iResultSize = pstCmdDesc->parseRes(pvRecvData, pvOutData, pvOutData);
+    return (pstCmdDesc->fnDispatchCmd(pvRecvData, pvOutData)==0)?FRAME_NOK : FRAME_OK;
+}
+
+FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData, int *iResultSize)
+{
+    FRAME_ERR eErr;
+
+    const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
+    if (!pstCmdDesc || !pstCmdDesc->fnCreateResp)
+        return FRAME_ERR_INVALID_CMD;
+
+    *iResultSize = pstCmdDesc->fnCreateResp(pvUserData, (void*)pstMsgId, pvOutData);
     return FRAME_OK;
 }
 
@@ -327,6 +338,7 @@ const char* frameErrToStr(FRAME_ERR eErr)
         case FRAME_ERR_INVALID_LENGTH: return "FRAME_ERR_INVALID_LENGTH";
         case FRAME_ERR_CRC_FAIL:       return "FRAME_ERR_CRC_FAIL";
         case FRAME_ERR_NULL_PTR:       return "FRAME_ERR_NULL_PTR";
+        case FRAME_NOK:                return "FRAME_NOK";
         default:                       return "FRAME_ERR_UNKNOWN";
     }
 }

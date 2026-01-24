@@ -35,6 +35,7 @@ typedef enum {
     FRAME_ERR_CRC_FAIL          = -6,
     FRAME_ERR_NULL_PTR          = -7,
     FRAME_ERR_FRAME_TOO_SMALL   = -8,
+    FRAME_NOK                   = -9,
 
     FRAME_ERR_UNKNOWN           = -100
 } FRAME_ERR;
@@ -62,7 +63,8 @@ typedef struct __attribute__((__packed__)) {
 
 /* 요청/응답 빌더/파서 공통 시그니처 */
 typedef int (*createReqCommand)(void* pvCmdData, void* pvUserData, void* pvOutData);
-typedef int (*respProcFunction)(void* pvRecvData, void* pvUserData, void* pvOutData);
+typedef int (*dispatchCommand)(const void* pvCmdData, void* pvOutData);
+typedef int (*createReCommand)(const void* pvUserData, void *pvMsgId, void* pvOutData);
 
 /* Command Descriptor */
 typedef struct {
@@ -71,8 +73,9 @@ typedef struct {
     unsigned int        uiReqSize;
     unsigned int        uiResSize;
     COMMAND_PATH        eCommandPath;
-    createReqCommand    buildReq;//todo renaming
-    respProcFunction    parseRes;//todo renaming
+    createReqCommand    fnCreateCmd;//todo renaming
+    dispatchCommand     fnDispatchCmd;
+    createReCommand     fnCreateResp;//todo renaming
 } CMD_DESC;
 
 
@@ -82,6 +85,7 @@ unsigned int    getFrameSizeWithCmd(unsigned short unCmd, FRAME_TYPE eFrameType)
 char            getIdInfo(unsigned char *puchData);
 /* makeRequestFrame / parseAndDumpResponse 쪽에서 쓰기 좋게 제공 */
 FRAME_ERR       createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* pvCmdData, void* pvOutData);
-FRAME_ERR       cmdParseResponsePayload(const void* pvRecvData, int iFrameSize, void* pvOutData, int *iResultSize);
+FRAME_ERR       cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData);
+FRAME_ERR       createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData, int *iResultSize);
 const char*     frameErrToStr(FRAME_ERR eErr);
 int             findFrameHeader(unsigned char *puchData, int iSize);

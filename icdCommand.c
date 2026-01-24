@@ -7,7 +7,7 @@
  */
 
 #include "icdCommand.h"
-#include "frame.h"
+#include "cmdRegistry.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -64,64 +64,99 @@ int reqIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData)
 	return sizeof(RES_ID);
 }
 
-int resIDInfo(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int iDInfo(const void* pvRecvData, void* pvOutData)
 {
 	REQ_ID *pstReqId = (REQ_ID *)(pvRecvData);
-	RES_ID *pstResId = (RES_ID *)(pvUserData);
-	RES_ID *pstOutResId = (RES_ID *)(pvOutData);
-	pstOutResId->chResult = pstResId->chResult;
+	RES_ID *pstResId = (RES_ID *)(pvOutData);
+	pstResId->chResult = pstResId->chResult;
 	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
 	return sizeof(RES_ID);
 }
 
-int resKeepAlive(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int resIDInfo(const void* pvUserData, void* pvMsgId, void* pvOutData)
 {
-    RES_KEEP_ALIVE* pstResKeepalive = (RES_KEEP_ALIVE *)pvOutData;
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_ID_INFO, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+
+	}
+	return sizeof(RES_ID);
+}
+
+int keepAlive(const void* pvRecvData, void* pvOutData)
+{
+	RES_KEEP_ALIVE* pstResKeepalive = (RES_KEEP_ALIVE *)pvOutData;
     pstResKeepalive->chResult = 0x01;
     printf("[RES] KEEP_ALIVE status=%u\n", pstResKeepalive->chResult);
     return sizeof(RES_KEEP_ALIVE);
 }
 
-int resIBit(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int resKeepAlive(const void* pvUserData, void* pvMsgId, void* pvOutData)
+{    
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_KEEP_ALIVE, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+
+	}
+    return sizeof(RES_KEEP_ALIVE);
+}
+
+int iBit(const void* pvRecvData, void* pvOutData)
 {
 	(void)pvRecvData;
-
 	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
-
 	pstResIBit->chBitTotResult    = 0x01;
 	pstResIBit->chPositionResult  = 0x01;
-
 	fprintf(stderr, "ICD_IBIT executed\n");
 	return sizeof(RES_BIT);
 }
 
-int resRBit(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int resIBit(const void* pvUserData, void* pvMsgId, void* pvOutData)
+{
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_IBIT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+
+	}
+	return sizeof(RES_BIT);
+}
+
+int rBit(const void* pvRecvData, void* pvOutData)
 {
 	(void)pvRecvData;
-
 	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
-
 	pstResIBit->chBitTotResult    = 0x01;
 	pstResIBit->chPositionResult  = 0x01;
-
 	fprintf(stderr, "ICD_RBIT executed\n");
 	return sizeof(RES_BIT);
 }
 
-int resCBit(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int resRBit(const void* pvUserData, void* pvMsgId, void* pvOutData)
+{
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_RBIT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+
+	}
+	return sizeof(RES_BIT);
+}
+
+int cBit(const void* pvRecvData, void* pvOutData)
 {
 	(void)pvRecvData;
-
 	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
-
 	pstResIBit->chBitTotResult    = 0x01;
 	pstResIBit->chPositionResult  = 0x01;
-
 	fprintf(stderr, "ICD_CBIT executed\n");
 	return sizeof(RES_BIT);
 }
 
-int resPositionAzElSet(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int resCBit(const void* pvUserData, void* pvMsgId, void* pvOutData)
+{
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_CBIT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+
+	}
+	return sizeof(RES_BIT);
+}
+
+int positionAzElSet(const void* pvRecvData, void* pvOutData)
 {
 	double dAz, dEl;
 	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(pvRecvData + sizeof(FRAME_HEADER));
@@ -135,8 +170,16 @@ int resPositionAzElSet(const void* pvRecvData, void* pvUserData, void* pvOutData
 	fprintf(stderr, "POSITION AZ EL Setting executed\n");
 	return sizeof(RES_POSITIONER_AZ_EL_SET);
 }
+int resPositionAzElSet(const void* pvUserData, void* pvMsgId, void* pvOutData)
+{
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_POSITIONER_AZ_EL_SET, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-int resTrackingSelect(const void* pvRecvData, void* pvUserData, void* pvOutData)
+	}
+	return sizeof(RES_POSITIONER_AZ_EL_SET);	
+}
+
+int trackingSelect(const void* pvRecvData, void* pvOutData)
 {
 	REQ_TRACKING_SELECT *pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(pvRecvData + sizeof(FRAME_HEADER));
 	RES_TRACKING_SELECT *pstResTrackingSelect = (RES_TRACKING_SELECT *)(pvOutData);
@@ -153,6 +196,15 @@ int resTrackingSelect(const void* pvRecvData, void* pvUserData, void* pvOutData)
 	
 	fprintf(stderr, "Tracking Select Setting executed\n");
 	return sizeof(RES_TRACKING_SELECT);
+}
+
+int resTrackingSelect(const void* pvUserData, void* pvMsgId, void* pvOutData)
+{
+	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
+	if(createResponseFrame(CMD_TRACKING_SELECT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+
+	}
+	return sizeof(RES_POSITIONER_AZ_EL_SET);	
 }
 
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)

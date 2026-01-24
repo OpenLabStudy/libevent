@@ -103,11 +103,14 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             COMMAND_PATH eCommandPath = decideProcessingPath(unCmd);
             if (eCommandPath == COMMAND_PATH_NONE) {
                 /* === 명령 처리 === */
+                unsigned char auchCmdResult[128];
                 unsigned char auchResult[128];
                 int iResultSize;
-                eErr = cmdParseResponsePayload(auchRecvBuffer, iCopyLen, auchResult, &iResultSize);
+                eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
                 if (eErr != FRAME_OK || iResultSize <= 0)
                     continue;
+                MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
+                eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult, &iResultSize);
 
                 // MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
                 // eErr = makeResponseFrame(unCmd, &stMsgId, auchResult, auchSendBuf);

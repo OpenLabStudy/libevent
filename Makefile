@@ -39,7 +39,7 @@ COMMON_OBJS  = $(FRAME_OBJS) $(NET_OBJS) $(ENGINE_OBJS)
 .PHONY: all clean gtest
 
 # 기본 빌드: 주요 프로세스
-all: trackingController sensorFusion#tcpCln gpsReceiver imuReceiver  acuCtrl acuCtrlForTest
+all: trackingController sensorFusion #tcpCln gpsReceiver imuReceiver  acuCtrl acuCtrlForTest
 
 # ============================================================
 acuCtrlForTest: acuCtrlForTest.o acuUtil.o $(COMMON_OBJS) $(UART_OBJS)
