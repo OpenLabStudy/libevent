@@ -63,8 +63,7 @@ typedef struct __attribute__((__packed__)) {
 
 /* 요청/응답 빌더/파서 공통 시그니처 */
 typedef int (*createReqCommand)(void* pvCmdData, void* pvUserData, void* pvOutData);
-typedef int (*dispatchCommand)(const void* pvCmdData, void* pvOutData);
-typedef int (*createReCommand)(const void* pvUserData, void *pvMsgId, void* pvOutData);
+typedef int (*dispatchCommand)(const void* pvRecvData, void* pvOutData);
 
 /* Command Descriptor */
 typedef struct {
@@ -75,7 +74,6 @@ typedef struct {
     COMMAND_PATH        eCommandPath;
     createReqCommand    fnCreateCmd;//todo renaming
     dispatchCommand     fnDispatchCmd;
-    createReCommand     fnCreateResp;//todo renaming
 } CMD_DESC;
 
 
@@ -86,6 +84,8 @@ char            getIdInfo(unsigned char *puchData);
 /* makeRequestFrame / parseAndDumpResponse 쪽에서 쓰기 좋게 제공 */
 FRAME_ERR       createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* pvCmdData, void* pvOutData);
 FRAME_ERR       cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData);
-FRAME_ERR       createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData, int *iResultSize);
+FRAME_ERR       createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData);
 const char*     frameErrToStr(FRAME_ERR eErr);
 int             findFrameHeader(unsigned char *puchData, int iSize);
+FRAME_ERR cmdRegistryOverrideHandler( unsigned short unCmd, 
+    createReqCommand fnCreateCmd, dispatchCommand fnDispatchCmd);

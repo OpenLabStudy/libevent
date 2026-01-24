@@ -86,8 +86,7 @@ static const CMD_DESC* cmdFind(unsigned short unCmd)
 FRAME_ERR cmdRegistryOverrideHandler(
     unsigned short unCmd,
     createReqCommand fnCreateCmd,
-    dispatchCommand fnDispatchCmd,
-    createReCommand fnCreateResp
+    dispatchCommand fnDispatchCmd
 )
 {
     for (size_t i = 0; i < g_cmdCount; ++i) {
@@ -96,8 +95,6 @@ FRAME_ERR cmdRegistryOverrideHandler(
                 g_cmdTable[i].fnCreateCmd = fnCreateCmd;
             if (fnDispatchCmd)
                 g_cmdTable[i].fnDispatchCmd = fnDispatchCmd;
-            if (fnCreateResp)
-                g_cmdTable[i].fnCreateResp = fnCreateResp;
             return FRAME_OK;
         }
     }
@@ -294,27 +291,31 @@ FRAME_ERR cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData)
 {
     unsigned short unCmd;
     FRAME_ERR eErr;
-
+    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
     eErr = getCmdCode(pvRecvData, iFrameSize, &unCmd);
     if(eErr != FRAME_OK)
         return eErr;
-
-    const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
+    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);    
+    const CMD_DESC* pstCmdDesc = cmdFind(unCmd);    
     if (!pstCmdDesc || !pstCmdDesc->fnDispatchCmd)
         return FRAME_ERR_INVALID_CMD;
-
+    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);    
     return (pstCmdDesc->fnDispatchCmd(pvRecvData, pvOutData)==0)?FRAME_NOK : FRAME_OK;
 }
 
-FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData, int *iResultSize)
+FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData)
 {
     FRAME_ERR eErr;
 
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
-    if (!pstCmdDesc || !pstCmdDesc->fnCreateResp)
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    if (!pstCmdDesc)
         return FRAME_ERR_INVALID_CMD;
+    fprintf(stderr,"### %s():%d Len:%d ###\n",__func__,__LINE__, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
 
-    *iResultSize = pstCmdDesc->fnCreateResp(pvUserData, (void*)pstMsgId, pvOutData);
+    frameMakeHeader(unCmd, pstMsgId, pvOutData, FRAME_TYPE_RESPONSE);
+    memcpy(pvOutData + sizeof(FRAME_HEADER), pvUserData, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
+    frameMakeTail(unCmd, pvOutData, FRAME_TYPE_RESPONSE);
     return FRAME_OK;
 }
 
@@ -373,17 +374,17 @@ FRAME_ERR frameDecode(unsigned char *puchBuf, int iFrameSize,
     return FRAME_OK;
 }
 
-FRAME_ERR createResponseFrame(unsigned short unCmd, MSG_ID *pstMsgId,
-                            unsigned char *puchCmdResult, unsigned char *puchSendData)
-{
-    if (!pstMsgId || !puchCmdResult || !puchSendData)
-        return FRAME_ERR_NULL_PTR;
+// FRAME_ERR createResponseFrame(unsigned short unCmd, MSG_ID *pstMsgId,
+//                             unsigned char *puchCmdResult, unsigned char *puchSendData)
+// {
+//     if (!pstMsgId || !puchCmdResult || !puchSendData)
+//         return FRAME_ERR_NULL_PTR;
     
-    frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
-    memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
-    frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
-    return FRAME_OK;
-}
+//     frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
+//     memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
+//     frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
+//     return FRAME_OK;
+// }
 
 char getIdInfo(unsigned char *puchData)
 {

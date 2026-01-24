@@ -300,6 +300,7 @@ REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, 
     * ========================================================= */
     IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
     int iWorkerIndex=0;
+    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
     while (pstIo) {
         if (pstIo->eRole == ROLE_WORKER) {            
             int iWorkerId = pstIo->iWorkerId;

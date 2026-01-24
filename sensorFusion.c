@@ -287,18 +287,11 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
     }
 }
 
-int reqSensorIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData)
-{
-	REQ_ID stReqId = { .chTmp = 1};
-	memcpy(pvOutData, &stReqId, sizeof(stReqId));
-	return sizeof(RES_ID);
-}
 
-int resSensorIDInfo(const void* pvRecvData, void* pvUserData, void* pvOutData)
+int dispatchIDInfo(const void* pvRecvData, void* pvOutData)
 {
-	REQ_ID *pstReqId = (REQ_ID *)(pvRecvData);
 	RES_ID *pstResId = (RES_ID *)(pvOutData);
-	pstResId->chResult = (char)UDS_1_SENSOR_FUSION;
+	pstResId->chResult = (char)TRACKING_CTRL_2_SENSOR_FUSTION;
 	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
 	return sizeof(RES_ID);
 }
@@ -326,15 +319,12 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     case IO_EVT_RX_DATA:
         while (1) {
             int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            fprintf(stderr,"Recv Size is %d\n", iRecvLen);
-            /* 최소 헤더도 없으면 중단 */
+            fprintf(stderr,"### %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
             if (iRecvLen < sizeof(FRAME_HEADER))
                 break;
 
             memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer,
-                                            auchRecvBuffer, iRecvLen);
-            /* frameDecode에 대한 처리가 완전한지 확인 필요*/                                            
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
             eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[UDS_1_SENSOR_FUSION] frameDecode ERR: %s\n", frameErrToStr(eErr));
@@ -362,30 +352,21 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             unsigned int uiReqId;
             memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
             int iResultSize;
-            eErr = cmdParseResponsePayload(auchRecvBuffer, iFrameSize, auchResult, &iResultSize);
-            if (eErr != FRAME_OK || iResultSize <= 0)
+            eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
+            fprintf(stderr,"### %s():%d Request ID is %d ###\n",__func__,__LINE__, uiReqId);
+            if (eErr != FRAME_OK){
+                fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
                 continue;
-            sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
-
-
-
-
-            // /* parse payload -> IPC_CMD_CTX */
-            // if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
-            //     fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
-            //     /* 최소한의 즉시 실패 응답 */
-            //     sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
-            //     continue;
-            // }
-
-            // /* execute command (immediate or deferred) */
-            // executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId);
-
-            /* NOTE:
-             * - immediate cmd: acuExecuteIpcCommand() sends UDS response here
-             * - deferred cmd: UDS response will be sent in uartReadCallback() or timeout cb
-             */
+            }
             
+            fprintf(stderr,"### %s():%d %02X ###\n",__func__,__LINE__, auchCmdResult[0]);
+            MSG_ID stMsgId = { UDS_1_SENSOR_FUSION, UDS_1_SVR_ID };
+            eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
+            iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+            // sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
+            event_add(pstIoChannel->pstWriteEvent, NULL);
         }
         break;
     default:
@@ -589,10 +570,11 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)// Tra
     }
     cmdRegistryOverrideHandler(
         CMD_ID_INFO,
-        reqSensorIDInfo,
-        resSensorIDInfo
+        NULL,
+        dispatchIDInfo,
+        NULL
     );
-    pstNewIo->iWorkerId = UDS_1_SENSOR_FUSION;
+    pstNewIo->iWorkerId = TRACKING_CTRL_2_SENSOR_FUSTION;
 }
 
 static void uds3ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)//ACU Conroller 재접속 시도

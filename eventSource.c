@@ -16,6 +16,12 @@ void readCallback(int iFd, short nEvent, void* pvData)
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     int iReadSize = read(pstIoChannel->iFd, auchRecvBuffer, sizeof(auchRecvBuffer));    
     fprintf(stderr,"### %s():%d recv size is %d ###\n",__func__,__LINE__, iReadSize);
+    for(int i=1; i<=iReadSize; i++){
+        if(i&16 == 0)
+            fprintf(stderr,"\n");
+        fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
+    }  
+    fprintf(stderr,"\n");
     if (iReadSize == 0) {
         /* ===== 상대 정상 종료 ===== */
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;

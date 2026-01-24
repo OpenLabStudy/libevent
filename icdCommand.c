@@ -57,32 +57,28 @@ double swapDouble(char* i_chData)
     return out;
 }
 
-int reqIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData)
+int reqIDInfo(void* pvUserData, void* pvOutData)
 {
-	REQ_ID stReqId = { .chTmp = 1};
-	memcpy(pvOutData, &stReqId, sizeof(stReqId));
-	return sizeof(RES_ID);
+	REQ_ID *pstReqId = (REQ_ID *)pvOutData;
+	pstReqId->chTmp = 0x01;
+	return sizeof(REQ_ID);
 }
-
-int iDInfo(const void* pvRecvData, void* pvOutData)
+int dispatchIdInfo(const void* pvRecvData, void* pvOutData)
 {
-	REQ_ID *pstReqId = (REQ_ID *)(pvRecvData);
 	RES_ID *pstResId = (RES_ID *)(pvOutData);
 	pstResId->chResult = pstResId->chResult;
 	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
 	return sizeof(RES_ID);
 }
 
-int resIDInfo(const void* pvUserData, void* pvMsgId, void* pvOutData)
-{
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_ID_INFO, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	}
-	return sizeof(RES_ID);
+int reqKeepAlive(void* pvUserData, void* pvOutData)
+{    
+	REQ_KEEP_ALIVE *pstReqKeepalive = (REQ_KEEP_ALIVE *)pvOutData;
+	pstReqKeepalive->chTmp = 0x01;
+    return sizeof(REQ_KEEP_ALIVE);
 }
-
-int keepAlive(const void* pvRecvData, void* pvOutData)
+int dispatchKeepAlive(const void* pvRecvData, void* pvOutData)
 {
 	RES_KEEP_ALIVE* pstResKeepalive = (RES_KEEP_ALIVE *)pvOutData;
     pstResKeepalive->chResult = 0x01;
@@ -90,73 +86,62 @@ int keepAlive(const void* pvRecvData, void* pvOutData)
     return sizeof(RES_KEEP_ALIVE);
 }
 
-int resKeepAlive(const void* pvUserData, void* pvMsgId, void* pvOutData)
+
+int reqIbit(void* pvUserData, void* pvOutData)
 {    
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_KEEP_ALIVE, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
-
-	}
-    return sizeof(RES_KEEP_ALIVE);
+	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
+	pstReqBit->chBit = 0x01;
+    return sizeof(REQ_BIT);
 }
-
-int iBit(const void* pvRecvData, void* pvOutData)
+int dispatchIbit(const void* pvRecvData, void* pvOutData)
 {
-	(void)pvRecvData;
-	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
-	pstResIBit->chBitTotResult    = 0x01;
-	pstResIBit->chPositionResult  = 0x01;
+	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
+	pstResIbit->chBitTotResult    = 0x01;
+	pstResIbit->chPositionResult  = 0x01;
 	fprintf(stderr, "ICD_IBIT executed\n");
 	return sizeof(RES_BIT);
 }
 
-int resIBit(const void* pvUserData, void* pvMsgId, void* pvOutData)
-{
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_IBIT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	}
-	return sizeof(RES_BIT);
+int reqRbit(void* pvUserData, void* pvOutData)
+{    
+	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
+	pstReqBit->chBit = 0x01;
+    return sizeof(REQ_BIT);
 }
-
-int rBit(const void* pvRecvData, void* pvOutData)
+int dispatchRbit(const void* pvRecvData, void* pvOutData)
 {
-	(void)pvRecvData;
-	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
-	pstResIBit->chBitTotResult    = 0x01;
-	pstResIBit->chPositionResult  = 0x01;
+	RES_BIT *pstResRbit = (RES_BIT *)(pvOutData);
+	pstResRbit->chBitTotResult    = 0x01;
+	pstResRbit->chPositionResult  = 0x01;
 	fprintf(stderr, "ICD_RBIT executed\n");
 	return sizeof(RES_BIT);
 }
 
-int resRBit(const void* pvUserData, void* pvMsgId, void* pvOutData)
-{
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_RBIT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	}
-	return sizeof(RES_BIT);
+int reqCbit(void* pvUserData, void* pvOutData)
+{    
+	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
+	pstReqBit->chBit = 0x01;
+    return sizeof(REQ_BIT);
 }
-
-int cBit(const void* pvRecvData, void* pvOutData)
+int dispatchCbit(const void* pvRecvData, void* pvOutData)
 {
-	(void)pvRecvData;
-	RES_BIT *pstResIBit = (RES_BIT *)(pvOutData);
-	pstResIBit->chBitTotResult    = 0x01;
-	pstResIBit->chPositionResult  = 0x01;
+	RES_BIT *pstResCbit 		= (RES_BIT *)(pvOutData);
+	pstResCbit->chBitTotResult  = 0x01;
+	pstResCbit->chPositionResult= 0x01;
 	fprintf(stderr, "ICD_CBIT executed\n");
 	return sizeof(RES_BIT);
 }
 
-int resCBit(const void* pvUserData, void* pvMsgId, void* pvOutData)
-{
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_CBIT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	}
-	return sizeof(RES_BIT);
+int reqPositionAzElSet(void* pvUserData, void* pvOutData)
+{    
+	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)pvOutData;
+	pstReqAzElSet->chAzimuthDeg
+    return sizeof(REQ_POSITIONER_AZ_EL_SET);
 }
-
-int positionAzElSet(const void* pvRecvData, void* pvOutData)
+int dispatchPositionAzElSet(const void* pvRecvData, void* pvOutData)
 {
 	double dAz, dEl;
 	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(pvRecvData + sizeof(FRAME_HEADER));
@@ -173,13 +158,13 @@ int positionAzElSet(const void* pvRecvData, void* pvOutData)
 int resPositionAzElSet(const void* pvUserData, void* pvMsgId, void* pvOutData)
 {
 	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_POSITIONER_AZ_EL_SET, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+	// if(createResponseFrame(CMD_POSITIONER_AZ_EL_SET, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	}
+	// }
 	return sizeof(RES_POSITIONER_AZ_EL_SET);	
 }
 
-int trackingSelect(const void* pvRecvData, void* pvOutData)
+int dispatchTrackingSelect(const void* pvRecvData, void* pvOutData)
 {
 	REQ_TRACKING_SELECT *pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(pvRecvData + sizeof(FRAME_HEADER));
 	RES_TRACKING_SELECT *pstResTrackingSelect = (RES_TRACKING_SELECT *)(pvOutData);
@@ -201,9 +186,9 @@ int trackingSelect(const void* pvRecvData, void* pvOutData)
 int resTrackingSelect(const void* pvUserData, void* pvMsgId, void* pvOutData)
 {
 	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	if(createResponseFrame(CMD_TRACKING_SELECT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
+	// if(createResponseFrame(CMD_TRACKING_SELECT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	}
+	// }
 	return sizeof(RES_POSITIONER_AZ_EL_SET);	
 }
 

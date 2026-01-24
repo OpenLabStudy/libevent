@@ -338,11 +338,10 @@ void endianChange1(double dValue, char* pchData);
  * @see RES_KEEP_ALIVE
  */
 
-int reqIDInfo(void* pvCmdData, void* pvUserData, void* pvOutData);
-int iDInfo(const void* pvRecvData, void* pvOutData);
-int resIDInfo(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int reqIDInfo(void* pvUserData, void* pvOutData);
+int dispatchIdInfo(const void* pvRecvData, void* pvOutData);
 
-int keepAlive(const void* pvRecvData, void* pvOutData);
+int dispatchKeepAlive(const void* pvRecvData, void* pvOutData);
 int resKeepAlive(const void* pvUserData, void* pvMsgId, void* pvOutData);
 
 int iBit(const void* pvRecvData, void* pvOutData);
