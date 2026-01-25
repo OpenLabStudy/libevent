@@ -32,44 +32,42 @@ static CMD_DESC g_cmdTable[] = {
         CMD_KEEP_ALIVE, "KEEP_ALIVE",
         sizeof(REQ_KEEP_ALIVE), sizeof(RES_KEEP_ALIVE),
         COMMAND_PATH_NONE,
-        NULL, keepAlive, resKeepAlive
+        buildForwardReqKeepAlive, dispatchCmdKeepAlive, buildResKeepAlive
     },
     {   
         CMD_IBIT, "IBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
         TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, iBit, resIBit 
+        buildForwardReqIbit, dispatchCmdIbit, buildResIbit 
     },
     {   CMD_RBIT, "RBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
         TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, rBit, resRBit 
+        buildForwardReqRbit, dispatchCmdRbit, buildResRbit 
     },
     {   CMD_CBIT, "CBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
         TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, cBit, resCBit 
+        buildForwardReqCbit, dispatchCmdCbit, buildResCbit 
     },
     {   CMD_POSITIONER_AZ_EL_SET, "POSITIONER_AZ_EL_SET",
         sizeof(REQ_POSITIONER_AZ_EL_SET), sizeof(RES_POSITIONER_AZ_EL_SET),
         TRACKING_CTRL_2_ACU_CTRL,
-        NULL, positionAzElSet, resPositionAzElSet 
+        buildForwardReqPositionAzElSet, dispatchCmdPositionAzElSet, buildResPositionAzElSet 
     },
     {   CMD_TRACKING_SELECT, "TRACKING_SELECT",
         sizeof(REQ_TRACKING_SELECT), sizeof(RES_TRACKING_SELECT),
         TRACKING_CTRL_2_SENSOR_FUSTION,
-        NULL, trackingSelect, resTrackingSelect 
+        buildForwardReqTrackingSelect, dispatchCmdTrackingSelect, buildResTrackingSelect 
     },
     {   CMD_ID_INFO, "ID_INFO",
         sizeof(REQ_ID), sizeof(RES_ID),
         TRACKING_CTRL_2_SENSOR_FUSTION,
-        reqIDInfo, iDInfo, resIDInfo 
+        buildForwardReqIdInfo, dispatchCmdIdInfo, buildResIdInfo 
     },
 };
 
 static const size_t g_cmdCount = sizeof(g_cmdTable) / sizeof(g_cmdTable[0]);
-
-
 
 /* ----------------------------------------------------------------------
  *  공통 Lookup
@@ -83,18 +81,17 @@ static const CMD_DESC* cmdFind(unsigned short unCmd)
     return NULL;
 }
 
-FRAME_ERR cmdRegistryOverrideHandler(
-    unsigned short unCmd,
-    createReqCommand fnCreateCmd,
-    dispatchCommand fnDispatchCmd
-)
+FRAME_ERR cmdRegistryOverrideHandler( unsigned short unCmd,
+    buildForwardReq fnBuildForwardReq, dispatchCommand fnDispatchCmd, buildResponse fnbuildRes)
 {
     for (size_t i = 0; i < g_cmdCount; ++i) {
         if (g_cmdTable[i].unCmd == unCmd) {
-            if (fnCreateCmd)
-                g_cmdTable[i].fnCreateCmd = fnCreateCmd;
+            if (fnBuildForwardReq)
+                g_cmdTable[i].fnBuildForwardReq = fnBuildForwardReq;
             if (fnDispatchCmd)
-                g_cmdTable[i].fnDispatchCmd = fnDispatchCmd;
+                g_cmdTable[i].fnDispatchCmd     = fnDispatchCmd;
+            if (fnbuildRes)
+                g_cmdTable[i].fnbuildRes        = fnbuildRes;
             return FRAME_OK;
         }
     }
@@ -195,8 +192,7 @@ static unsigned char frameCalcCrc(const unsigned char *puchBuf, int iTotalSize)
 {
     unsigned char uchCrc = 0x00;
     int iOffset =
-        sizeof(((FRAME_HEADER *)0)->unStx) +
-        sizeof(((FRAME_HEADER *)0)->iDataLength);
+        sizeof(((FRAME_HEADER *)0)->unStx) + sizeof(((FRAME_HEADER *)0)->iDataLength);
     for (int i = iOffset; i < iTotalSize - sizeof(FRAME_TAIL); i++) {
         uchCrc += puchBuf[i];
     }
@@ -272,15 +268,14 @@ unsigned int getDataSize(unsigned short unCmd, FRAME_TYPE eFrameType)
     return (eFrameType == FRAME_TYPE_REQUEST) ? pstCmdDesc->uiReqSize : pstCmdDesc->uiResSize;
 }
 
-FRAME_ERR createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* pvCmdData, void* pvOutData)
+FRAME_ERR createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* uchUserData, void* pvOutData)
 {
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
-    unsigned char uchUserData[256];
     frameMakeHeader(unCmd, pstMsgId, pvOutData, FRAME_TYPE_REQUEST);
-    if (!pstCmdDesc || !pstCmdDesc->fnCreateCmd)
+    if (!pstCmdDesc || !pstCmdDesc->fnBuildForwardReq)
         return -1;
 
-    if(pstCmdDesc->fnCreateCmd(pvCmdData, uchUserData, pvOutData+sizeof(FRAME_HEADER))){
+    if(pstCmdDesc->fnBuildForwardReq(uchUserData, pvOutData+sizeof(FRAME_HEADER))){
 
     }
     frameMakeTail(unCmd, pvOutData, FRAME_TYPE_REQUEST);
@@ -300,7 +295,7 @@ FRAME_ERR cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData)
     if (!pstCmdDesc || !pstCmdDesc->fnDispatchCmd)
         return FRAME_ERR_INVALID_CMD;
     fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);    
-    return (pstCmdDesc->fnDispatchCmd(pvRecvData, pvOutData)==0)?FRAME_NOK : FRAME_OK;
+    return (pstCmdDesc->fnDispatchCmd(pvRecvData+sizeof(FRAME_HEADER), pvOutData)==0)?FRAME_NOK : FRAME_OK;
 }
 
 FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData)
@@ -314,8 +309,25 @@ FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID
     fprintf(stderr,"### %s():%d Len:%d ###\n",__func__,__LINE__, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
 
     frameMakeHeader(unCmd, pstMsgId, pvOutData, FRAME_TYPE_RESPONSE);
-    memcpy(pvOutData + sizeof(FRAME_HEADER), pvUserData, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
+    pstCmdDesc->fnbuildRes(pvUserData, pvOutData+sizeof(FRAME_HEADER));
     frameMakeTail(unCmd, pvOutData, FRAME_TYPE_RESPONSE);
+    return FRAME_OK;
+}
+
+FRAME_ERR repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize)
+{
+    FRAME_ERR eErr;
+    unsigned short unCmd;
+
+    FRAME_HEADER *pstFrameHeader = (FRAME_HEADER *)pvData;
+    eErr = getCmdCode(pvData, iFrameSize, &unCmd);
+    FRAME_TAIL *pstTail = frameGetTailPtr(pvData, unCmd, FRAME_TYPE_RESPONSE);
+
+    fprintf(stderr,"### %s():%d Len:%d ###\n",__func__,__LINE__, getDataSize(unCmd, FRAME_TYPE_RESPONSE));    
+    pstFrameHeader->stMsgId.uchSrcId = pstMsgId->uchSrcId;
+    pstFrameHeader->stMsgId.uchDstId = pstMsgId->uchDstId;
+    fprintf(stderr,"SRC:%02x, DST:%02x\n", pstFrameHeader->stMsgId.uchSrcId, pstFrameHeader->stMsgId.uchDstId);
+    pstTail->uchCrc = frameCalcCrc(pvData, getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE));
     return FRAME_OK;
 }
 

@@ -366,6 +366,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             // sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
             evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, &uiReqId, sizeof(uiReqId));
             event_add(pstIoChannel->pstWriteEvent, NULL);
         }
         break;

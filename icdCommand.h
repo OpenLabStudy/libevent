@@ -338,39 +338,34 @@ void endianChange1(double dValue, char* pchData);
  * @see RES_KEEP_ALIVE
  */
 
-int reqIDInfo(void* pvUserData, void* pvOutData);
-int dispatchIdInfo(const void* pvRecvData, void* pvOutData);
 
-int dispatchKeepAlive(const void* pvRecvData, void* pvOutData);
-int resKeepAlive(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int buildForwardReqIdInfo(void* pvUserData, void* pvOutData);
+int dispatchCmdIdInfo(const void* pvRecvData, void* pvOutData);
+int buildResIdInfo(const void* pvUserData, void* pvOutData);
 
-int iBit(const void* pvRecvData, void* pvOutData);
-int resIBit(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int buildForwardReqKeepAlive(void* pvUserData, void* pvOutData);
+int dispatchCmdKeepAlive(const void* pvRecvData, void* pvOutData);
+int buildResKeepAlive(const void* pvUserData, void* pvOutData);
 
-int rBit(const void* pvRecvData, void* pvOutData);
-int resRBit(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int buildForwardReqIbit(void* pvUserData, void* pvOutData);
+int dispatchCmdIbit(const void* pvRecvData, void* pvOutData);
+int buildResIbit(const void* pvUserData, void* pvOutData);
 
-int cBit(const void* pvRecvData, void* pvOutData);
-int resCBit(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int buildForwardReqRbit(void* pvUserData, void* pvOutData);
+int dispatchCmdRbit(const void* pvRecvData, void* pvOutData);
+int buildResRbit(const void* pvUserData, void* pvOutData);
 
-int positionAzElSet(const void* pvRecvData, void* pvOutData);
-int resPositionAzElSet(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int buildForwardReqCbit(void* pvUserData, void* pvOutData);
+int dispatchCmdCbit(const void* pvRecvData, void* pvOutData);
+int buildResCbit(const void* pvUserData, void* pvOutData);
 
-int trackingSelect(const void* pvRecvData, void* pvOutData);
-int resTrackingSelect(const void* pvUserData, void* pvMsgId, void* pvOutData);
+int buildForwardReqPositionAzElSet(void* pvUserData, void* pvOutData);
+int dispatchCmdPositionAzElSet(const void* pvRecvData, void* pvOutData);
+int buildResPositionAzElSet(const void* pvUserData, void* pvOutData);
 
-int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int mccCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int cannonCoordinateInifo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int positionDegTransferCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult);
-int setAutoTrackingWati(unsigned char* puchRecvData, unsigned char* puchCmdResult);
+int buildForwardReqTrackingSelect(void* pvUserData, void* pvOutData);
+int dispatchCmdTrackingSelect(const void* pvRecvData, void* pvOutData);
+int buildResTrackingSelect(const void* pvUserData, void* pvOutData);
 
 #endif /* ICD_COMMAND_H */
  

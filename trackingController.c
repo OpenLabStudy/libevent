@@ -18,25 +18,18 @@
 void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 {
     (void)nEvent;
-    unsigned short unCmd = 0;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    FRAME_ERR eErr;
-    unsigned char auchResult[64];
-    unsigned char auchSendBuf[1024];
-    int iWriteSize, iDataSize;
-    iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, &unCmd, sizeof(unsigned short));
-    iDataSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
-    iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchResult, iDataSize);
-    iWriteSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-    MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-    // eErr = createResponseFrame(unCmd, &stMsgId, auchResult, auchSendBuf);
-    if( eErr != FRAME_OK ){
-        fprintf(stderr, "[TCP-SVR] makeResponseFrame ERR: %s\n", frameErrToStr(eErr));
-        //ERROR 처리 필요
+    unsigned char auchWriteBuffer[2048];
+    int iWriteSize;
+    iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
+    if (iWriteSize == 0) {
+        event_del(pstIoChannel->pstWriteEvent);
         return;
-    }
-    
-    iWriteSize = write(pstIoChannel->iFd, auchSendBuf, iWriteSize);
+    }    
+    iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
+    MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
+    repackageResponse(auchWriteBuffer, &stMsgId, iWriteSize);
+    iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
     if (iWriteSize <= 0) {
         perror("write");
         return;
@@ -46,10 +39,50 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
     for(int i=1; i<=iWriteSize; i++){
         if(i&16 == 0)
             fprintf(stderr,"\n");
-        fprintf(stderr,"%02x ", auchSendBuf[i-1]);
+        fprintf(stderr,"%02x ", auchWriteBuffer[i-1]);
     }  
+    fprintf(stderr,"\n");
     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
         event_del(pstIoChannel->pstWriteEvent);
+
+
+
+
+
+
+    // unsigned short unCmd = 0;
+    // IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    // FRAME_ERR eErr;
+    // unsigned char auchResult[64];
+    // unsigned char auchSendBuf[1024];
+    // int iWriteSize, iDataSize;
+    // iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, &unCmd, sizeof(unsigned short));
+    // iDataSize = getDataSize(unCmd, FRAME_TYPE_RESPONSE);
+    // iDataSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchResult, iDataSize);
+    // iWriteSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+    // MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
+    // FRAME_ERR repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize);
+    
+    // if( eErr != FRAME_OK ){
+    //     fprintf(stderr, "[TCP-SVR] makeResponseFrame ERR: %s\n", frameErrToStr(eErr));
+    //     //ERROR 처리 필요
+    //     return;
+    // }
+    
+    // iWriteSize = write(pstIoChannel->iFd, auchSendBuf, iWriteSize);
+    // if (iWriteSize <= 0) {
+    //     perror("write");
+    //     return;
+    // }
+    // fprintf(stderr,"\n");
+    // fprintf(stderr,"### %s():%d Write Size:%d ###\n", __func__,__LINE__, iWriteSize);
+    // for(int i=1; i<=iWriteSize; i++){
+    //     if(i&16 == 0)
+    //         fprintf(stderr,"\n");
+    //     fprintf(stderr,"%02x ", auchSendBuf[i-1]);
+    // }  
+    // if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
+    //     event_del(pstIoChannel->pstWriteEvent);
 
 }
 
@@ -178,23 +211,23 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
         evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
-        unsigned char auchCmdResult[128];
-        unsigned char auchResult[128];
         unsigned int uiReqId;
         memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
         int iResultSize;
-        eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-        if (eErr != FRAME_OK){
-            fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
-        }
+
+        // eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
+        // fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        // if (eErr != FRAME_OK){
+        //     fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
+        // }
         // evbuffer_remove(pstIoChannel->pstReadBuffer, &iReqId, sizeof(unsigned int));
         if(unCmd == CMD_ID_INFO){
-            pstIoChannel->iWorkerId = (int)getIdInfo(auchCmdResult);
+            pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer+sizeof(FRAME_HEADER));
             fprintf(stderr,"ID is %d\n", pstIoChannel->iWorkerId);
         }else{
-            // eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
-            //     iReqId, auchRecvBuffer, iFrameSize);
+            fprintf(stderr,"Request id is %d\n", uiReqId);
+            eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
+                uiReqId, auchRecvBuffer, iFrameSize);
         }
         break;
 
@@ -241,7 +274,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
             fprintf(stderr, "[TCP-SVR] New client FD=%d\n", iClientSock);
             pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_TCP_SVR, ROLE_REQUESTER,
-                    NULL, NULL, tcpIoChannelHandleEvent);
+                    NULL, tcpWriteCallback, tcpIoChannelHandleEvent);
             pstIoChannel->iWorkerId = UDS_1_SVR_ID;
             pstIoChannel->chFdCloseSet = FD_OPENED;
         } else if (stSockAddrStorage.ss_family == AF_UNIX) {

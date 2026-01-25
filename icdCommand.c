@@ -57,43 +57,53 @@ double swapDouble(char* i_chData)
     return out;
 }
 
-int reqIDInfo(void* pvUserData, void* pvOutData)
+int buildForwardReqIdInfo(void* pvUserData, void* pvOutData)
 {
 	REQ_ID *pstReqId = (REQ_ID *)pvOutData;
 	pstReqId->chTmp = 0x01;
 	return sizeof(REQ_ID);
 }
-int dispatchIdInfo(const void* pvRecvData, void* pvOutData)
+int dispatchCmdIdInfo(const void* pvRecvData, void* pvOutData)
 {
-	RES_ID *pstResId = (RES_ID *)(pvOutData);
-	pstResId->chResult = pstResId->chResult;
+	return sizeof(RES_ID);
+}
+int buildResIdInfo(const void* pvUserData, void* pvOutData)
+{
+	RES_ID *pstUserData	= (RES_ID *)(pvUserData);
+	RES_ID *pstResId 	= (RES_ID *)(pvOutData);
+	pstResId->chResult 	= pstUserData->chResult;
 	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
 	return sizeof(RES_ID);
 }
 
-
-int reqKeepAlive(void* pvUserData, void* pvOutData)
+int buildForwardReqKeepAlive(void* pvUserData, void* pvOutData)
 {    
 	REQ_KEEP_ALIVE *pstReqKeepalive = (REQ_KEEP_ALIVE *)pvOutData;
 	pstReqKeepalive->chTmp = 0x01;
     return sizeof(REQ_KEEP_ALIVE);
 }
-int dispatchKeepAlive(const void* pvRecvData, void* pvOutData)
+int dispatchCmdKeepAlive(const void* pvRecvData, void* pvOutData)
 {
 	RES_KEEP_ALIVE* pstResKeepalive = (RES_KEEP_ALIVE *)pvOutData;
     pstResKeepalive->chResult = 0x01;
     printf("[RES] KEEP_ALIVE status=%u\n", pstResKeepalive->chResult);
     return sizeof(RES_KEEP_ALIVE);
 }
+int buildResKeepAlive(const void* pvUserData, void* pvOutData)
+{
+	RES_KEEP_ALIVE *pstUserData	= (RES_ID *)(pvUserData);
+	RES_KEEP_ALIVE *pstResId 	= (RES_ID *)(pvOutData);
+	pstResId->chResult = pstUserData->chResult;
+	return sizeof(RES_ID);
+}
 
-
-int reqIbit(void* pvUserData, void* pvOutData)
+int buildForwardReqIbit(void* pvUserData, void* pvOutData)
 {    
 	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
 	pstReqBit->chBit = 0x01;
     return sizeof(REQ_BIT);
 }
-int dispatchIbit(const void* pvRecvData, void* pvOutData)
+int dispatchCmdIbit(const void* pvRecvData, void* pvOutData)
 {
 	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
 	pstResIbit->chBitTotResult    = 0x01;
@@ -101,96 +111,118 @@ int dispatchIbit(const void* pvRecvData, void* pvOutData)
 	fprintf(stderr, "ICD_IBIT executed\n");
 	return sizeof(RES_BIT);
 }
+int buildResIbit(const void* pvUserData, void* pvOutData)
+{
+	RES_BIT *pstUserData		= (RES_BIT *)(pvUserData);
+	RES_BIT *pstResId 			= (RES_BIT *)(pvOutData);
+	pstResId->chBitTotResult 	= pstUserData->chBitTotResult;
+	pstResId->chPositionResult	= pstUserData->chPositionResult;
+	return sizeof(RES_BIT);
+}
 
-
-int reqRbit(void* pvUserData, void* pvOutData)
+int buildForwardReqRbit(void* pvUserData, void* pvOutData)
 {    
 	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
 	pstReqBit->chBit = 0x01;
     return sizeof(REQ_BIT);
 }
-int dispatchRbit(const void* pvRecvData, void* pvOutData)
+int dispatchCmdRbit(const void* pvRecvData, void* pvOutData)
 {
-	RES_BIT *pstResRbit = (RES_BIT *)(pvOutData);
-	pstResRbit->chBitTotResult    = 0x01;
-	pstResRbit->chPositionResult  = 0x01;
+	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
+	pstResIbit->chBitTotResult    = 0x01;
+	pstResIbit->chPositionResult  = 0x01;
 	fprintf(stderr, "ICD_RBIT executed\n");
 	return sizeof(RES_BIT);
 }
+int buildResRbit(const void* pvUserData, void* pvOutData)
+{
+	RES_BIT *pstUserData		= (RES_BIT *)(pvUserData);
+	RES_BIT *pstResId 			= (RES_BIT *)(pvOutData);
+	pstResId->chBitTotResult 	= pstUserData->chBitTotResult;
+	pstResId->chPositionResult	= pstUserData->chPositionResult;
+	return sizeof(RES_BIT);
+}
 
-
-int reqCbit(void* pvUserData, void* pvOutData)
+int buildForwardReqCbit(void* pvUserData, void* pvOutData)
 {    
 	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
 	pstReqBit->chBit = 0x01;
     return sizeof(REQ_BIT);
 }
-int dispatchCbit(const void* pvRecvData, void* pvOutData)
+int dispatchCmdCbit(const void* pvRecvData, void* pvOutData)
 {
-	RES_BIT *pstResCbit 		= (RES_BIT *)(pvOutData);
-	pstResCbit->chBitTotResult  = 0x01;
-	pstResCbit->chPositionResult= 0x01;
-	fprintf(stderr, "ICD_CBIT executed\n");
+	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
+	pstResIbit->chBitTotResult    = 0x01;
+	pstResIbit->chPositionResult  = 0x01;
+	fprintf(stderr, "ICD_RBIT executed\n");
+	return sizeof(RES_BIT);
+}
+int buildResCbit(const void* pvUserData, void* pvOutData)
+{
+	RES_BIT *pstUserData		= (RES_BIT *)(pvUserData);
+	RES_BIT *pstResId 			= (RES_BIT *)(pvOutData);
+	pstResId->chBitTotResult 	= pstUserData->chBitTotResult;
+	pstResId->chPositionResult	= pstUserData->chPositionResult;
 	return sizeof(RES_BIT);
 }
 
-
-int reqPositionAzElSet(void* pvUserData, void* pvOutData)
+int buildForwardReqPositionAzElSet(void* pvUserData, void* pvOutData)
 {    
-	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)pvOutData;
-	pstReqAzElSet->chAzimuthDeg
+	REQ_POSITIONER_AZ_EL_SET *pstReqUserData	= (REQ_POSITIONER_AZ_EL_SET *)pvUserData;
+	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet 	= (REQ_POSITIONER_AZ_EL_SET *)pvOutData;
+	memcpy(pstReqAzElSet->chAzimuthDeg,  	pstReqUserData->chAzimuthDeg,	sizeof(pstReqAzElSet->chAzimuthDeg));
+	memcpy(pstReqAzElSet->chElevationDeg,  	pstReqUserData->chElevationDeg,	sizeof(pstReqAzElSet->chElevationDeg));
     return sizeof(REQ_POSITIONER_AZ_EL_SET);
 }
-int dispatchPositionAzElSet(const void* pvRecvData, void* pvOutData)
+int dispatchCmdPositionAzElSet(const void* pvRecvData, void* pvOutData)
 {
-	double dAz, dEl;
-	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)(pvRecvData + sizeof(FRAME_HEADER));
-	RES_POSITIONER_AZ_EL_SET *pstResAzElSet = (RES_POSITIONER_AZ_EL_SET *)(pvOutData);
-	dAz = endianChange(pstReqAzElSet->chAzimuthDeg);
-	dEl = endianChange(pstReqAzElSet->chElevationDeg);	
-	//todo Az,El설정에 대한 명령 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	fprintf(stderr,"AZ:%.03lf, EL:%.03lf\n", dAz, dEl);
-	pstResAzElSet->chResult = 0x01;
-
-	fprintf(stderr, "POSITION AZ EL Setting executed\n");
+	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet 	= (REQ_POSITIONER_AZ_EL_SET *)(pvRecvData);
+	REQ_POSITIONER_AZ_EL_SET *pstReqUserData	= (REQ_POSITIONER_AZ_EL_SET *)(pvOutData);
+	memcpy(pstReqUserData->chAzimuthDeg,  	pstReqAzElSet->chAzimuthDeg, 	sizeof(pstReqAzElSet->chAzimuthDeg));
+	memcpy(pstReqUserData->chElevationDeg,  pstReqAzElSet->chElevationDeg, 	sizeof(pstReqAzElSet->chElevationDeg));
+	fprintf(stderr, "POSITIONER_AZ_EL_SET executed\n");
+	return sizeof(RES_BIT);
+}
+int buildResPositionAzElSet(const void* pvUserData, void* pvOutData)
+{
+	RES_POSITIONER_AZ_EL_SET *pstUserData	= (RES_POSITIONER_AZ_EL_SET *)pvUserData;
+	RES_POSITIONER_AZ_EL_SET *pstResAzElSet	= (RES_POSITIONER_AZ_EL_SET *)pvOutData;
+	pstResAzElSet->chResult 				= pstUserData->chResult;	
 	return sizeof(RES_POSITIONER_AZ_EL_SET);
 }
-int resPositionAzElSet(const void* pvUserData, void* pvMsgId, void* pvOutData)
-{
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	// if(createResponseFrame(CMD_POSITIONER_AZ_EL_SET, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
 
-	// }
-	return sizeof(RES_POSITIONER_AZ_EL_SET);	
+
+int buildForwardReqTrackingSelect(void* pvUserData, void* pvOutData)
+{    
+	REQ_TRACKING_SELECT *pstReqUserData 		= (REQ_TRACKING_SELECT *)pvUserData;
+	REQ_TRACKING_SELECT *pstReqTrackingSelect	= (REQ_TRACKING_SELECT *)pvOutData;
+	pstReqTrackingSelect->chTrackingSelect 		= pstReqUserData->chTrackingSelect;
+    return sizeof(REQ_TRACKING_SELECT);
 }
-
-int dispatchTrackingSelect(const void* pvRecvData, void* pvOutData)
+int dispatchCmdTrackingSelect(const void* pvRecvData, void* pvOutData)
 {
-	REQ_TRACKING_SELECT *pstReqTrackingSelect = (REQ_TRACKING_SELECT *)(pvRecvData + sizeof(FRAME_HEADER));
-	RES_TRACKING_SELECT *pstResTrackingSelect = (RES_TRACKING_SELECT *)(pvOutData);
-
-	pstResTrackingSelect->chResult = 0x01;
-	if(pstReqTrackingSelect->chTrackingSelect == SELF_TRACKING){
+	REQ_TRACKING_SELECT *pstReqAzElSet 	= (REQ_TRACKING_SELECT *)pvRecvData;
+	REQ_TRACKING_SELECT *pstReqUserData	= (REQ_TRACKING_SELECT *)pvOutData;
+	pstReqUserData->chTrackingSelect = pstReqAzElSet->chTrackingSelect;
+	if(pstReqAzElSet->chTrackingSelect == SELF_TRACKING){
 		fprintf(stderr,"SELF_TRACKING\n");
-	}else if(pstReqTrackingSelect->chTrackingSelect == EXTERNAL_DEV_TRACKING){
+	}else if(pstReqAzElSet->chTrackingSelect == EXTERNAL_DEV_TRACKING){
 		fprintf(stderr,"EXTERNAL_DEV_TRACKING\n");
 	}else{
 		fprintf(stderr,"Tracking Select Fail\n");
-		pstResTrackingSelect->chResult = 0x0;
 	}
 	
 	fprintf(stderr, "Tracking Select Setting executed\n");
+	return sizeof(RES_BIT);
+}
+int buildResTrackingSelect(const void* pvUserData, void* pvOutData)
+{
+	RES_TRACKING_SELECT *pstUserData			= (RES_TRACKING_SELECT *)(pvUserData);
+	RES_TRACKING_SELECT *pstResTrackingSelect	= (RES_TRACKING_SELECT *)(pvOutData);
+	pstResTrackingSelect->chResult 				= pstUserData->chResult;	
 	return sizeof(RES_TRACKING_SELECT);
 }
 
-int resTrackingSelect(const void* pvUserData, void* pvMsgId, void* pvOutData)
-{
-	MSG_ID* pstMsgId = (MSG_ID*)pvMsgId;
-	// if(createResponseFrame(CMD_TRACKING_SELECT, pstMsgId, pvUserData, pvOutData) != FRAME_OK){
-
-	// }
-	return sizeof(RES_POSITIONER_AZ_EL_SET);	
-}
 
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
