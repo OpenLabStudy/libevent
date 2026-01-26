@@ -31,38 +31,41 @@ static CMD_DESC g_cmdTable[] = {
     {   
         CMD_KEEP_ALIVE, "KEEP_ALIVE",
         sizeof(REQ_KEEP_ALIVE), sizeof(RES_KEEP_ALIVE),
-        COMMAND_PATH_NONE,
         buildForwardReqKeepAlive, dispatchCmdKeepAlive, buildResKeepAlive
     },
     {   
         CMD_IBIT, "IBIT",
-        sizeof(REQ_BIT), sizeof(RES_BIT),
-        TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
+        sizeof(REQ_BIT), sizeof(RES_BIT),        
         buildForwardReqIbit, dispatchCmdIbit, buildResIbit 
     },
     {   CMD_RBIT, "RBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
-        TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
         buildForwardReqRbit, dispatchCmdRbit, buildResRbit 
     },
     {   CMD_CBIT, "CBIT",
         sizeof(REQ_BIT), sizeof(RES_BIT),
-        TRACKING_CTRL_2_ACU_CTRL|TRACKING_CTRL_2_SENSOR_FUSTION,
         buildForwardReqCbit, dispatchCmdCbit, buildResCbit 
     },
     {   CMD_POSITIONER_AZ_EL_SET, "POSITIONER_AZ_EL_SET",
         sizeof(REQ_POSITIONER_AZ_EL_SET), sizeof(RES_POSITIONER_AZ_EL_SET),
-        TRACKING_CTRL_2_ACU_CTRL,
         buildForwardReqPositionAzElSet, dispatchCmdPositionAzElSet, buildResPositionAzElSet 
     },
     {   CMD_TRACKING_SELECT, "TRACKING_SELECT",
         sizeof(REQ_TRACKING_SELECT), sizeof(RES_TRACKING_SELECT),
-        TRACKING_CTRL_2_SENSOR_FUSTION,
         buildForwardReqTrackingSelect, dispatchCmdTrackingSelect, buildResTrackingSelect 
     },
+    
+    {   CMD_ACU_MODE_SELECT, "ACU_MODE_SELECT",
+        sizeof(REQ_ACU_MODE), sizeof(RES_ACU_MODE),        
+        buildForwardReqAcuModeSelect, dispatchCmdAcuModeSelect, buildResAcuModeSelect 
+    },
+    {   CMD_AUTO_TRACKING_WAIT, "AUTO_TRACKING_WAIT",
+        sizeof(REQ_AUTO_TRACKING_WAIT), sizeof(RES_AUTO_TRACKING_WAIT),        
+        buildForwardReqAutoTrackingWait, dispatchCmdAutoTrackingWait, buildResAutoTrackingWait 
+    },
+    
     {   CMD_ID_INFO, "ID_INFO",
         sizeof(REQ_ID), sizeof(RES_ID),
-        TRACKING_CTRL_2_SENSOR_FUSTION,
         buildForwardReqIdInfo, dispatchCmdIdInfo, buildResIdInfo 
     },
 };
@@ -285,29 +288,24 @@ FRAME_ERR createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* uchUser
 FRAME_ERR cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData)
 {
     unsigned short unCmd;
-    FRAME_ERR eErr;
-    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
-    eErr = getCmdCode(pvRecvData, iFrameSize, &unCmd);
+    FRAME_ERR eErr = getCmdCode(pvRecvData, iFrameSize, &unCmd);
     if(eErr != FRAME_OK)
         return eErr;
-    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);    
+    
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);    
     if (!pstCmdDesc || !pstCmdDesc->fnDispatchCmd)
         return FRAME_ERR_INVALID_CMD;
-    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);    
+        
     return (pstCmdDesc->fnDispatchCmd(pvRecvData+sizeof(FRAME_HEADER), pvOutData)==0)?FRAME_NOK : FRAME_OK;
 }
 
 FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData)
 {
     FRAME_ERR eErr;
-
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (!pstCmdDesc)
         return FRAME_ERR_INVALID_CMD;
-    fprintf(stderr,"### %s():%d Len:%d ###\n",__func__,__LINE__, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
-
+        
     frameMakeHeader(unCmd, pstMsgId, pvOutData, FRAME_TYPE_RESPONSE);
     pstCmdDesc->fnbuildRes(pvUserData, pvOutData+sizeof(FRAME_HEADER));
     frameMakeTail(unCmd, pvOutData, FRAME_TYPE_RESPONSE);
@@ -386,18 +384,6 @@ FRAME_ERR frameDecode(unsigned char *puchBuf, int iFrameSize,
     return FRAME_OK;
 }
 
-// FRAME_ERR createResponseFrame(unsigned short unCmd, MSG_ID *pstMsgId,
-//                             unsigned char *puchCmdResult, unsigned char *puchSendData)
-// {
-//     if (!pstMsgId || !puchCmdResult || !puchSendData)
-//         return FRAME_ERR_NULL_PTR;
-    
-//     frameMakeHeader(unCmd, pstMsgId, puchSendData, FRAME_TYPE_RESPONSE);
-//     memcpy(puchSendData + sizeof(FRAME_HEADER), puchCmdResult, getDataSize(unCmd, FRAME_TYPE_RESPONSE));
-//     frameMakeTail(unCmd, puchSendData, FRAME_TYPE_RESPONSE);
-//     return FRAME_OK;
-// }
-
 char getIdInfo(unsigned char *puchData)
 {
     RES_ID *pstResId = (RES_ID *)(puchData);
@@ -424,10 +410,3 @@ int findFrameHeader(unsigned char *puchData, int iSize)
     return -1;
 }
 
-COMMAND_PATH decideProcessingPath(unsigned short unCmd)
-{
-    const CMD_DESC* pstCmdDesc = cmdFind(unCmd);    
-    if (!pstCmdDesc)
-        return 0;
-    return pstCmdDesc->eCommandPath;
-}

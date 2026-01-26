@@ -49,6 +49,11 @@ enum ACU_MODE {
 	POSITION
 };
 
+enum AUTO_TRACKING_FLAG {
+	AUTO_TRACKING_OFF = 0x00,
+	AUTO_TRACKING_ON
+};
+
 enum COMMAND_ID
 {    
     CMD_KEEP_ALIVE = 0x0000,           /**< 통신 상태 유지 */
@@ -366,6 +371,15 @@ int buildResPositionAzElSet(const void* pvUserData, void* pvOutData);
 int buildForwardReqTrackingSelect(void* pvUserData, void* pvOutData);
 int dispatchCmdTrackingSelect(const void* pvRecvData, void* pvOutData);
 int buildResTrackingSelect(const void* pvUserData, void* pvOutData);
+
+int buildForwardReqAcuModeSelect(void* pvUserData, void* pvOutData);
+int dispatchCmdAcuModeSelect(const void* pvRecvData, void* pvOutData);
+int buildResAcuModeSelect(const void* pvUserData, void* pvOutData);
+
+int buildForwardReqAutoTrackingWait(void* pvUserData, void* pvOutData);
+int dispatchCmdAutoTrackingWait(const void* pvRecvData, void* pvOutData);
+int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData);
+
 
 #endif /* ICD_COMMAND_H */
  

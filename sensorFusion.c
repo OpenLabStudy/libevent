@@ -287,14 +287,48 @@ static void executeIpcCommand(const IPC_CMD_CTX* pstCmdCtx, IO_CHANNEL* pstUdsIo
     }
 }
 
-
-int dispatchIDInfo(const void* pvRecvData, void* pvOutData)
+static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short unCmd, 
+    unsigned char *puchCmdData, unsigned char *puchCmdResult)
 {
-	RES_ID *pstResId = (RES_ID *)(pvOutData);
-	pstResId->chResult = (char)TRACKING_CTRL_2_SENSOR_FUSTION;
-	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
-	return sizeof(RES_ID);
+    switch(unCmd)
+    {
+        case CMD_TRACKING_SELECT:
+        {
+            REQ_TRACKING_SELECT* pstReqTrackingSelect = (REQ_TRACKING_SELECT *)puchCmdData;
+            RES_TRACKING_SELECT* pstResTrackingSelect = (RES_TRACKING_SELECT *)puchCmdResult;
+            if(pstReqTrackingSelect->chTrackingSelect == SELF_TRACKING || 
+                pstReqTrackingSelect->chTrackingSelect == EXTERNAL_DEV_TRACKING){
+                pstSensorFusionCtx->stCommandState.chTrackingSelect = pstReqTrackingSelect->chTrackingSelect;
+                pstResTrackingSelect->chResult = 0x01;
+            }else{
+                pstResTrackingSelect->chResult = 0x00;
+            }
+        }
+        break;
+        case CMD_AUTO_TRACKING_WAIT:
+        {            
+            REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	= (REQ_AUTO_TRACKING_WAIT *)puchCmdData;
+	        RES_AUTO_TRACKING_WAIT *pstReqUserData			= (RES_AUTO_TRACKING_WAIT *)puchCmdResult;
+            pstSensorFusionCtx->stCommandState.chWaitOnOff  = pstReqAutoTrackingWait->chWaitOnOff;
+            pstSensorFusionCtx->stCommandState.dStandbyAz   = pstReqAutoTrackingWait->dStandbyAz;
+            pstSensorFusionCtx->stCommandState.dStandbyEl   = pstReqAutoTrackingWait->dStandbyEl;
+            pstReqUserData->chResult = 0x01;
+            fprintf(stderr,"Result is %02x, %02x\n", pstReqUserData->chResult, puchCmdResult[0]);
+        }
+        break;
+        case CMD_ID_INFO:
+        {
+            RES_ID *pstResId = (RES_ID *)(puchCmdResult);
+            pstResId->chResult = (char)SENSOR_FUSTION_CTRL;
+            fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+            return sizeof(RES_ID);
+        }
+        break;
+        default:
+        break;
+    }
 }
+
 
 static void commandEventCb(int iFd, short nEvent, void* pvData)
 {
@@ -346,19 +380,19 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             /* === 프레임 소비 === */
-            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
+            unsigned char auchCmdData[128];
             unsigned char auchCmdResult[128];
             unsigned char auchResult[128];
             unsigned int uiReqId;
-            memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
             int iResultSize;
-            eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
-            fprintf(stderr,"### %s():%d Request ID is %d ###\n",__func__,__LINE__, uiReqId);
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+            evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
+            eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdData);
             if (eErr != FRAME_OK){
                 fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
                 continue;
-            }
-            
+            }            
+            applyCommand(pstSensorFusionCtx, unCmd, auchCmdData, auchCmdResult);
             fprintf(stderr,"### %s():%d %02X ###\n",__func__,__LINE__, auchCmdResult[0]);
             MSG_ID stMsgId = { UDS_1_SENSOR_FUSION, UDS_1_SVR_ID };
             eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
@@ -366,7 +400,6 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             // sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
             evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
-            evbuffer_add(pstIoChannel->pstWriteBuffer, &uiReqId, sizeof(uiReqId));
             event_add(pstIoChannel->pstWriteEvent, NULL);
         }
         break;
@@ -549,33 +582,27 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)// Tra
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, UDS_1_SENSOR_FUSION);    
+    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, SENSOR_FUSTION_CTRL);    
     if (ioIsChannelAlive(pstCmdIo)){
         return;
     }
 
     int iSock = netUdsCreateClient(UDS_1_PATH);
     if (iSock < 0) {
-        fprintf(stderr, "[UDS_1_SENSOR_FUSION] reconnect failed, retry later\n");
+        fprintf(stderr, "[SENSOR_FUSTION_CTRL] reconnect failed, retry later\n");
         return; /* 타이머는 계속 살아있음 */
     }
 
-    fprintf(stderr, "[UDS_1_SENSOR_FUSION] reconnected!\n");
+    fprintf(stderr, "[SENSOR_FUSTION_CTRL] reconnected!\n");
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
             TYPE_UDS_CLI, ROLE_REQUESTER,
-            NULL, NULL, commandEventCb);
-    pstNewIo->chFdCloseSet =  FD_OPENED;
+            NULL, NULL, commandEventCb);    
     if (!pstNewIo) {
         close(iSock);
         return;
     }
-    cmdRegistryOverrideHandler(
-        CMD_ID_INFO,
-        NULL,
-        dispatchIDInfo,
-        NULL
-    );
-    pstNewIo->iWorkerId = TRACKING_CTRL_2_SENSOR_FUSTION;
+    pstNewIo->chFdCloseSet =  FD_OPENED;
+    pstNewIo->iWorkerId = SENSOR_FUSTION_CTRL;
 }
 
 static void uds3ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)//ACU Conroller 재접속 시도

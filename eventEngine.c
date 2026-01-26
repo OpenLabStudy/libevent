@@ -348,8 +348,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
 
     while (1) {
         if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(int))
-            break;
-            
+            break;        
         evbuffer_remove(pstRequester->pstRequestBuffer, &iUdsId, sizeof(int));
         unsigned int uiRemain = evbuffer_get_length(pstRequester->pstRequestBuffer);
         unsigned char auchBuf[2048];
@@ -367,13 +366,14 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         * Fan-out: 모든 대상 Worker에게 전송
         * ========================================================= */
         IO_CHANNEL* pstIo = pstEventEngine->pstIoChannelList;
-        while (pstIo && pstReq) {
-            if (pstIo->eRole == ROLE_WORKER){
+        while (pstIo && pstReq) {            
+            if (pstIo->eRole == ROLE_WORKER){                
                 int iWorkerId = pstIo->iWorkerId;
+                fprintf(stderr,"Worker ID is %d, UDS ID is %d\n", iWorkerId, iUdsId);
                 if(iWorkerId == (iUdsId & iWorkerId) && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))){    
                     /* requestId를 프레임 끝에 부착 */
+                    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
                     evbuffer_add(pstIo->pstWriteBuffer, auchBuf, uiCopySize);
-                    evbuffer_add(pstIo->pstWriteBuffer, &pstReq->uiRequestId, sizeof(unsigned int));
                     /* write 이벤트 트리거 */
                     event_add(pstIo->pstWriteEvent, NULL);
                 }

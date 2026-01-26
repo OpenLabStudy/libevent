@@ -2,9 +2,12 @@
 #include <stdint.h>
 
 typedef enum {
-    COMMAND_PATH_NONE = 0,
-    TRACKING_CTRL_2_SENSOR_FUSTION,
-    TRACKING_CTRL_2_ACU_CTRL
+    COMMAND_PATH_FAIL = 0,
+    COMMAND_PATH_NONE,
+    TRACKING_CTRL,
+    SENSOR_FUSTION_CTRL,
+    ACU_CTRL,
+    ACU_UART
 } COMMAND_PATH;
 
 typedef enum {
@@ -72,8 +75,7 @@ typedef struct {
     unsigned short      unCmd;
     const char*         chCmdName;
     unsigned int        uiReqSize;
-    unsigned int        uiResSize;
-    COMMAND_PATH        eCommandPath;
+    unsigned int        uiResSize;    
     buildForwardReq     fnBuildForwardReq;
     dispatchCommand     fnDispatchCmd;//todo renaming
     buildResponse       fnbuildRes;

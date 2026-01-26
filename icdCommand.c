@@ -11,50 +11,45 @@
 #include <stdio.h>
 #include <string.h>
 
+
 double endianChange(char* i_chData)
 {
 	int i;
-	double dValue=0.0;
+	double dValue;
 	char chChangeEndian[8];
-	fprintf(stderr,"### endianChange() ###\n");
 	for(i=0; i<8; i++){
-		fprintf(stderr,"i_chData[%d]: %02X\n", i, (unsigned char)i_chData[i]);
+//		fprintf(stderr,"%02X ",i_chData[i]);
 		chChangeEndian[7-i] = i_chData[i];
-	}	
-	memcpy((void*)&dValue, chChangeEndian, sizeof(double));
-	fprintf(stderr,"### Changed Endian Value: %lf ###\n", dValue);
+	}
+	memset(&dValue, 0x0, sizeof(double));
+	memcpy(&dValue, chChangeEndian, sizeof(double));
 	return dValue;
 }
 
-void endianChange1(double dValue, char* pchData)
-{
-	int i;
-	char chChangeEndian[8];
-	memcpy(chChangeEndian, (void*)&dValue, sizeof(double));
-	fprintf(stderr,"### endianChange() ###\n");
-	for(i=0; i<8; i++){
-		pchData[7-i] = chChangeEndian[i];
-		fprintf(stderr,"pchData[%d]: %02X\n", i, (unsigned char)chChangeEndian[i]);
-	}	
+
+
+uint64_t swap_uint64(uint64_t val) {
+    return ((val << 56) & 0xFF00000000000000ULL) |
+           ((val << 40) & 0x00FF000000000000ULL) |
+           ((val << 24) & 0x0000FF0000000000ULL) |
+           ((val <<  8) & 0x000000FF00000000ULL) |
+           ((val >>  8) & 0x00000000FF000000ULL) |
+           ((val >> 24) & 0x0000000000FF0000ULL) |
+           ((val >> 40) & 0x000000000000FF00ULL) |
+           ((val >> 56) & 0x00000000000000FFULL);
 }
 
-double swapDouble(char* i_chData)
-{
-    uint64_t x;
-    memcpy(&x, i_chData, 8);
-
-    x = ((x & 0x00000000000000FFULL) << 56) |
-        ((x & 0x000000000000FF00ULL) << 40) |
-        ((x & 0x0000000000FF0000ULL) << 24) |
-        ((x & 0x00000000FF000000ULL) << 8 ) |
-        ((x & 0x000000FF00000000ULL) >> 8 ) |
-        ((x & 0x0000FF0000000000ULL) >> 24) |
-        ((x & 0x00FF000000000000ULL) >> 40) |
-        ((x & 0xFF00000000000000ULL) >> 56);
-
-    double out;
-    memcpy(&out, &x, 8);
-    return out;
+// double 타입 데이터를 little endian과 big endian 간에 변환
+double swap_double(double val) {
+    uint64_t temp;
+    double result;
+    // double 값을 uint64_t로 안전하게 복사
+    memcpy(&temp, &val, sizeof(double));
+    // 바이트 순서를 변환
+    temp = swap_uint64(temp);
+    // 변환된 값을 다시 double로 복사
+    memcpy(&result, &temp, sizeof(double));
+    return result;
 }
 
 int buildForwardReqIdInfo(void* pvUserData, void* pvOutData)
@@ -181,7 +176,7 @@ int dispatchCmdPositionAzElSet(const void* pvRecvData, void* pvOutData)
 	memcpy(pstReqUserData->chAzimuthDeg,  	pstReqAzElSet->chAzimuthDeg, 	sizeof(pstReqAzElSet->chAzimuthDeg));
 	memcpy(pstReqUserData->chElevationDeg,  pstReqAzElSet->chElevationDeg, 	sizeof(pstReqAzElSet->chElevationDeg));
 	fprintf(stderr, "POSITIONER_AZ_EL_SET executed\n");
-	return sizeof(RES_BIT);
+	return sizeof(REQ_POSITIONER_AZ_EL_SET);
 }
 int buildResPositionAzElSet(const void* pvUserData, void* pvOutData)
 {
@@ -213,7 +208,7 @@ int dispatchCmdTrackingSelect(const void* pvRecvData, void* pvOutData)
 	}
 	
 	fprintf(stderr, "Tracking Select Setting executed\n");
-	return sizeof(RES_BIT);
+	return sizeof(REQ_TRACKING_SELECT);
 }
 int buildResTrackingSelect(const void* pvUserData, void* pvOutData)
 {
@@ -222,6 +217,49 @@ int buildResTrackingSelect(const void* pvUserData, void* pvOutData)
 	pstResTrackingSelect->chResult 				= pstUserData->chResult;	
 	return sizeof(RES_TRACKING_SELECT);
 }
+
+
+int buildForwardReqAcuModeSelect(void* pvUserData, void* pvOutData)
+{    
+	REQ_ACU_MODE *pstReqUserData 	= (REQ_ACU_MODE *)pvUserData;
+	REQ_ACU_MODE *pstReqAcuMode		= (REQ_ACU_MODE *)pvOutData;
+	pstReqAcuMode->chAcuMode 		= pstReqUserData->chAcuMode;
+    return sizeof(REQ_ACU_MODE);
+}
+int dispatchCmdAcuModeSelect(const void* pvRecvData, void* pvOutData)
+{
+	REQ_ACU_MODE *pstReqAcuMode 	= (REQ_ACU_MODE *)pvRecvData;
+	REQ_ACU_MODE *pstReqUserData	= (REQ_ACU_MODE *)pvOutData;
+	pstReqUserData->chAcuMode 		= pstReqAcuMode->chAcuMode;
+	if(pstReqAcuMode->chAcuMode == RATE){
+		fprintf(stderr,"ACU Mode is RATE\n");
+	}else if(pstReqAcuMode->chAcuMode == POSITION){
+		fprintf(stderr,"ACU Mode is POSITION\n");
+	}else{
+		fprintf(stderr,"ACU Mode Select Fail\n");
+	}
+	
+	fprintf(stderr, "Tracking Select Setting executed\n");
+	return sizeof(REQ_ACU_MODE);
+}
+int buildResAcuModeSelect(const void* pvUserData, void* pvOutData)
+{
+	RES_ACU_MODE *pstUserData		= (RES_ACU_MODE *)(pvUserData);
+	RES_ACU_MODE *pstResAcuMode		= (RES_ACU_MODE *)(pvOutData);
+	pstResAcuMode->chResult 		= pstUserData->chResult;	
+	return sizeof(RES_ACU_MODE);
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
@@ -235,6 +273,7 @@ int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdRes
 	fprintf(stderr, "Tracking Start point Setting executed\n");
 	return sizeof(RES_TRACKING_START_POINT_SET);
 }
+
 
 int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
@@ -324,25 +363,7 @@ int positionDegTransferCtrl(unsigned char* puchRecvData, unsigned char* puchCmdR
 	return sizeof(RES_POSITIONER_DEG_SEND);
 }
 
-int acuModeSelect(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	REQ_ACU_MODE *pstReqAcuMode = (REQ_ACU_MODE *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_ACU_MODE *pstResAcuMode = (RES_ACU_MODE *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResAcuMode->chResult = 0x01;
-	if(pstReqAcuMode->chAcuMode == RATE){
-		fprintf(stderr,"ACU Mode is RATE\n");
-	}else if(pstReqAcuMode->chAcuMode == POSITION){
-		fprintf(stderr,"ACU Mode is RATE\n");
-	}else{
-		fprintf(stderr,"ACU Mode Select Fail\n");
-		pstResAcuMode->chResult = 0x00;
-	}
 
-	fprintf(stderr, "ACU Mode Select executed\n");
-	return sizeof(RES_ACU_MODE);
-}
 
 int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 {
@@ -383,10 +404,35 @@ int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult)
 
 
 
-int setAutoTrackingWati(unsigned char* puchRecvData, unsigned char* puchCmdResult)
+int buildForwardReqAutoTrackingWait(void* pvUserData, void* pvOutData)
+{    
+	REQ_AUTO_TRACKING_WAIT *pstReqUserData			= (REQ_AUTO_TRACKING_WAIT *)pvUserData;
+	REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	= (REQ_AUTO_TRACKING_WAIT *)pvOutData;
+	pstReqAutoTrackingWait->chWaitOnOff 			= pstReqUserData->chWaitOnOff;
+	pstReqAutoTrackingWait->dStandbyAz 				= pstReqUserData->dStandbyAz;
+	pstReqAutoTrackingWait->dStandbyEl 				= pstReqUserData->dStandbyEl;
+    return sizeof(REQ_AUTO_TRACKING_WAIT);
+}
+int dispatchCmdAutoTrackingWait(const void* pvRecvData, void* pvOutData)
 {
-	REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait = (REQ_AUTO_TRACKING_WAIT *)(puchRecvData + sizeof(FRAME_HEADER));
-	fprintf(stderr,"Auto Tracking Wait %s\n", pstReqAutoTrackingWait->chWaitOnOff == 0x01 ? "ON" : "OFF");
-	fprintf(stderr,"Standby AZ : %lf, EL : %lf\n", pstReqAutoTrackingWait->dStandbyAz, pstReqAutoTrackingWait->dStandbyEl);
+	REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	= (REQ_AUTO_TRACKING_WAIT *)pvRecvData;
+	REQ_AUTO_TRACKING_WAIT *pstReqUserData			= (REQ_AUTO_TRACKING_WAIT *)pvOutData;
+	
+	pstReqUserData->chWaitOnOff 					= pstReqAutoTrackingWait->chWaitOnOff;
+	pstReqUserData->dStandbyAz 						= swap_double(pstReqAutoTrackingWait->dStandbyAz);
+	pstReqUserData->dStandbyEl 						= swap_double(pstReqAutoTrackingWait->dStandbyEl);
+	if(pstReqUserData->chWaitOnOff == AUTO_TRACKING_ON){
+		fprintf(stderr,"Auto Tracking On\n");
+		fprintf(stderr,"Standby Az is %lf, El is %lf\n", pstReqUserData->dStandbyAz, pstReqUserData->dStandbyEl);
+	}else {
+		fprintf(stderr,"Auto Tracking Off\n");
+	}
+	return sizeof(REQ_AUTO_TRACKING_WAIT);
+}
+int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData)
+{
+	RES_AUTO_TRACKING_WAIT *pstUserData				= (RES_AUTO_TRACKING_WAIT *)(pvUserData);
+	RES_AUTO_TRACKING_WAIT *pstResAutoTrackingWait	= (RES_AUTO_TRACKING_WAIT *)(pvOutData);
+	pstResAutoTrackingWait->chResult 				= pstUserData->chResult;	
 	return sizeof(RES_AUTO_TRACKING_WAIT);
 }

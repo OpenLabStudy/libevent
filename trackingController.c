@@ -14,6 +14,31 @@
 #include "netTcp.h"
 #include "ipcUtil.h"
 
+static COMMAND_PATH decideProcessingPath(unsigned short unCmd)
+{
+    switch(unCmd)
+    {
+        case CMD_KEEP_ALIVE:
+            return COMMAND_PATH_NONE;
+        case CMD_IBIT:
+            return ACU_CTRL|SENSOR_FUSTION_CTRL;
+        case CMD_RBIT:
+            return ACU_CTRL|SENSOR_FUSTION_CTRL;
+        case CMD_CBIT:
+            return ACU_CTRL|SENSOR_FUSTION_CTRL;
+        case CMD_POSITIONER_AZ_EL_SET:
+            return ACU_CTRL;
+        case CMD_TRACKING_SELECT:
+            return SENSOR_FUSTION_CTRL;
+        case CMD_ACU_MODE_SELECT:
+            return ACU_CTRL;
+        case CMD_AUTO_TRACKING_WAIT:
+            return SENSOR_FUSTION_CTRL;
+        default:
+            return COMMAND_PATH_FAIL;
+    }
+}
+
 
 void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 {
@@ -44,12 +69,6 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
     fprintf(stderr,"\n");
     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
         event_del(pstIoChannel->pstWriteEvent);
-
-
-
-
-
-
     // unsigned short unCmd = 0;
     // IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     // FRAME_ERR eErr;
@@ -147,8 +166,8 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
                 evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
-            } else if (eCommandPath == TRACKING_CTRL_2_SENSOR_FUSTION || eCommandPath == TRACKING_CTRL_2_ACU_CTRL || 
-                eCommandPath == (TRACKING_CTRL_2_SENSOR_FUSTION|TRACKING_CTRL_2_ACU_CTRL)) {
+            } else if (eCommandPath == SENSOR_FUSTION_CTRL || eCommandPath == ACU_CTRL || 
+                eCommandPath == (SENSOR_FUSTION_CTRL|ACU_CTRL)) {
                 /* === IPC 전달 (Fan-out 진입점) === */
                 pstEventEngine->uiRequestSeq++;
                 fprintf(stderr,"### %s():%d IPC Forwarding CMD:0x%04x Path:%d Copy Size:%d ###\n", __func__, __LINE__, unCmd, eCommandPath, iFrameSize);
@@ -171,11 +190,44 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
+
+
+void udsWriteCallback(int iFd, short nEvent, void* pvData)
+{
+(void)nEvent;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
+    unsigned char auchWriteBuffer[2048];
+    int iWriteSize;
+    iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
+    if (iWriteSize == 0) {
+        event_del(pstIoChannel->pstWriteEvent);
+        return;
+    }    
+    iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
+    memcpy(auchWriteBuffer+iWriteSize, &pstEventEngine->uiRequestSeq, sizeof(pstEventEngine->uiRequestSeq));
+    iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize+sizeof(pstEventEngine->uiRequestSeq));
+    if (iWriteSize <= 0) {
+        perror("write");
+        return;
+    }
+    fprintf(stderr,"\n");
+    fprintf(stderr,"### %s():%d Write Size:%d ###\n", __func__,__LINE__, iWriteSize);
+    for(int i=1; i<=iWriteSize; i++){
+        if(i&16 == 0)
+            fprintf(stderr,"\n");
+        fprintf(stderr,"%02x ", auchWriteBuffer[i-1]);
+    }  
+    fprintf(stderr,"\n");
+    if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
+        event_del(pstIoChannel->pstWriteEvent);
+
+}
 static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-
+    EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
     unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
@@ -191,7 +243,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         
         memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
         int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
-        eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+        eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
         if (eErr != FRAME_OK) {
             fprintf(stderr, "[UDS_1_SENSOR_FUSION] frameDecode ERR: %s\n", frameErrToStr(eErr));
             int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
@@ -209,10 +261,8 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 fprintf(stderr, "[UDS_1_SENSOR_FUSION] no STX, drop all\n");
             }
         }
-        int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
-        evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));
-        unsigned int uiReqId;
-        memcpy(&uiReqId, auchRecvBuffer+iFrameSize, sizeof(unsigned int));
+        int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+        evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));        
         int iResultSize;
 
         // eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
@@ -225,9 +275,9 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer+sizeof(FRAME_HEADER));
             fprintf(stderr,"ID is %d\n", pstIoChannel->iWorkerId);
         }else{
-            fprintf(stderr,"Request id is %d\n", uiReqId);
+            fprintf(stderr,"Request id is %d\n", pstEventEngine->uiRequestSeq);
             eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
-                uiReqId, auchRecvBuffer, iFrameSize);
+                pstEventEngine->uiRequestSeq, auchRecvBuffer, iFrameSize);
         }
         break;
 
@@ -281,7 +331,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
             fprintf(stderr, "[UDS-SVR] New client FD=%d\n", iClientSock);
             pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_UDS_SVR, ROLE_WORKER,
-                    NULL, NULL, udsIoChannelHandleEvent);
+                    NULL, udsWriteCallback, udsIoChannelHandleEvent);
             pstIoChannel->chFdCloseSet = FD_OPENED;
             REQ_ID stReqId;
             MSG_ID stMsgId = { UDS_1_SVR_ID,  UDS_1_SENSOR_FUSION|UDS_1_ACU_CONTROLLER};

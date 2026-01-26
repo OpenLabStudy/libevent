@@ -2,29 +2,6 @@
 #include "icdCommand.h"
 #include <string.h>
 
-uint64_t swap_uint64(uint64_t val) {
-    return ((val << 56) & 0xFF00000000000000ULL) |
-           ((val << 40) & 0x00FF000000000000ULL) |
-           ((val << 24) & 0x0000FF0000000000ULL) |
-           ((val <<  8) & 0x000000FF00000000ULL) |
-           ((val >>  8) & 0x00000000FF000000ULL) |
-           ((val >> 24) & 0x0000000000FF0000ULL) |
-           ((val >> 40) & 0x000000000000FF00ULL) |
-           ((val >> 56) & 0x00000000000000FFULL);
-}
-
-// double 타입 데이터를 little endian과 big endian 간에 변환
-double swap_double(double val) {
-    uint64_t temp;
-    double result;
-    // double 값을 uint64_t로 안전하게 복사
-    memcpy(&temp, &val, sizeof(double));
-    // 바이트 순서를 변환
-    temp = swap_uint64(temp);
-    // 변환된 값을 다시 double로 복사
-    memcpy(&result, &temp, sizeof(double));
-    return result;
-}
 
 int ipcBuildMsgIdFromWorker(int iWorkerId, void* pvMsgId)
 {
