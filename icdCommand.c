@@ -436,3 +436,12 @@ int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData)
 	pstResAutoTrackingWait->chResult 				= pstUserData->chResult;	
 	return sizeof(RES_AUTO_TRACKING_WAIT);
 }
+
+int buildResImuData(const void* pvUserData, void* pvOutData)
+{
+	RES_RPY_DATA *pstUserData		= (RES_RPY_DATA *)(pvUserData);
+	RES_RPY_DATA *pstResRpyData 	= (RES_RPY_DATA *)(pvOutData);
+	pstResRpyData->dRoll 			= pstUserData->dRoll;
+	pstResRpyData->dPitch 			= pstUserData->dPitch;
+	pstResRpyData->dYaw 			= pstUserData->dYaw;
+}

@@ -56,19 +56,20 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
                 if (ioIsChannelAlive(pstImuTxIo)) {
                     unsigned char auchSendBuf[UDS_MAX_BUFFER_SIZE];
-                    RES_RPY_DATA stImuData;
+                    unsigned char auchImuData[UDS_MAX_BUFFER_SIZE];
 
-                    stImuData.dRoll  = (double)fRoll;
-                    stImuData.dPitch = (double)fPitch;
-                    stImuData.dYaw   = (double)fYaw;
+                    RES_RPY_DATA *pstImuData = (RES_RPY_DATA *)auchImuData;
 
-                    MSG_ID stMsgId;
-                    ipcBuildMsgIdFromWorker(pstIoChannel->iWorkerId, &stMsgId);
-                    if (makeResponseFrame(CDM_IMU_DATA, &stMsgId, (unsigned char *)&stImuData, auchSendBuf) == FRAME_OK) {
-                        size_t sz = (size_t)getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
-                        evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf, sz);
-                        event_add(pstImuTxIo->pstWriteEvent, NULL);
-                    }
+                    pstImuData->dRoll  = (double)fRoll;
+                    pstImuData->dPitch = (double)fPitch;
+                    pstImuData->dYaw   = (double)fYaw;
+
+                    MSG_ID stMsgId = { UDS_1_SENSOR_FUSION, UDS_1_SVR_ID };
+                    createCmdResponse(CDM_IMU_DATA, auchImuData, &stMsgId, auchSendBuf);
+                    int iResultSize = getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
+                    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                    evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf, iResultSize);
+                    event_add(pstImuTxIo->pstWriteEvent, NULL);
                 } else {
                     /* sensorFusion 미연결/끊김 → 드롭 */
                     /* fprintf(stderr, "[IMU] UDS_2 not alive, drop\n"); */
@@ -90,7 +91,22 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
-
+static void applyCommand(int iWorkerId, unsigned short unCmd, unsigned char *puchCmdData, 
+    unsigned char *puchCmdResult)
+    {
+    unsigned char aucPayload[UDS_MAX_BUFFER_SIZE];
+    memset(aucPayload, 0, sizeof(aucPayload));
+    switch (unCmd)
+    {
+    case CMD_ID_INFO:
+        ((RES_ID*)aucPayload)->chResult = (char)iWorkerId;
+        sendUdsResponse(pstUdsIo, pstCmdCtx->unCmd, uiReqId, aucPayload, sizeof(aucPayload));
+        break; 
+    default:
+        fprintf(stderr, "[ACU] Unsupported CMD\n");
+        break;
+    }
+    }
 /* ============================================================
  * UDS command channel logic handler
  * ============================================================ */
@@ -100,13 +116,65 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-
+    FRAME_ERR eErr;
+    unsigned short unCmd = 0;
+    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     switch (eEventType) {
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
         ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
         break;
     case IO_EVT_RX_DATA:
+    {
+        int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
+        fprintf(stderr,"### %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
+        if (iRecvLen < sizeof(FRAME_HEADER))
+            break;
+
+        memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
+        int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
+        eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+        if (eErr != FRAME_OK) {
+            fprintf(stderr, "[UDS_1_SENSOR_FUSION] frameDecode ERR: %s\n", frameErrToStr(eErr));
+            int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+            if (iOffset > 0) {
+                /* 앞부분 garbage 제거 */
+                evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
+                fprintf(stderr,"[UDS_1_SENSOR_FUSION] resync: drop %d bytes, retry decode\n", iOffset);
+            } else if (iOffset == -2) {
+                /* STX half-match: 데이터 더 수신 */
+                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
+                fprintf(stderr,"[UDS_1_SENSOR_FUSION] STX half match, wait more data\n");
+            } else {
+                /* STX 자체가 없음 → 전부 드랍 */
+                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
+                fprintf(stderr, "[UDS_1_SENSOR_FUSION] no STX, drop all\n");
+            }
+        }
+        int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
+        /* === 프레임 소비 === */
+        unsigned char auchCmdData[128];
+        unsigned char auchCmdResult[128];
+        unsigned char auchResult[128];
+        unsigned int uiReqId;
+        int iResultSize;
+        evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
+        evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
+        eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdData);
+        if (eErr != FRAME_OK){
+            fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
+        }            
+        applyCommand(pstSensorFusionCtx, unCmd, auchCmdData, auchCmdResult);
+        fprintf(stderr,"### %s():%d %02X ###\n",__func__,__LINE__, auchCmdResult[0]);
+        MSG_ID stMsgId = { UDS_1_SENSOR_FUSION, UDS_1_SVR_ID };
+        eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
+        iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        // sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
+        evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
+        event_add(pstIoChannel->pstWriteEvent, NULL);
+    }
+    break;
     default:
         /* TX-only: ignore */
         break;
@@ -149,13 +217,12 @@ static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
             TYPE_UDS_CLI, ROLE_REQUESTER,
             NULL, NULL, ioChannelHandleEvent);
-
-    pstNewIo->iWorkerId = UDS_2_IMU_RECEIVER;
+    if (!pstNewIo) {
+        close(iSock);
+        return;
+    }        
     pstNewIo->chFdCloseSet =  FD_OPENED;
-
-    /* worker register */
-    //todo ID 설정 필요
-    ipcSendWorkerRegister(pstNewIo, 2);
+    pstNewIo->iWorkerId = IMU_RECEIVER;
 }
 
 

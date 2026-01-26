@@ -7,7 +7,8 @@ typedef enum {
     TRACKING_CTRL,
     SENSOR_FUSTION_CTRL,
     ACU_CTRL,
-    ACU_UART
+    ACU_UART,
+    IMU_RECEIVER
 } COMMAND_PATH;
 
 typedef enum {

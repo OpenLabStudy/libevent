@@ -380,6 +380,7 @@ int buildForwardReqAutoTrackingWait(void* pvUserData, void* pvOutData);
 int dispatchCmdAutoTrackingWait(const void* pvRecvData, void* pvOutData);
 int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData);
 
+int buildResImuData(const void* pvUserData, void* pvOutData);
 
 #endif /* ICD_COMMAND_H */
  

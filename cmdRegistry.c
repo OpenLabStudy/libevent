@@ -63,6 +63,12 @@ static CMD_DESC g_cmdTable[] = {
         sizeof(REQ_AUTO_TRACKING_WAIT), sizeof(RES_AUTO_TRACKING_WAIT),        
         buildForwardReqAutoTrackingWait, dispatchCmdAutoTrackingWait, buildResAutoTrackingWait 
     },
+
+
+    {   CDM_IMU_DATA, "IMU_DATA",
+        0, sizeof(RES_RPY_DATA),        
+        NULL, NULL, buildResImuData 
+    },
     
     {   CMD_ID_INFO, "ID_INFO",
         sizeof(REQ_ID), sizeof(RES_ID),
