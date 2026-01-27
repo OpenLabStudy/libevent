@@ -25,7 +25,7 @@ FRAME_OBJS   = cmdRegistry.o icdCommand.o
 NET_OBJS     = netCore.o netTcp.o netUdp.o netUds.o
 
 # 이벤트 엔진 / IPC
-ENGINE_OBJS  = eventEngine.o eventSource.o ioChannelUtil.o ipcUtil.o udsFrame.o
+ENGINE_OBJS  = eventEngine.o eventSource.o ioChannelUtil.o
 
 # UART / 센서
 UART_OBJS    = uartConfig.o 
@@ -126,12 +126,6 @@ eventSource.o: eventSource.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 ioChannelUtil.o: ioChannelUtil.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-ipcUtil.o: ipcUtil.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-udsFrame.o: udsFrame.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 uartConfig.o: uartConfig.c

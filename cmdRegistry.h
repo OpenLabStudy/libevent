@@ -2,20 +2,27 @@
 #include <stdint.h>
 
 typedef enum {
-    COMMAND_PATH_FAIL = 0,
+    COMMAND_PATH_FAIL = 0x00,
     COMMAND_PATH_NONE,
     TC_TCP_CMD_RECEIVER,
-    TC_UDS_CMD_CTRL,
-    SF_CMD_REDEIVER,    
-    SF_AZ_EL_SENDER,
-    SF_SENSOR_RECEIVER,
-    AC_CMD_RECEIVER,
-    AC_AZ_EL_RECEIVER,
-    AC_CURR_AZ_EL_SENDER,
     ACU_UART,
+
+    TC_UDS_CMD_CTRL = 0x10,
+    SF_SENSOR_RECEIVER,    
+    AC_CMD_RECEIVER,
+
+    
+    SF_CMD_REDEIVER = 0x20, 
     IMU_RECEIVER,
-    GPS_RECEIVER
+    GPS_RECEIVER,
+    
+    AC_AZ_EL_RECEIVER = 0x40,
+    SF_AZ_EL_SENDER,
+    
+    AC_CURR_AZ_EL_SENDER = 0x80
 } COMMAND_PATH;
+
+
 
 typedef enum {
     FRAME_TYPE_REQUEST = 0,

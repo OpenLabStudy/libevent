@@ -19,7 +19,11 @@
 #include <sys/time.h>
 
 #include "eventEngine.h"
-#include "ipcUtil.h"
+#include "icdCommand.h"
+#include "cmdRegistry.h"
+#include "netUds.h"
+#include "netCore.h"
+#include "ioChannelUtil.h"
 
 typedef struct {
     char            chValid;
@@ -306,7 +310,6 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
-    IPC_CMD_CTX stCmdCtx;
     
     switch (eEventType) {
     case IO_EVT_CHANNEL_CLOSED:

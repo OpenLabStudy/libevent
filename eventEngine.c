@@ -211,6 +211,7 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
                 auchResult[iResultLen++] = 0x02; /* RESULT_PARTIAL */
                 continue;
             }
+            fprintf(stderr,"Worker ID is %d, Index is %d, Request ID is %d\n", iWorkId, iIndex, pstReqCtx->uiRequestId);
 
             struct evbuffer* pstEventBuffer = pstReqCtx->pstWorkerInfoList[iIndex].pstWorkerBuf;
             if (!pstEventBuffer)

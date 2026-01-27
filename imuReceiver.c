@@ -10,7 +10,11 @@
 
 #include "uartConfig.h"
 #include "mti670Imu.h"
-#include "ipcUtil.h"
+#include "icdCommand.h"
+#include "cmdRegistry.h"
+#include "netUds.h"
+#include "netCore.h"
+#include "ioChannelUtil.h"
 
 /* ============================================================
  * UART read logic event handler

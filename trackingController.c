@@ -12,7 +12,11 @@
 
 #include "eventEngine.h"
 #include "netTcp.h"
-#include "ipcUtil.h"
+#include "icdCommand.h"
+#include "cmdRegistry.h"
+#include "netUds.h"
+#include "netCore.h"
+#include "ioChannelUtil.h"
 
 static COMMAND_PATH decideProcessingPath(unsigned short unCmd)
 {

@@ -9,8 +9,12 @@
 #include <stdint.h>
 
 #include "uartConfig.h"
-#include "ipcUtil.h"
 #include "acuUtil.h"
+#include "icdCommand.h"
+#include "cmdRegistry.h"
+#include "netUds.h"
+#include "netCore.h"
+#include "ioChannelUtil.h"
 
 /* ========================================================================== */
 /* ACU STATE                                                                  */
@@ -39,6 +43,12 @@ typedef struct {
     unsigned short      unCmd;
     COMMAND_STATE       stCommandState;
 } ACU_CTRL_CTX;
+
+#define RESP_OK        0x01
+#define RESP_FAIL      0x00
+#define RESP_BUSY      0x02
+#define RESP_TIMEOUT   0x03
+#define RESP_INTERNAL  0x04
 
 #define ACU_UART_MONITORING_MSEC 400
 
