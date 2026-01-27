@@ -44,6 +44,7 @@ void readCallback(int iFd, short nEvent, void* pvData)
 void writeCallback(int iFd, short nEvent, void* pvData)
 {
     (void)nEvent;
+    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;

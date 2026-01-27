@@ -445,3 +445,21 @@ int buildResImuData(const void* pvUserData, void* pvOutData)
 	pstResRpyData->dPitch 			= pstUserData->dPitch;
 	pstResRpyData->dYaw 			= pstUserData->dYaw;
 }
+
+
+int buildResGpsData(const void* pvUserData, void* pvOutData)
+{
+	RES_LLA_DATA *pstUserData		= (RES_LLA_DATA *)(pvUserData);
+	RES_LLA_DATA *pstResGpsData 	= (RES_LLA_DATA *)(pvOutData);
+	pstResGpsData->dLatitude 		= pstUserData->dLatitude;
+	pstResGpsData->dLongitude 		= pstUserData->dLongitude;
+	pstResGpsData->dAltitude 		= pstUserData->dAltitude;
+}
+
+int buildResCtrlAzElData(const void* pvUserData, void* pvOutData)
+{
+	RES_AZ_EL_DATA *pstUserData			= (RES_AZ_EL_DATA *)(pvUserData);
+	RES_AZ_EL_DATA *pstResCtrlAzElData	= (RES_AZ_EL_DATA *)(pvOutData);
+	pstResCtrlAzElData->dAz 				= pstUserData->dAz;
+	pstResCtrlAzElData->dEl 				= pstUserData->dEl;
+}

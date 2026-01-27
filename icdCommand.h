@@ -99,6 +99,7 @@ enum COMMAND_ID
     CDM_SP_DATA,
     CDM_EXTERN_DATA,
     CDM_KEYBOARD_DATA,
+	CMD_CTRL_AZ_EL_DATA,
     CMD_ID_INFO     = 0x1000, /**< 장비 정보 요청 */
 };
 
@@ -298,6 +299,13 @@ typedef struct PACKED {
 } RES_LLA_DATA;
 
 typedef struct PACKED {
+    double 	dLatitude;
+    double 	dLongitude;
+    float  	fAltitude;
+	float	fHeading;
+} RES_GPS_DATA;
+
+typedef struct PACKED {
     double dRoll;
     double dPitch;
     double dYaw;
@@ -381,6 +389,10 @@ int dispatchCmdAutoTrackingWait(const void* pvRecvData, void* pvOutData);
 int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData);
 
 int buildResImuData(const void* pvUserData, void* pvOutData);
+
+int buildResGpsData(const void* pvUserData, void* pvOutData);
+
+int buildResCtrlAzElData(const void* pvUserData, void* pvOutData);
 
 #endif /* ICD_COMMAND_H */
  

@@ -183,9 +183,6 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
     unsigned char auchResult[1024];
     int iResultLen = 0;
 
-    unsigned char auchSendBuf[2048];
-    MSG_ID stMsgId = { 0x77, 0x55 };
-
     /* TODO: 요청 시점에 저장해둔 cmd를 사용하는 것이 이상적 */
     unsigned short unCmd = 0x00FF;//CMD_COMMAND_FAIL
 
@@ -224,14 +221,14 @@ void buildFinalResponseAndQueueTcp(EVENT_ENGINE* pstEventEngine, REQUEST_CONTEXT
             unsigned char auchBuffer[512];
             int iSize = evbuffer_remove(pstEventBuffer, auchBuffer, iGetDataSize);
             if (iSize <= 0)
-                continue;
-            
-            
+                continue;            
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             for(int i=1; i<=iSize; i++){
                 if(i&16 == 0)
                     fprintf(stderr,"\n");
                 fprintf(stderr,"%02x ", auchBuffer[i-1]);
             }
+            fprintf(stderr,"\n### %s():%d ###\n",__func__,__LINE__);
 
             memcpy(auchResult, auchBuffer, iSize);
             iResultLen += iSize;

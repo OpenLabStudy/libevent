@@ -69,12 +69,21 @@ static CMD_DESC g_cmdTable[] = {
         0, sizeof(RES_RPY_DATA),        
         NULL, NULL, buildResImuData 
     },
+    {   CDM_GPS_DATA, "GPS_DATA",
+        0, sizeof(RES_LLA_DATA),        
+        NULL, NULL, buildResGpsData 
+    },
+    {   CMD_CTRL_AZ_EL_DATA, "CTRL_AZ_EL_DATA",
+        0, sizeof(RES_AZ_EL_DATA),        
+        NULL, NULL, buildResCtrlAzElData 
+    },
     
     {   CMD_ID_INFO, "ID_INFO",
         sizeof(REQ_ID), sizeof(RES_ID),
         buildForwardReqIdInfo, dispatchCmdIdInfo, buildResIdInfo 
     },
 };
+
 
 static const size_t g_cmdCount = sizeof(g_cmdTable) / sizeof(g_cmdTable[0]);
 

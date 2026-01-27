@@ -78,7 +78,7 @@ static int buildAcuUartFrame(ACU_CTRL_CTX* pstAcuCtrlCtx, unsigned short unCmd,
     }
 
     case CMD_POSITIONER_AZ_EL_SET: {
-        REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet 	= (REQ_POSITIONER_AZ_EL_SET *)puchRecvCmdData;
+        REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)puchRecvCmdData;
         double dAz, dEl;
         dAz = endianChange(pstReqAzElSet->chAzimuthDeg);
         dEl = endianChange(pstReqAzElSet->chElevationDeg);
@@ -101,9 +101,54 @@ static int buildAcuUartFrame(ACU_CTRL_CTX* pstAcuCtrlCtx, unsigned short unCmd,
     default:
         break;
     }
-    fprintf(stderr,"### %s():%d %d ###\n",__func__,__LINE__,*pOutLen);
     return 0;
 }
+
+static void applyCommand(ACU_CTRL_CTX* pstAcuCtrlCtx, unsigned short unCmd, 
+    unsigned char* puchCmdData, unsigned char* pOut, unsigned int* pOutLen)
+{
+    memset(pOut, 0x0, sizeof(pOut));
+    switch(unCmd)
+    {
+        case CMD_GET_CURRENT_AZ_EL_SET:         
+            fprintf(stderr, "\nGet ACU Current AZ, EL Value\n");
+            *pOutLen = readAzElFromAcu(pOut);
+        break;
+
+        case CMD_POSITIONER_AZ_EL_SET: 
+        {
+            REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet = (REQ_POSITIONER_AZ_EL_SET *)puchCmdData;
+            double dAz, dEl;
+            dAz = endianChange(pstReqAzElSet->chAzimuthDeg);
+            dEl = endianChange(pstReqAzElSet->chElevationDeg);
+            fprintf(stderr, "%s():%d ACU AZ/EL Set to AZ: %.2f, EL: %.2f\n",__func__,__LINE__, dAz, dEl);
+            if(pstAcuCtrlCtx->stCommandState.chAcuMode == POSITION){
+                *pOutLen = moveAzElPosition(dAz, dEl, pOut);
+            }
+            break;
+        }
+        case CMD_ACU_MODE_SELECT: 
+        {
+            REQ_ACU_MODE *pstReqAcuMode	= (REQ_ACU_MODE*)puchCmdData;
+            fprintf(stderr, "\nACU Mode Change to %s\n", pstReqAcuMode->chAcuMode == POSITION ? "POSITION MODE" : "RATE MODE");
+            pstAcuCtrlCtx->stCommandState.chAcuMode = pstReqAcuMode->chAcuMode;
+            *pOutLen = modeChange(pstReqAcuMode->chAcuMode, pOut);
+            fprintf(stderr, "Total Send Length: %d, %02X\n", *pOutLen, pstReqAcuMode->chAcuMode);            
+            break;
+        }
+        case CMD_ID_INFO:
+        {
+            RES_ID *pstResId = (RES_ID *)(puchCmdData);
+            pstResId->chResult = (char)AC_CMD_RECEIVER;
+            fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+            *pOutLen = sizeof(RES_ID);
+        }
+        break;
+        default:
+        break;
+    }
+}
+
 
 /* ========================================================================== */
 /* Helper: parse UART response                                                 */
@@ -152,12 +197,7 @@ static void uartWriteCallback(int iFd, short nEvent, void *pvData)
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchUartWriteData, iTotalSize);
     if(iWriteSize > 0){        
         fprintf(stderr,"### TotalSize is %d, ACU Write Size is %d [Req ID%d]###\n", iTotalSize, iWriteSize, pstEngine->uiRequestSeq);
-        iWriteSize = write(pstIoChannel->iFd, auchUartWriteData, iWriteSize);
-        if (iWriteSize <= 0) {
-            perror("write");
-            return;
-        }
-        fprintf(stderr,"\n");
+        iWriteSize = write(pstIoChannel->iFd, auchUartWriteData, iWriteSize);        
         fprintf(stderr,"### %s():%d Write Size:%d ###\n", __func__,__LINE__, iWriteSize);
         for(int i=1; i<=iWriteSize; i++){
             if(i&16 == 0)
@@ -239,7 +279,8 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
         unsigned char auchResult[UDS_MAX_BUFFER_SIZE];
         memset(auchResult, 0, sizeof(auchResult));
         fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-        MSG_ID stMsgId = { ACU_CTRL, TRACKING_CTRL };
+        //명령 주체에 따라 변경 필요
+        MSG_ID stMsgId = { AC_CMD_RECEIVER, TC_UDS_CMD_CTRL };
         FRAME_ERR eErr = createCmdResponse(pstCtx->unCmd, auchCmdResult, &stMsgId, auchResult);
         int iResultSize = getFrameSizeWithCmd(pstCtx->unCmd, FRAME_TYPE_RESPONSE);
         fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);        
@@ -399,14 +440,6 @@ static void acuAzElPollingCb(int iFd, short nEvent, void *pvData)
 //     return iRetSize;
 // }
 
-static int dispatchIDInfo(const void* pvRecvData, void* pvOutData)
-{
-	RES_ID *pstResId = (RES_ID *)(pvOutData);
-	pstResId->chResult = (char)ACU_CTRL;
-	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
-	return sizeof(RES_ID);
-}
-
 
 static void commandEventCb(int iFd, short nEvent, void *pvData)
 {
@@ -460,66 +493,36 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
             }
             pstAcuCtrlCtx->unCmd = unCmd;
             unsigned int uiReqId;
-            unsigned char auchCmdResult[128];
+            unsigned char auchCmdData[128];
             unsigned char auchResult[128];
+            unsigned int uiUartDataSize;
             int iResultSize;
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);            
             evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
             pstEventEngine->uiRequestSeq = uiReqId;
             COMMAND_PATH eCommandPath = decideProcessingPath(unCmd);
-            eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
-            fprintf(stderr,"### %s():%d Request ID is %d ###\n",__func__,__LINE__, uiReqId);
+            eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdData);
             if (eErr != FRAME_OK){
                 fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
                 continue;
             }
-
+            applyCommand(pstAcuCtrlCtx, unCmd, auchCmdData, auchResult, &uiUartDataSize);
             if (eCommandPath == COMMAND_PATH_NONE) {
                 fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-                MSG_ID stMsgId = { ACU_CTRL, TRACKING_CTRL };
-                eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
+                MSG_ID stMsgId = { AC_CMD_RECEIVER, TC_UDS_CMD_CTRL };
+                eErr = createCmdResponse(unCmd, auchCmdData, &stMsgId, auchResult);
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
                 fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             } else if (eCommandPath == ACU_UART) {
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-                unsigned int uiUartDataSize;                
-                buildAcuUartFrame(pstAcuCtrlCtx, unCmd, auchCmdResult, auchResult, &uiUartDataSize);
                 evbuffer_add(pstIoChannel->pstRequestBuffer, &eCommandPath, sizeof(eCommandPath));
                 evbuffer_add(pstIoChannel->pstRequestBuffer, auchResult, uiUartDataSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
-
-            //     evbuffer_add(pstIoChannel->pstRequestBuffer, &iUdsId, sizeof(int));
-            //     evbuffer_add(pstIoChannel->pstRequestBuffer, auchUartWriteData, iUartDataSize);
-            //     event_active(pstIoChannel->pstRequestEvent, 0, 0);    
             }else{
                 fprintf(stderr,"### %s():%d Path Number is %d ###\n",__func__,__LINE__, eCommandPath);
-            }
-            // if (ipcHandleCommand(unCmd, auchRecvBuffer + sizeof(FRAME_HEADER), &stCmdCtx) < 0) {
-            //     fprintf(stderr, "[ACU] ipcHandleCommand failed CMD=0x%04X\n", unCmd);
-            //     //todo 실패시 처리 필요
-            //     sendUdsResponse(pstIoChannel, unCmd, uiReqId, NULL, 0);
-            // }
-            // unsigned char auchUartWriteData[256];
-            // int iUartDataSize = executeIpcCommand(&stCmdCtx, pstIoChannel, uiReqId, auchUartWriteData);
-            // fprintf(stderr,"Uart Data Size is %d\n", iUartDataSize);
-            // if(iUartDataSize > 0){
-            //     int iUdsId = ACU_UART;
-            //     for(int i=1; i<=iUartDataSize; i++){
-            //         if(i&16 == 0)
-            //             fprintf(stderr,"\n");
-            //         fprintf(stderr,"%02x ", auchUartWriteData[i-1]);
-            //     }
-            //     fprintf(stderr,"\n");
-            //     pstEventEngine->uiRequestSeq = uiReqId;
-            //     evbuffer_add(pstIoChannel->pstRequestBuffer, &iUdsId, sizeof(int));
-            //     evbuffer_add(pstIoChannel->pstRequestBuffer, auchUartWriteData, iUartDataSize);
-            //     event_active(pstIoChannel->pstRequestEvent, 0, 0);
-            // }
-            // //수신된 명령에 Requst ID가 포함되어 있으며, 응답을 전송할때 이 Requst ID를 응답 데이터 뒤에 붙여서 보내야 한다.
-            // // 어떻게 Request Context를 생성시 이 Request ID정보를 알게하지?            
+            }           
         }
         break;
     default:
@@ -621,9 +624,15 @@ static void acceptUds3Cb(evutil_socket_t iListenFd, short nKindOfEvent, void* pv
     printf("[UDS_3_SVR] New client FD=%d\n", iClientSock);
     netSetNonblock(iClientSock);
 
-    eventSourceCreateWithBev(pstEventEngine, iClientSock,
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iClientSock,
         TYPE_TCP_SVR, ROLE_REQUESTER,
         NULL, NULL, recvAzElFromSensorFusion);
+    if (!pstNewIo) {
+        close(iClientSock);
+        return;
+    }      
+    pstNewIo->iWorkerId = AC_AZ_EL_RECEIVER;
+    pstNewIo->chFdCloseSet =  FD_OPENED;
 }
 
 static void acceptUds4Cb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
@@ -644,9 +653,15 @@ static void acceptUds4Cb(evutil_socket_t iListenFd, short nKindOfEvent, void* pv
     printf("[UDS_4_SVR] New client FD=%d\n", iClientSock);
     netSetNonblock(iClientSock);
 
-    eventSourceCreateWithBev(pstEventEngine, iClientSock,
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iClientSock,
         TYPE_TCP_SVR, ROLE_REQUESTER,
         NULL, NULL, sendCurrentAzElValue);
+    if (!pstNewIo) {
+        close(iClientSock);
+        return;
+    }      
+    pstNewIo->iWorkerId = AC_CURR_AZ_EL_SENDER;
+    pstNewIo->chFdCloseSet =  FD_OPENED;
 }
 
 
@@ -671,7 +686,7 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
 
     EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
     /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, ACU_CTRL);
+    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, AC_CMD_RECEIVER);
 
     if (ioIsChannelAlive(pstImuTxIo))
         return;
@@ -690,9 +705,8 @@ static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
         close(iSock);
         return;
     }
-    cmdRegistryOverrideHandler(CMD_ID_INFO, NULL, dispatchIDInfo, NULL);
     pstNewIo->chFdCloseSet =  FD_OPENED;
-    pstNewIo->iWorkerId = ACU_CTRL;
+    pstNewIo->iWorkerId = AC_CMD_RECEIVER;
 }
 
 
