@@ -52,7 +52,6 @@ typedef struct _EVENT_ENGINE {
     struct event_base*  pstEventBase;
     IO_CHANNEL*         pstIoChannelList;
     REQUEST_CONTEXT*    pstReqList;
-    struct event*       pstFlushEvent;
     unsigned int        uiRequestSeq;
     unsigned int        uiMaxWorkers;
     void*               pvSharedData;
@@ -67,7 +66,7 @@ void eventEngineAttachSource(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChan
 void eventEngineHandleRequest(int iFd, short nEvent, void* pvData);
 
 void eventEngineHandleWorkerResponse(EVENT_ENGINE* pstEventEngine, IO_CHANNEL* pstIoChannel,
-                                    int iReqId, const unsigned char* puchData, int iLen);
+                                    int iReqId, const char* pchData, int iLen);
 
 #ifdef __cplusplus
 }

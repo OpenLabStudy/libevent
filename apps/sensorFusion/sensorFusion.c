@@ -124,18 +124,13 @@ static unsigned long nowUsec(void)
     return (unsigned long)tv.tv_sec * 1000000UL + tv.tv_usec;
 }
 
-/* ========================================================================== */
-/* Forward Declarations                                                       */
-/* ========================================================================== */
-static void fusionEventCb(evutil_socket_t fd, short what, void* arg);
-static void fusionDispatch(EVENT_ENGINE* pstEventEngine);
-static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned long ulNowUsec);
 
 /* ========================================================================== */
 /* Trigger Decision                                                           */
 /* ========================================================================== */
 static FUSION_TRIGGER decideFusionTrigger(SENSOR_STATE* pstSensorState, unsigned long ulNowUsec)
 {
+    (void)ulNowUsec;
     /* 1. KEYBOARD */
     if (pstSensorState->stKeyboardState.chValid)
         return TRIG_KEYBOARD;
@@ -202,34 +197,35 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         fprintf(stderr, "[FUSION] KEYBOARD override\n");
         pstSensorState->stKeyboardState.chValid = 0;
         //현재 수신된 키보드값으로 ACU제어 값 생성 후 UDS3으로 전송
-        pstSensorState->stKeyboardState.stKeyboard.dAz;
-        pstSensorState->stKeyboardState.stKeyboard.dEl;
+        // pstSensorState->stKeyboardState.stKeyboard.dAz;
+        // pstSensorState->stKeyboardState.stKeyboard.dEl;
         break;
 
     case TRIG_SP:
         fprintf(stderr, "[FUSION] SP PID control\n");
         pstSensorState->stSpState.chValid = 0;
         // PID제어 알고리즘 수행 후 ACU제어 값 생성 후 UDS3으로 전송
-        pstSensorState->stSpState.stSp.dAz;
-        pstSensorState->stSpState.stSp.dEl;
+        // pstSensorState->stSpState.stSp.dAz;
+        // pstSensorState->stSpState.stSp.dEl;
         break;
 
     case TRIG_EXTERN:
         fprintf(stderr, "[FUSION] EXTERN target calculation\n");
         pstSensorState->stExternState.chValid = 0;
         // GPS+IMU 융합 후 EXTERN 타겟 좌표 계산 → ACU제어 값 생성 후 UDS3으로 전송
-        pstSensorState->stExternState.stExtern.dLatitude;
-        pstSensorState->stExternState.stExtern.dLongitude;
-        pstSensorState->stExternState.stExtern.dAltitude;
+        // pstSensorState->stExternState.stExtern.dLatitude;
+        // pstSensorState->stExternState.stExtern.dLongitude;
+        // pstSensorState->stExternState.stExtern.dAltitude;
         break;
 
     case TRIG_GPS:
     case TRIG_IMU:
         fprintf(stderr, "[FUSION] GPS+IMU attitude compensation (%s)\n",
                 eTrigger == TRIG_GPS ? "GPS-trigger" : "IMU-trigger");
-        pstSensorState->stGpsState.chValid = 0;
-        pstSensorState->stImuState.chValid = 0;
-        // GPS+IMU 융합 후 자세교정을 위한 알고리즘 수행후 → ACU제어 값 생성 후 UDS3으로 전송
+        // GPS+IMU 융합 후 자세교정을 위한 알고리즘 수행후 → ACU제어 값 생성 후 UDS3으로 전송        
+        // pstSensorState->stGpsState.chValid = 0;
+        // pstSensorState->stImuState.chValid = 0;
+        
         pstCtrlAzElData->dAz  = 1.123;
         pstCtrlAzElData->dEl = -0.157;
         break;
@@ -256,14 +252,14 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
 
 
 static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short unCmd, 
-    unsigned char *puchCmdData, unsigned char *puchCmdResult)
+    char *pchCmdData,  char *pchCmdResult)
 {
     switch(unCmd)
     {
         case CMD_TRACKING_SELECT:
         {
-            REQ_TRACKING_SELECT* pstReqTrackingSelect = (REQ_TRACKING_SELECT *)puchCmdData;
-            RES_TRACKING_SELECT* pstResTrackingSelect = (RES_TRACKING_SELECT *)puchCmdResult;
+            REQ_TRACKING_SELECT* pstReqTrackingSelect = (REQ_TRACKING_SELECT *)pchCmdData;
+            RES_TRACKING_SELECT* pstResTrackingSelect = (RES_TRACKING_SELECT *)pchCmdResult;
             if(pstReqTrackingSelect->chTrackingSelect == SELF_TRACKING || 
                 pstReqTrackingSelect->chTrackingSelect == EXTERNAL_DEV_TRACKING){
                 pstSensorFusionCtx->stCommandState.chTrackingSelect = pstReqTrackingSelect->chTrackingSelect;
@@ -275,21 +271,19 @@ static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short u
         break;
         case CMD_AUTO_TRACKING_WAIT:
         {            
-            REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	= (REQ_AUTO_TRACKING_WAIT *)puchCmdData;
-	        RES_AUTO_TRACKING_WAIT *pstReqUserData			= (RES_AUTO_TRACKING_WAIT *)puchCmdResult;
+            REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	= (REQ_AUTO_TRACKING_WAIT *)pchCmdData;
+	        RES_AUTO_TRACKING_WAIT *pstReqUserData			= (RES_AUTO_TRACKING_WAIT *)pchCmdResult;
             pstSensorFusionCtx->stCommandState.chWaitOnOff  = pstReqAutoTrackingWait->chWaitOnOff;
             pstSensorFusionCtx->stCommandState.dStandbyAz   = pstReqAutoTrackingWait->dStandbyAz;
             pstSensorFusionCtx->stCommandState.dStandbyEl   = pstReqAutoTrackingWait->dStandbyEl;
             pstReqUserData->chResult = 0x01;
-            fprintf(stderr,"Result is %02x, %02x\n", pstReqUserData->chResult, puchCmdResult[0]);
         }
         break;
         case CMD_ID_INFO:
         {
-            RES_ID *pstResId = (RES_ID *)(puchCmdResult);
+            RES_ID *pstResId = (RES_ID *)(pchCmdResult);
             pstResId->chResult = (char)SF_CMD_REDEIVER;
             fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
-            return sizeof(RES_ID);
         }
         break;
         default:
@@ -307,7 +301,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     SENSOR_FUSION_CTX* pstSensorFusionCtx =
         (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
 
-    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
+    char achRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     
@@ -321,15 +315,15 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
         while (1) {
             int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
             fprintf(stderr,"### %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
-            if (iRecvLen < sizeof(FRAME_HEADER))
+            if (iRecvLen < (int)sizeof(FRAME_HEADER))
                 break;
 
-            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+            memset(achRecvBuffer, 0x00, sizeof(achRecvBuffer));
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
+            eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[UDS_1_SENSOR_FUSION] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
@@ -347,25 +341,26 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
             /* === 프레임 소비 === */
-            unsigned char auchCmdData[128];
-            unsigned char auchCmdResult[128];
-            unsigned char auchResult[128];
+            char achCmdData[128];
+            char achCmdResult[128];
+            char achResult[128];
             unsigned int uiReqId;
             int iResultSize;
+            memset(achCmdData, 0x0, sizeof(achCmdData));
+            memset(achCmdResult, 0x0, sizeof(achCmdResult));
+            memset(achResult, 0x0, sizeof(achResult));
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
-            eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdData);
+            eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
             if (eErr != FRAME_OK){
                 fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
                 continue;
             }            
-            applyCommand(pstSensorFusionCtx, unCmd, auchCmdData, auchCmdResult);
-            fprintf(stderr,"### %s():%d %02X ###\n",__func__,__LINE__, auchCmdResult[0]);
+            applyCommand(pstSensorFusionCtx, unCmd, achCmdData, achCmdResult);
             MSG_ID stMsgId = { SF_CMD_REDEIVER, TC_UDS_CMD_CTRL };
-            eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
+            eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
             iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-            evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
+            evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
             event_add(pstIoChannel->pstWriteEvent, NULL);
         }
         break;
@@ -394,12 +389,14 @@ static void fusionEventCb(int iFd, short nEvent, void* pvData)
 /* ========================================================================== */
 static void sensorFusionRead(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
+    (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     SENSOR_FUSION_CTX* pstSensorFusionCtx =
         (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
     SENSOR_STATE* pstSensorState = &pstSensorFusionCtx->stSensor;        
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
+    char achRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     unsigned long ulUsec = nowUsec();
@@ -412,13 +409,13 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
             if (uiRecvLen < sizeof(FRAME_HEADER))
                 break;
 
-            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
+            memset(achRecvBuffer, 0x00, sizeof(achRecvBuffer));
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, uiRecvLen);
             /*추후 evbuffer에 삭제 크기 알 필요 있음*/
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
+            eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[UDS-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
                 if (iOffset >= 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
@@ -441,8 +438,9 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                 
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             switch(unCmd){
+                //todo cmdRegistry 접근 방법으로 변경 필요
                 case CDM_GPS_DATA: {
-                    memcpy(&pstSensorState->stGpsState.stGps, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_GPS_DATA));
+                    memcpy(&pstSensorState->stGpsState.stGps, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_GPS_DATA));
                     pstSensorState->stGpsState.chValid = 1;
                     pstSensorState->stGpsState.ulUsec  = ulUsec;
                     fprintf(stderr,"GPS LATITUDE %.8lf, LONGITUDE %.8lf, ALTITUDE %.3f, HEADING %.3f\n", 
@@ -451,7 +449,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                     break;                
                 }
                 case CDM_IMU_DATA: {
-                    memcpy(&pstSensorState->stImuState.stImu, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_RPY_DATA));
+                    memcpy(&pstSensorState->stImuState.stImu, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_RPY_DATA));
                     pstSensorState->stImuState.chValid = 1;
                     pstSensorState->stImuState.ulUsec  = ulUsec;
                     fprintf(stderr,"IMU ROLL %lf, PITCH %lf, YAW %lf [%02X]\n", pstSensorState->stImuState.stImu.dRoll,
@@ -459,14 +457,14 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                     break;
                 }
                 case CDM_SP_DATA: {
-                    memcpy(&pstSensorState->stSpState.stSp, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_AZ_EL_DATA));
+                    memcpy(&pstSensorState->stSpState.stSp, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_AZ_EL_DATA));
                     pstSensorState->stSpState.chValid = 1;
                     pstSensorState->stSpState.ulUsec  = ulUsec;
                     fprintf(stderr,"SP AZ %lf, EL %lf\n", pstSensorState->stSpState.stSp.dAz, pstSensorState->stSpState.stSp.dEl);
                     break;
                 }
                 case CDM_EXTERN_DATA: {
-                    memcpy(&pstSensorState->stExternState.stExtern, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_LLA_DATA));
+                    memcpy(&pstSensorState->stExternState.stExtern, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_LLA_DATA));
                     pstSensorState->stExternState.chValid = 1;
                     pstSensorState->stExternState.ulUsec  = ulUsec;
                     fprintf(stderr,"EXTERN LATITUDE %.8lf, LONGITUDE %.8lf, ALTITUDE %.3lf\n", pstSensorState->stExternState.stExtern.dLatitude, 
@@ -474,7 +472,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                     break;                
                 }
                 case CDM_KEYBOARD_DATA: {
-                    memcpy(&pstSensorState->stKeyboardState.stKeyboard, auchRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_AZ_EL_DATA));
+                    memcpy(&pstSensorState->stKeyboardState.stKeyboard, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_AZ_EL_DATA));
                     pstSensorState->stKeyboardState.chValid = 1;
                     pstSensorState->stKeyboardState.ulUsec  = ulUsec;
                     fprintf(stderr,"KEYBOARD AZ %lf, EL %lf\n", pstSensorState->stKeyboardState.stKeyboard.dAz, pstSensorState->stKeyboardState.stKeyboard.dEl);
@@ -546,6 +544,8 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 * ============================================================ */
 static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
+    (void)sig;
+    (void)events;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
     fprintf(stderr,"\n[SENSOR_FUSION] SIGINT → shutdown\n");

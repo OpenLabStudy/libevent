@@ -52,14 +52,17 @@ double swap_double(double val) {
     return result;
 }
 
-int buildForwardReqIdInfo(void* pvUserData, void* pvOutData)
+int buildForwardReqIdInfo(const void* pvUserData, void* pvOutData)
 {
+	(void)pvUserData;
 	REQ_ID *pstReqId = (REQ_ID *)pvOutData;
 	pstReqId->chTmp = 0x01;
 	return sizeof(REQ_ID);
 }
 int dispatchCmdIdInfo(const void* pvRecvData, void* pvOutData)
 {
+	(void)pvRecvData;
+	(void)pvOutData;
 	return sizeof(RES_ID);
 }
 int buildResIdInfo(const void* pvUserData, void* pvOutData)
@@ -71,14 +74,16 @@ int buildResIdInfo(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_ID);
 }
 
-int buildForwardReqKeepAlive(void* pvUserData, void* pvOutData)
+int buildForwardReqKeepAlive(const void* pvUserData, void* pvOutData)
 {    
+	(void)pvUserData;
 	REQ_KEEP_ALIVE *pstReqKeepalive = (REQ_KEEP_ALIVE *)pvOutData;
 	pstReqKeepalive->chTmp = 0x01;
     return sizeof(REQ_KEEP_ALIVE);
 }
 int dispatchCmdKeepAlive(const void* pvRecvData, void* pvOutData)
 {
+	(void)pvRecvData;
 	RES_KEEP_ALIVE* pstResKeepalive = (RES_KEEP_ALIVE *)pvOutData;
     pstResKeepalive->chResult = 0x01;
     printf("[RES] KEEP_ALIVE status=%u\n", pstResKeepalive->chResult);
@@ -86,20 +91,22 @@ int dispatchCmdKeepAlive(const void* pvRecvData, void* pvOutData)
 }
 int buildResKeepAlive(const void* pvUserData, void* pvOutData)
 {
-	RES_KEEP_ALIVE *pstUserData	= (RES_ID *)(pvUserData);
-	RES_KEEP_ALIVE *pstResId 	= (RES_ID *)(pvOutData);
+	RES_KEEP_ALIVE *pstUserData	= (RES_KEEP_ALIVE *)(pvUserData);
+	RES_KEEP_ALIVE *pstResId 	= (RES_KEEP_ALIVE *)(pvOutData);
 	pstResId->chResult = pstUserData->chResult;
-	return sizeof(RES_ID);
+	return sizeof(RES_KEEP_ALIVE);
 }
 
-int buildForwardReqIbit(void* pvUserData, void* pvOutData)
+int buildForwardReqIbit(const void* pvUserData, void* pvOutData)
 {    
+	(void)pvUserData;
 	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
 	pstReqBit->chBit = 0x01;
     return sizeof(REQ_BIT);
 }
 int dispatchCmdIbit(const void* pvRecvData, void* pvOutData)
 {
+	(void)pvRecvData;
 	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
 	pstResIbit->chBitTotResult    = 0x01;
 	pstResIbit->chPositionResult  = 0x01;
@@ -115,14 +122,16 @@ int buildResIbit(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_BIT);
 }
 
-int buildForwardReqRbit(void* pvUserData, void* pvOutData)
+int buildForwardReqRbit(const void* pvUserData, void* pvOutData)
 {    
+	(void)pvUserData;
 	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
 	pstReqBit->chBit = 0x01;
     return sizeof(REQ_BIT);
 }
 int dispatchCmdRbit(const void* pvRecvData, void* pvOutData)
 {
+	(void)pvRecvData;
 	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
 	pstResIbit->chBitTotResult    = 0x01;
 	pstResIbit->chPositionResult  = 0x01;
@@ -138,14 +147,16 @@ int buildResRbit(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_BIT);
 }
 
-int buildForwardReqCbit(void* pvUserData, void* pvOutData)
+int buildForwardReqCbit(const void* pvUserData, void* pvOutData)
 {    
+	(void)pvUserData;
 	REQ_BIT *pstReqBit = (REQ_BIT *)pvOutData;
 	pstReqBit->chBit = 0x01;
     return sizeof(REQ_BIT);
 }
 int dispatchCmdCbit(const void* pvRecvData, void* pvOutData)
 {
+	(void)pvRecvData;
 	RES_BIT *pstResIbit = (RES_BIT *)(pvOutData);
 	pstResIbit->chBitTotResult    = 0x01;
 	pstResIbit->chPositionResult  = 0x01;
@@ -161,7 +172,7 @@ int buildResCbit(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_BIT);
 }
 
-int buildForwardReqPositionAzElSet(void* pvUserData, void* pvOutData)
+int buildForwardReqPositionAzElSet(const void* pvUserData, void* pvOutData)
 {    
 	REQ_POSITIONER_AZ_EL_SET *pstReqUserData	= (REQ_POSITIONER_AZ_EL_SET *)pvUserData;
 	REQ_POSITIONER_AZ_EL_SET *pstReqAzElSet 	= (REQ_POSITIONER_AZ_EL_SET *)pvOutData;
@@ -187,7 +198,7 @@ int buildResPositionAzElSet(const void* pvUserData, void* pvOutData)
 }
 
 
-int buildForwardReqTrackingSelect(void* pvUserData, void* pvOutData)
+int buildForwardReqTrackingSelect(const void* pvUserData, void* pvOutData)
 {    
 	REQ_TRACKING_SELECT *pstReqUserData 		= (REQ_TRACKING_SELECT *)pvUserData;
 	REQ_TRACKING_SELECT *pstReqTrackingSelect	= (REQ_TRACKING_SELECT *)pvOutData;
@@ -219,7 +230,7 @@ int buildResTrackingSelect(const void* pvUserData, void* pvOutData)
 }
 
 
-int buildForwardReqAcuModeSelect(void* pvUserData, void* pvOutData)
+int buildForwardReqAcuModeSelect(const void* pvUserData, void* pvOutData)
 {    
 	REQ_ACU_MODE *pstReqUserData 	= (REQ_ACU_MODE *)pvUserData;
 	REQ_ACU_MODE *pstReqAcuMode		= (REQ_ACU_MODE *)pvOutData;
@@ -251,160 +262,7 @@ int buildResAcuModeSelect(const void* pvUserData, void* pvOutData)
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-int trackingStartPointSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_TRACKING_START_POINT_SET *pstReqTrackingStartPointSet = (REQ_TRACKING_START_POINT_SET *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_TRACKING_START_POINT_SET *pstResTrackingStartPointSet = (RES_TRACKING_START_POINT_SET *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResTrackingStartPointSet->chResult = 0x01;
-
-	fprintf(stderr, "Tracking Start point Setting executed\n");
-	return sizeof(RES_TRACKING_START_POINT_SET);
-}
-
-
-int cannonBallTrajectoryInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_CANNON_BALL_TRAJECTORY_INFO *pstReqCannonBallTrajectoryInfo = (REQ_CANNON_BALL_TRAJECTORY_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_CANNON_BALL_TRAJECTORY_INFO *pstResCannonBallTrajectoryInfo = (RES_CANNON_BALL_TRAJECTORY_INFO *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResCannonBallTrajectoryInfo->chResult = 0x01;
-
-	fprintf(stderr, "Connon Ball Tracjectory Info executed\n");
-	return sizeof(RES_CANNON_BALL_TRAJECTORY_INFO);
-}
-
-int shelterCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_SHELTER_COORDINATE_INFO *pstReqShelterCoordinateInfo = (REQ_SHELTER_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_SHELTER_COORDINATE_INFO *pstResShelterCoordinateInfo = (RES_SHELTER_COORDINATE_INFO *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResShelterCoordinateInfo->chResult = 0x01;
-
-	fprintf(stderr, "Shelter Coordinate Info executed\n");
-	return sizeof(RES_SHELTER_COORDINATE_INFO);
-}
-
-int mccCoordinateInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_EXTERN_DEV_COORDINATE_INFO *pstReqExternDevCoordinateInfo = (REQ_EXTERN_DEV_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_EXTERN_DEV_COORDINATE_INFO *pstResExternDevCoordinateInfo = (RES_EXTERN_DEV_COORDINATE_INFO *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResExternDevCoordinateInfo->chResult = 0x01;
-
-	fprintf(stderr, "Extern Coordinate Info executed\n");
-	return sizeof(RES_EXTERN_DEV_COORDINATE_INFO);
-}
-
-int cannonCoordinateInifo(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_CANNON_COORDINATE_INFO *pstReqCannonCoordinateInfo = (REQ_CANNON_COORDINATE_INFO *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_CANNON_COORDINATE_INFO *pstResCannonCoordinateInfo = (RES_CANNON_COORDINATE_INFO *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResCannonCoordinateInfo->chResult = 0x01;
-
-	fprintf(stderr, "Cannon Coordinate Info executed\n");
-	return sizeof(RES_CANNON_COORDINATE_INFO);
-}
-
-int trackingControl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	REQ_TRACKING_CONTROL *pstReqTrackingControl = (REQ_TRACKING_CONTROL *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_TRACKING_CONTROL *pstResTrackingControl = (RES_TRACKING_CONTROL *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResTrackingControl->chResult = 0x01;
-	if(pstReqTrackingControl->chStartStop == TRACKING_STOP){
-		fprintf(stderr, "TRACKING_STOP\n");
-	}else if(pstReqTrackingControl->chStartStop == TRACKING_START){
-		fprintf(stderr, "TRACKING_START\n");
-	}else{
-		fprintf(stderr,"Tracking Control Fail\n");
-		pstResTrackingControl->chResult = 0x00;
-	}
-
-	fprintf(stderr, "Tracking Control executed\n");
-	return sizeof(RES_TRACKING_CONTROL);
-}
-
-int positionDegTransferCtrl(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	REQ_POSITIONER_DEG_SEND *pstReqPositionDegSend = (REQ_POSITIONER_DEG_SEND *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_POSITIONER_DEG_SEND *pstResPositionDegSend = (RES_POSITIONER_DEG_SEND *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResPositionDegSend->chResult = 0x01;
-	if(pstReqPositionDegSend->chSendOnOff == AZ_EL_SEND_OFF){
-		fprintf(stderr,"AZ_EL_SEND_OFF\n");
-	}else if(pstReqPositionDegSend->chSendOnOff == AZ_EL_SEND_ON){
-		fprintf(stderr,"AZ_EL_SEND_ON\n");
-	}else{
-		fprintf(stderr,"Position Degree Transfer Control Fail\n");
-		pstResPositionDegSend->chResult = 0x00;
-	}
-
-	fprintf(stderr, "Position Degree Send executed\n");
-	return sizeof(RES_POSITIONER_DEG_SEND);
-}
-
-
-
-int timeSynqCheck(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_TIME_SYNQ_CHECK *pstReqTimeSynqCheck = (REQ_TIME_SYNQ_CHECK *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_TIME_SYNQ_CHECK *pstResTimeSynqCheck = (RES_TIME_SYNQ_CHECK *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResTimeSynqCheck->chResult = 0x01;
-
-	fprintf(stderr, "Time Synq Check executed\n");
-	return sizeof(RES_TIME_SYNQ_CHECK);
-}
-
-int timeSynqSet(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	// REQ_TIME_SYNQ_SET *pstReqTimeSynqSet = (REQ_TIME_SYNQ_SET *)(puchRecvData + sizeof(FRAME_HEADER));
-	// RES_TIME_SYNQ_SET *pstResTimeSynqSet = (RES_TIME_SYNQ_SET *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	// pstResTimeSynqSet->chResult = 0x01;
-
-	fprintf(stderr, "Time Synq Set executed\n");
-	return sizeof(RES_TIME_SYNQ_SET);
-}
-
-int azElOffset(unsigned char* puchRecvData, unsigned char* puchCmdResult)
-{
-	REQ_AZ_EL_OFFSET_SET *pstReqAzElOffsetSet = (REQ_AZ_EL_OFFSET_SET *)(puchRecvData + sizeof(FRAME_HEADER));
-	RES_AZ_EL_OFFSET_SET *pstResAzElOffsetSet = (RES_AZ_EL_OFFSET_SET *)(puchCmdResult);
-	
-	//todo 명령설정에 대한 처리 결과는 각 UDS의 응답으로 최종 처리되어야함.
-	pstResAzElOffsetSet->chResult = 0x01;
-	fprintf(stderr,"AZ Offset is %d, EL Offset is %d\n", pstReqAzElOffsetSet->iAzOffset, pstReqAzElOffsetSet->iElOffset);
-	
-	fprintf(stderr, "AZ EL Offset Set executed\n");
-	return sizeof(RES_AZ_EL_OFFSET_SET);
-}
-
-
-
-int buildForwardReqAutoTrackingWait(void* pvUserData, void* pvOutData)
+int buildForwardReqAutoTrackingWait(const void* pvUserData, void* pvOutData)
 {    
 	REQ_AUTO_TRACKING_WAIT *pstReqUserData			= (REQ_AUTO_TRACKING_WAIT *)pvUserData;
 	REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	= (REQ_AUTO_TRACKING_WAIT *)pvOutData;
@@ -444,6 +302,7 @@ int buildResImuData(const void* pvUserData, void* pvOutData)
 	pstResRpyData->dRoll 			= pstUserData->dRoll;
 	pstResRpyData->dPitch 			= pstUserData->dPitch;
 	pstResRpyData->dYaw 			= pstUserData->dYaw;
+	return sizeof(RES_RPY_DATA);
 }
 
 
@@ -454,6 +313,7 @@ int buildResGpsData(const void* pvUserData, void* pvOutData)
 	pstResGpsData->dLatitude 		= pstUserData->dLatitude;
 	pstResGpsData->dLongitude 		= pstUserData->dLongitude;
 	pstResGpsData->dAltitude 		= pstUserData->dAltitude;
+	return sizeof(RES_LLA_DATA);
 }
 
 int buildResCtrlAzElData(const void* pvUserData, void* pvOutData)
@@ -462,4 +322,5 @@ int buildResCtrlAzElData(const void* pvUserData, void* pvOutData)
 	RES_AZ_EL_DATA *pstResCtrlAzElData	= (RES_AZ_EL_DATA *)(pvOutData);
 	pstResCtrlAzElData->dAz 				= pstUserData->dAz;
 	pstResCtrlAzElData->dEl 				= pstUserData->dEl;
+	return sizeof(RES_AZ_EL_DATA);
 }

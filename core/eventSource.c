@@ -14,10 +14,9 @@ void readCallback(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;    
     
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
-    int iReadSize = read(pstIoChannel->iFd, auchRecvBuffer, sizeof(auchRecvBuffer));    
-    fprintf(stderr,"### %s():%d recv size is %d ###\n",__func__,__LINE__, iReadSize);
+    int iReadSize = read(pstIoChannel->iFd, auchRecvBuffer, sizeof(auchRecvBuffer)); 
     for(int i=1; i<=iReadSize; i++){
-        if(i&16 == 0)
+        if(i%16 == 0)
             fprintf(stderr,"\n");
         fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
     }  
@@ -43,8 +42,8 @@ void readCallback(int iFd, short nEvent, void* pvData)
 
 void writeCallback(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
     (void)nEvent;
-    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
     int iWriteSize;
@@ -60,9 +59,8 @@ void writeCallback(int iFd, short nEvent, void* pvData)
         return;
     }
     fprintf(stderr,"\n");
-    fprintf(stderr,"### %s():%d Write Size:%d ###\n", __func__,__LINE__, iWriteSize);
     for(int i=1; i<=iWriteSize; i++){
-        if(i&16 == 0)
+        if(i%16 == 0)
             fprintf(stderr,"\n");
         fprintf(stderr,"%02x ", auchWriteBuffer[i-1]);
     }  
@@ -75,6 +73,8 @@ void writeCallback(int iFd, short nEvent, void* pvData)
 
 void eventEngineShutdownCb(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
+    (void)nEvent;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE*)pvData;
 
     fprintf(stderr, "[ENGINE] shutdown requested\n");

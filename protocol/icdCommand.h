@@ -333,8 +333,6 @@ typedef struct PACKED {
 /* Public API                                                                 */
 /* ========================================================================== */
 double endianChange(char* i_chData);
-void endianChange1(double dValue, char* pchData);
-// int idInfo(unsigned char* puchRecvData, unsigned char* puchCmdResult);
 
 
 /**
@@ -352,39 +350,39 @@ void endianChange1(double dValue, char* pchData);
  */
 
 
-int buildForwardReqIdInfo(void* pvUserData, void* pvOutData);
+int buildForwardReqIdInfo(const void* pvUserData, void* pvOutData);
 int dispatchCmdIdInfo(const void* pvRecvData, void* pvOutData);
 int buildResIdInfo(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqKeepAlive(void* pvUserData, void* pvOutData);
+int buildForwardReqKeepAlive(const void* pvUserData, void* pvOutData);
 int dispatchCmdKeepAlive(const void* pvRecvData, void* pvOutData);
 int buildResKeepAlive(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqIbit(void* pvUserData, void* pvOutData);
+int buildForwardReqIbit(const void* pvUserData, void* pvOutData);
 int dispatchCmdIbit(const void* pvRecvData, void* pvOutData);
 int buildResIbit(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqRbit(void* pvUserData, void* pvOutData);
+int buildForwardReqRbit(const void* pvUserData, void* pvOutData);
 int dispatchCmdRbit(const void* pvRecvData, void* pvOutData);
 int buildResRbit(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqCbit(void* pvUserData, void* pvOutData);
+int buildForwardReqCbit(const void* pvUserData, void* pvOutData);
 int dispatchCmdCbit(const void* pvRecvData, void* pvOutData);
 int buildResCbit(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqPositionAzElSet(void* pvUserData, void* pvOutData);
+int buildForwardReqPositionAzElSet(const void* pvUserData, void* pvOutData);
 int dispatchCmdPositionAzElSet(const void* pvRecvData, void* pvOutData);
 int buildResPositionAzElSet(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqTrackingSelect(void* pvUserData, void* pvOutData);
+int buildForwardReqTrackingSelect(const void* pvUserData, void* pvOutData);
 int dispatchCmdTrackingSelect(const void* pvRecvData, void* pvOutData);
 int buildResTrackingSelect(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqAcuModeSelect(void* pvUserData, void* pvOutData);
+int buildForwardReqAcuModeSelect(const void* pvUserData, void* pvOutData);
 int dispatchCmdAcuModeSelect(const void* pvRecvData, void* pvOutData);
 int buildResAcuModeSelect(const void* pvUserData, void* pvOutData);
 
-int buildForwardReqAutoTrackingWait(void* pvUserData, void* pvOutData);
+int buildForwardReqAutoTrackingWait(const void* pvUserData, void* pvOutData);
 int dispatchCmdAutoTrackingWait(const void* pvRecvData, void* pvOutData);
 int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData);
 

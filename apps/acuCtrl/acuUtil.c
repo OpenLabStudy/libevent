@@ -46,6 +46,7 @@ int moveAzElRate(double i_dAz, double i_dEl, char* pchOutData)
  */
 int moveAzRate(int i_iAcuFd, double i_dAz, char* pchOutData)
 {
+	(void)i_iAcuFd;
 	memset(pchOutData, 0x0, ACU_COMMAND_LEN);
 	sprintf(pchOutData, "%s%.3f\r\n", AZ_REMOTE_RATE_SET, i_dAz);
 	return strlen(pchOutData);
@@ -59,6 +60,7 @@ int moveAzRate(int i_iAcuFd, double i_dAz, char* pchOutData)
  */
 int moveElRate(int i_iAcuFd, double i_dEl, char* pchOutData)
 {
+	(void)i_iAcuFd;
 	memset(pchOutData, 0x0, ACU_COMMAND_LEN);
 	sprintf(pchOutData, "%s%.3f\r\n", EL_REMOTE_RATE_SET, i_dEl);
 	return strlen(pchOutData);

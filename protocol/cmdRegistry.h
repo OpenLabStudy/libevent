@@ -79,7 +79,7 @@ typedef struct __attribute__((__packed__)) {
 } FRAME_TAIL;
 
 /* 요청/응답 빌더/파서 공통 시그니처 */
-typedef int (*buildForwardReq)(const void* pvRecvData, void* pvOutData);
+typedef int (*buildForwardReq)(const void* pvUserData, void* pvOutData);
 typedef int (*dispatchCommand)(const void* pvRecvData, void* pvOutData);
 typedef int (*buildResponse)(const void* pvRecvData, void* pvOutData);
 
@@ -99,13 +99,16 @@ typedef struct {
 const char*     getCmdString(unsigned short unCmd);
 unsigned int    getDataSize(unsigned short unCmd, FRAME_TYPE frameType);
 unsigned int    getFrameSizeWithCmd(unsigned short unCmd, FRAME_TYPE eFrameType);
-char            getIdInfo(unsigned char *puchData);
+char            getIdInfo(char *puchData);
 /* makeRequestFrame / parseAndDumpResponse 쪽에서 쓰기 좋게 제공 */
 FRAME_ERR       createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* uchUserData, void* pvOutData);
 FRAME_ERR       cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData);
 FRAME_ERR       createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData);
 const char*     frameErrToStr(FRAME_ERR eErr);
-int             findFrameHeader(unsigned char *puchData, int iSize);
+int             findFrameHeader(char *puchData, int iSize);
 FRAME_ERR cmdRegistryOverrideHandler( unsigned short unCmd,
     buildForwardReq fnBuildForwardReq, dispatchCommand fnDispatchCmd, buildResponse fnbuildRes);
 FRAME_ERR repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize);
+
+FRAME_ERR frameDecode(char *puchBuf, int iFrameSize,
+                      FRAME_TYPE eFrameType, unsigned short *punOutCmd);

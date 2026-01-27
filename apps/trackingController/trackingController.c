@@ -46,6 +46,7 @@ static COMMAND_PATH decideProcessingPath(unsigned short unCmd)
 
 void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     unsigned char auchWriteBuffer[2048];
@@ -62,15 +63,7 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
     if (iWriteSize <= 0) {
         perror("write");
         return;
-    }
-    fprintf(stderr,"\n");
-    fprintf(stderr,"### %s():%d Write Size:%d ###\n", __func__,__LINE__, iWriteSize);
-    for(int i=1; i<=iWriteSize; i++){
-        if(i&16 == 0)
-            fprintf(stderr,"\n");
-        fprintf(stderr,"%02x ", auchWriteBuffer[i-1]);
-    }  
-    fprintf(stderr,"\n");
+    }    
     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
         event_del(pstIoChannel->pstWriteEvent);
 }
@@ -78,11 +71,13 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
 
 static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
+    (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
 
-    unsigned char auchRecvBuffer[2048];
+    char achRecvBuffer[2048];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     switch (eEventType) {
@@ -91,14 +86,14 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         while (1) {
             unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
             /* 최소 헤더도 안 왔으면 중단 */
-            if (uiRecvLen < sizeof(FRAME_HEADER))
+            if (uiRecvLen < (int)sizeof(FRAME_HEADER))
                 break;
-            memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, uiRecvLen);
-            eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+            memset(achRecvBuffer, 0x00, sizeof(achRecvBuffer));
+            int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, uiRecvLen);
+            eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+                int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
@@ -125,16 +120,18 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             COMMAND_PATH eCommandPath = decideProcessingPath(unCmd);
             if (eCommandPath == COMMAND_PATH_NONE) {
                 /* === 명령 처리 === */
-                unsigned char auchCmdResult[128];
-                unsigned char auchResult[128];
+                char achCmdResult[128];
+                char achResult[128];
                 int iResultSize;
-                eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
+                memset(achCmdResult, 0x0, sizeof(achCmdResult));
+                memset(achResult, 0x0, sizeof(achResult));
+                eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdResult);
                 if (eErr != FRAME_OK)
                     continue;
                 MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-                eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
+                eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-                evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
+                evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             } else if (eCommandPath == SF_CMD_REDEIVER || eCommandPath == AC_CMD_RECEIVER || 
                 eCommandPath == (SF_CMD_REDEIVER|AC_CMD_RECEIVER)) {
@@ -142,7 +139,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 pstEventEngine->uiRequestSeq++;
                 fprintf(stderr,"### %s():%d IPC Forwarding CMD:0x%04x Path:%d Copy Size:%d ###\n", __func__, __LINE__, unCmd, eCommandPath, iFrameSize);
                 evbuffer_add(pstIoChannel->pstRequestBuffer, &eCommandPath, sizeof(int));
-                evbuffer_add(pstIoChannel->pstRequestBuffer, auchRecvBuffer, iFrameSize);
+                evbuffer_add(pstIoChannel->pstRequestBuffer, achRecvBuffer, iFrameSize);
                 event_active(pstIoChannel->pstRequestEvent, 0, 0);
             }
         }
@@ -162,6 +159,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
 void udsWriteCallback(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
     (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
@@ -182,10 +180,12 @@ void udsWriteCallback(int iFd, short nEvent, void* pvData)
 
 static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 {
+    (void)iFd;
+    (void)nEvent;
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
-    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
+    char achRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
     int iRecvLen;
@@ -194,16 +194,15 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
     case IO_EVT_RX_DATA:
         iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-        fprintf(stderr,"### %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
-        if (iRecvLen < sizeof(FRAME_HEADER))
+        if (iRecvLen < (int)sizeof(FRAME_HEADER))
             break;
         
-        memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-        int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
-        eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
+        memset(achRecvBuffer, 0x00, sizeof(achRecvBuffer));
+        int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
+        eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
         if (eErr != FRAME_OK) {
             fprintf(stderr, "[UDS1Server] frameDecode ERR: %s\n", frameErrToStr(eErr));
-            int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+            int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
             if (iOffset > 0) {
                 /* 앞부분 garbage 제거 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
@@ -220,21 +219,11 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
         evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));        
-        int iResultSize;
-
-        // eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdResult);
-        // fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-        // if (eErr != FRAME_OK){
-        //     fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
-        // }
-        // evbuffer_remove(pstIoChannel->pstReadBuffer, &iReqId, sizeof(unsigned int));
         if(unCmd == CMD_ID_INFO){
-            pstIoChannel->iWorkerId = (int)getIdInfo(auchRecvBuffer+sizeof(FRAME_HEADER));
-            fprintf(stderr,"ID is %d\n", pstIoChannel->iWorkerId);
+            pstIoChannel->iWorkerId = (int)getIdInfo(achRecvBuffer+sizeof(FRAME_HEADER));
         }else{
-            fprintf(stderr,"Request id is %d\n", pstEventEngine->uiRequestSeq);
             eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
-                pstEventEngine->uiRequestSeq, auchRecvBuffer, iFrameSize);
+                pstEventEngine->uiRequestSeq, achRecvBuffer, iFrameSize);
         }
         break;
 
@@ -293,10 +282,10 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
             pstIoChannel->iWorkerId = TC_UDS_CMD_CTRL;
             REQ_ID stReqId;
             MSG_ID stMsgId = { TC_UDS_CMD_CTRL,  SF_CMD_REDEIVER|AC_CMD_RECEIVER};
-            unsigned char auSendBuf[64];            
+            char achSendBuf[64];            
             stReqId.chTmp = 0x01;        
-            if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, auSendBuf) == FRAME_OK){
-                evbuffer_add(pstIoChannel->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
+            if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, achSendBuf) == FRAME_OK){
+                evbuffer_add(pstIoChannel->pstWriteBuffer, achSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             }
         }
@@ -308,6 +297,8 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 * ============================================================ */
 static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
+    (void)sig;
+    (void)events;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
     fprintf(stderr,"\n[TCP-UDS-SVR] SIGINT → shutdown\n");
@@ -396,6 +387,8 @@ int run()
 #ifndef GOOGLE_TEST
 int main(int argc, char** argv)
 {
+    (void)argc;
+    (void)argv;
     return run();
 }
 #endif

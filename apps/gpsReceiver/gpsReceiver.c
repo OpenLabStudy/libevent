@@ -99,13 +99,13 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-static void applyCommand(unsigned short unCmd, unsigned char *puchCmdData, unsigned char *puchCmdResult)
+static void applyCommand(unsigned short unCmd, char *pchCmdData, char *pchCmdResult)
 {
-    memset(puchCmdResult, 0, sizeof(puchCmdResult));
+    (void)pchCmdData;
     switch (unCmd)
     {
     case CMD_ID_INFO:
-        ((RES_ID*)puchCmdResult)->chResult = (char)GPS_RECEIVER;
+        ((RES_ID*)pchCmdResult)->chResult = (char)GPS_RECEIVER;
         break; 
     default:
         fprintf(stderr, "[ACU] Unsupported CMD\n");
@@ -121,7 +121,7 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     FRAME_ERR eErr;
     unsigned short unCmd = 0;
-    unsigned char auchRecvBuffer[UDS_MAX_BUFFER_SIZE];
+    char achRecvBuffer[UDS_MAX_BUFFER_SIZE];
     switch (eEventType) {
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
@@ -131,15 +131,15 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
     {
         int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
         fprintf(stderr,"### %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
-        if (iRecvLen < sizeof(FRAME_HEADER))
+        if (iRecvLen < (int)sizeof(FRAME_HEADER))
             break;
 
-        memset(auchRecvBuffer, 0x00, sizeof(auchRecvBuffer));
-        int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, auchRecvBuffer, iRecvLen);
-        eErr = frameDecode(auchRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+        memset(achRecvBuffer, 0x00, sizeof(achRecvBuffer));
+        int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
+        eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
         if (eErr != FRAME_OK) {
             fprintf(stderr, "[GPS] frameDecode ERR: %s\n", frameErrToStr(eErr));
-            int iOffset = findFrameHeader(auchRecvBuffer, iCopyLen);
+            int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
             if (iOffset > 0) {
                 /* 앞부분 garbage 제거 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
@@ -156,25 +156,26 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
         /* === 프레임 소비 === */
-        unsigned char auchCmdData[128];
-        unsigned char auchCmdResult[128];
-        unsigned char auchResult[128];
+        char achCmdData[128];
+        char achCmdResult[128];
+        char achResult[128];
+        memset(achCmdData, 0x0, sizeof(achCmdData));
+        memset(achCmdResult, 0x0, sizeof(achCmdResult));
+        memset(achResult, 0x0, sizeof(achResult));
         unsigned int uiReqId;
         int iResultSize;
         evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
         evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
-        eErr = cmdDispatch(auchRecvBuffer, iCopyLen, auchCmdData);
+        eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
         if (eErr != FRAME_OK){
             fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
         }            
-        applyCommand(unCmd, auchCmdData, auchCmdResult);
-        fprintf(stderr,"### %s():%d %02X ###\n",__func__,__LINE__, auchCmdResult[0]);
+        applyCommand(unCmd, achCmdData, achCmdResult);
         MSG_ID stMsgId = { GPS_RECEIVER, SF_SENSOR_RECEIVER };
-        eErr = createCmdResponse(unCmd, auchCmdResult, &stMsgId, auchResult);
+        eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
         iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         // sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
-        evbuffer_add(pstIoChannel->pstWriteBuffer, auchResult, iResultSize);
+        evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
         event_add(pstIoChannel->pstWriteEvent, NULL);
     }
 
@@ -189,6 +190,8 @@ static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
 * ============================================================ */
 static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 {
+    (void)sig;
+    (void)events;
     EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
 
     fprintf(stderr,"\n[GPS-RX] SIGINT → shutdown\n");

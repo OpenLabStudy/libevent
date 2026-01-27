@@ -126,16 +126,16 @@ static char ExtractNextFrame(
 /* Public API Implementations                                                 */
 /* ========================================================================== */
 
-SGpsDataInfo R632ParseFrame(const uint8_t* pFrame, int size)
+SGpsDataInfo R632ParseFrame(const uint8_t* pFrame, int iSize)
 {
     SGpsDataInfo stInfo;
     memset(&stInfo, 0, sizeof(stInfo));
 
-    if (size < 8) return stInfo;
+    if (iSize < 8) return stInfo;
     if (!(pFrame[0]=='$' && pFrame[1]=='B' && pFrame[2]=='I' && pFrame[3]=='N'))
         return stInfo;
 
-    int copyLen = (size < (int)sizeof(SBinaryMsg3)) ? size : sizeof(SBinaryMsg3);
+    int copyLen = (iSize < (int)sizeof(SBinaryMsg3)) ? iSize : (int)sizeof(SBinaryMsg3);
     memcpy(&stInfo.m_stMsg3, pFrame, copyLen);
 
     const int secPerWeek = 604800;

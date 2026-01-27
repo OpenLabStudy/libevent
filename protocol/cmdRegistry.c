@@ -2,6 +2,7 @@
 #include "icdCommand.h"
 #include <string.h>
 #include <stdio.h>
+#include <arpa/inet.h>
 
 /* ======================================================================
  *  프로젝트 기존 헤더 include
@@ -116,7 +117,7 @@ FRAME_ERR cmdRegistryOverrideHandler( unsigned short unCmd,
     return FRAME_ERR_INVALID_CMD;
 }
 
-static FRAME_ERR frameCheckBasic(const unsigned char *puchData, int iFrameSize)
+static FRAME_ERR frameCheckBasic(const char *puchData, int iFrameSize)
 {
     if (!puchData)
         return FRAME_ERR_NULL_PTR;
@@ -140,16 +141,19 @@ static FRAME_TYPE checkCmd(unsigned short unCmd)
 static FRAME_ERR frameCheckHeaderFields(const FRAME_HEADER *pstHeader,
                                         FRAME_TYPE eFrameType)
 {
-    if (ntohs(pstHeader->unStx) != STX_CONST)
+    (void)eFrameType;//추후 필요시 사용할 예정
+    unsigned short unStx = (unsigned short)ntohs(pstHeader->unStx);
+    unsigned short unCmd = (unsigned short)ntohs(pstHeader->unCmd);
+    if (unStx != STX_CONST)
         return FRAME_ERR_INVALID_STX;
         
-    return checkCmd(ntohs(pstHeader->unCmd));
+    return checkCmd(unCmd);
 }
 
 static FRAME_ERR frameCheckDataLength(const FRAME_HEADER *pstHeader,
                                       FRAME_TYPE eFrameType)
 {
-    unsigned short unCmd = ntohs(pstHeader->unCmd);
+    unsigned short unCmd = (unsigned short)ntohs(pstHeader->unCmd);
 
     if (ntohl(pstHeader->iDataLength) != (getDataSize(unCmd, eFrameType)+8)){
         fprintf(stderr,"### %s():%d  %s %d %d ###\n", __func__,__LINE__, getCmdString(unCmd), 
@@ -174,16 +178,16 @@ static FRAME_ERR frameCheckCompleteSize(unsigned short unCmd,
     return FRAME_OK;
 }
 
-static FRAME_ERR frameCheckHeader(unsigned short unCmd, unsigned char *puchData,
+static FRAME_ERR frameCheckHeader(unsigned short unCmd, char *pchData,
                                   int iFrameSize, FRAME_TYPE eFrameType)
 {
     FRAME_ERR eErr;
 
-    eErr = frameCheckBasic(puchData, iFrameSize);
+    eErr = frameCheckBasic(pchData, iFrameSize);
     if (eErr != FRAME_OK)
         return eErr;
 
-    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchData;    
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)pchData;    
     eErr = frameCheckHeaderFields(pstHeader, eFrameType);
     if (eErr != FRAME_OK)
         return eErr;
@@ -206,22 +210,20 @@ static FRAME_TAIL* frameGetTailPtr(void *pvOutData, unsigned short unCmd, FRAME_
     return (FRAME_TAIL *)(pvOutData + sizeof(FRAME_HEADER) + getDataSize(unCmd, eFrameType));
 }
 
-static unsigned char frameCalcCrc(const unsigned char *puchBuf, int iTotalSize)
+static unsigned char frameCalcCrc(const char *pchBuf, int iTotalSize)
 {
     unsigned char uchCrc = 0x00;
-    int iOffset =
-        sizeof(((FRAME_HEADER *)0)->unStx) + sizeof(((FRAME_HEADER *)0)->iDataLength);
-    for (int i = iOffset; i < iTotalSize - sizeof(FRAME_TAIL); i++) {
-        uchCrc += puchBuf[i];
+    //FRAME_HEADER의 unStx와  iDataLength는 CRC계산에서 빼야하기 때문에 시작을 6부터 한다.
+    // 또한 FRAME_TAIL도 CRC계산에서 빠져야 하기 때문에 FRAME_TAIL의 크기 3을 전체 길이에서 뺀다.
+    for (int i = 6; i < iTotalSize-3; i++) {
+        uchCrc += (unsigned char)pchBuf[i];
     }
     return ((uchCrc & 0xFF) == 0xFF) ? 0x00 : uchCrc;
 }
 
-static FRAME_ERR frameCheckCrc(const unsigned char *puchBuf,
-                               int iTotalSize,
-                               unsigned char uchRecvCrc)
+static FRAME_ERR frameCheckCrc(const char *pchBuf, int iTotalSize, unsigned char uchRecvCrc)
 {
-    return (frameCalcCrc(puchBuf, iTotalSize) == uchRecvCrc) ?
+    return (frameCalcCrc(pchBuf, iTotalSize) == uchRecvCrc) ?
             FRAME_OK : FRAME_ERR_CRC_FAIL;
 }
 
@@ -256,18 +258,18 @@ static void frameMakeTail(unsigned short unCmd,
     pstTail->unEtx = htons(ETX_CONST);
 }
 
-static unsigned short getCmdCode(unsigned char *puchBuf, int iFrameSize, unsigned short *punOutCmd)
+static FRAME_ERR getCmdCode(const char *pchBuf, int iFrameSize, unsigned short *punOutCmd)
 {
     FRAME_ERR eErr;
 
-    if (!puchBuf || !punOutCmd)
+    if (!pchBuf || !punOutCmd)
         return FRAME_ERR_NULL_PTR;
     
-    eErr = frameCheckBasic(puchBuf, iFrameSize);
+    eErr = frameCheckBasic(pchBuf, iFrameSize);
     if (eErr != FRAME_OK)
         return eErr;
         
-    FRAME_HEADER *pstHeader = (FRAME_HEADER *)puchBuf;
+    FRAME_HEADER *pstHeader = (FRAME_HEADER *)pchBuf;
     *punOutCmd = ntohs(pstHeader->unCmd);
     return FRAME_OK;
 }
@@ -316,7 +318,6 @@ FRAME_ERR cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutData)
 
 FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData)
 {
-    FRAME_ERR eErr;
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
     if (!pstCmdDesc)
         return FRAME_ERR_INVALID_CMD;
@@ -329,11 +330,10 @@ FRAME_ERR createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID
 
 FRAME_ERR repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize)
 {
-    FRAME_ERR eErr;
     unsigned short unCmd;
 
     FRAME_HEADER *pstFrameHeader = (FRAME_HEADER *)pvData;
-    eErr = getCmdCode(pvData, iFrameSize, &unCmd);
+    getCmdCode(pvData, iFrameSize, &unCmd);
     FRAME_TAIL *pstTail = frameGetTailPtr(pvData, unCmd, FRAME_TYPE_RESPONSE);
 
     fprintf(stderr,"### %s():%d Len:%d ###\n",__func__,__LINE__, getDataSize(unCmd, FRAME_TYPE_RESPONSE));    
@@ -370,28 +370,28 @@ const char* frameErrToStr(FRAME_ERR eErr)
 }
 
 /* ---- Public Decode API ---- */
-FRAME_ERR frameDecode(unsigned char *puchBuf, int iFrameSize,
+FRAME_ERR frameDecode(char *pchBuf, int iFrameSize,
                       FRAME_TYPE eFrameType, unsigned short *punOutCmd)
 {
     unsigned short unCmd;
     FRAME_ERR eErr;
 
-    if (!puchBuf || !punOutCmd)
+    if (!pchBuf || !punOutCmd)
         return FRAME_ERR_NULL_PTR;
         
-    eErr = frameCheckBasic(puchBuf, iFrameSize);
+    eErr = frameCheckBasic(pchBuf, iFrameSize);
     if (eErr != FRAME_OK)
         return eErr;
         
-    eErr = getCmdCode(puchBuf, iFrameSize, &unCmd);
+    eErr = getCmdCode(pchBuf, iFrameSize, &unCmd);
     if(eErr != FRAME_OK)
         return eErr;
         
-    eErr = frameCheckHeader(unCmd, puchBuf, iFrameSize, eFrameType);
+    eErr = frameCheckHeader(unCmd, pchBuf, iFrameSize, eFrameType);
     if (eErr != FRAME_OK)
         return eErr;
         
-    eErr = frameCheckTail(unCmd, puchBuf, eFrameType);
+    eErr = frameCheckTail(unCmd, pchBuf, eFrameType);
     if (eErr != FRAME_OK)
         return eErr;
         
@@ -399,27 +399,27 @@ FRAME_ERR frameDecode(unsigned char *puchBuf, int iFrameSize,
     return FRAME_OK;
 }
 
-char getIdInfo(unsigned char *puchData)
+char getIdInfo(char *puchData)
 {
     RES_ID *pstResId = (RES_ID *)(puchData);
     return pstResId->chResult;
 }
 
-int findFrameHeader(unsigned char *puchData, int iSize)
+int findFrameHeader(char *pchData, int iSize)
 {
-    if (!puchData || iSize < 2)
+    if (!pchData || iSize < 2)
         return -1;
 
     for (int i = 0; i <= iSize - 2; i++) {
         /* STX = 0xAA55 (network order) */
-        if (puchData[i] == 0xAA && puchData[i + 1] == 0x55) {
+        if ((unsigned char)pchData[i] == 0xAA && pchData[i + 1] == 0x55) {
             return i;
         }
     }
 
     /* 만약 마지막 바이트가 0xAA 라면,
        다음 recv에서 0x55가 올 가능성 있음 */
-    if (puchData[iSize - 1] == 0xAA)
+    if ((unsigned char)pchData[iSize - 1] == 0xAA)
         return -2;
 
     return -1;
