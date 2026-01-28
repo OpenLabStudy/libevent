@@ -324,3 +324,31 @@ int buildResCtrlAzElData(const void* pvUserData, void* pvOutData)
 	pstResCtrlAzElData->dEl 				= pstUserData->dEl;
 	return sizeof(RES_AZ_EL_DATA);
 }
+
+int buildResSpData(const void* pvUserData, void* pvOutData)
+{
+	RES_AZ_EL_DATA *pstUserData		= (RES_AZ_EL_DATA *)(pvUserData);
+	RES_AZ_EL_DATA *pstResSpData	= (RES_AZ_EL_DATA *)(pvOutData);
+	pstResSpData->dAz 				= pstUserData->dAz;
+	pstResSpData->dEl 				= pstUserData->dEl;
+	return sizeof(RES_AZ_EL_DATA);
+}
+
+int buildResExternData(const void* pvUserData, void* pvOutData)
+{
+	RES_LLA_DATA *pstUserData			= (RES_LLA_DATA *)(pvUserData);
+	RES_LLA_DATA *pstResExternData		= (RES_LLA_DATA *)(pvOutData);
+	pstResExternData->dLatitude 		= pstUserData->dLatitude;
+	pstResExternData->dLongitude 		= pstUserData->dLongitude;
+	pstResExternData->dAltitude			= pstUserData->dAltitude;
+	return sizeof(RES_AZ_EL_DATA);
+}
+
+int buildResKeyboardData(const void* pvUserData, void* pvOutData)
+{
+	RES_AZ_EL_DATA *pstUserData			= (RES_AZ_EL_DATA *)(pvUserData);
+	RES_AZ_EL_DATA *pstResKeyboardData	= (RES_AZ_EL_DATA *)(pvOutData);
+	pstResKeyboardData->dAz 			= pstUserData->dAz;
+	pstResKeyboardData->dEl 			= pstUserData->dEl;
+	return sizeof(RES_AZ_EL_DATA);
+}

@@ -74,6 +74,19 @@ static CMD_DESC g_cmdTable[] = {
         0, sizeof(RES_LLA_DATA),        
         NULL, NULL, buildResGpsData 
     },
+    {   CDM_SP_DATA, "SP_DATA",
+        0, sizeof(RES_AZ_EL_DATA),        
+        NULL, NULL, buildResSpData 
+    },
+    {   CDM_EXTERN_DATA, "EXTERN_DATA",
+        0, sizeof(RES_LLA_DATA),        
+        NULL, NULL, buildResExternData 
+    },
+    {   CDM_KEYBOARD_DATA, "KEYBOARD_DATA",
+        0, sizeof(RES_AZ_EL_DATA),        
+        NULL, NULL, buildResKeyboardData 
+    },
+    
     {   CMD_CTRL_AZ_EL_DATA, "CTRL_AZ_EL_DATA",
         0, sizeof(RES_AZ_EL_DATA),        
         NULL, NULL, buildResCtrlAzElData 

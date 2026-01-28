@@ -15,12 +15,13 @@ void readCallback(int iFd, short nEvent, void* pvData)
     
     memset(auchRecvBuffer, 0x0, sizeof(auchRecvBuffer));
     int iReadSize = read(pstIoChannel->iFd, auchRecvBuffer, sizeof(auchRecvBuffer)); 
-    for(int i=1; i<=iReadSize; i++){
-        if(i%16 == 0)
-            fprintf(stderr,"\n");
-        fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
-    }  
-    fprintf(stderr,"\n");
+
+    // for(int i=1; i<=iReadSize; i++){
+    //     if(i%16 == 0)
+    //         fprintf(stderr,"\n");
+    //     fprintf(stderr,"%02x ", auchRecvBuffer[i-1]);
+    // }  
+    // fprintf(stderr,"\n");
     if (iReadSize == 0) {
         /* ===== 상대 정상 종료 ===== */
         pstIoChannel->ePendingLogicEvent = IO_EVT_CHANNEL_CLOSED;
@@ -58,13 +59,13 @@ void writeCallback(int iFd, short nEvent, void* pvData)
         perror("write");
         return;
     }
-    fprintf(stderr,"\n");
-    for(int i=1; i<=iWriteSize; i++){
-        if(i%16 == 0)
-            fprintf(stderr,"\n");
-        fprintf(stderr,"%02x ", auchWriteBuffer[i-1]);
-    }  
-    fprintf(stderr,"\n");
+    // fprintf(stderr,"\n");
+    // for(int i=1; i<=iWriteSize; i++){
+    //     if(i%16 == 0)
+    //         fprintf(stderr,"\n");
+    //     fprintf(stderr,"%02x ", auchWriteBuffer[i-1]);
+    // }  
+    // fprintf(stderr,"\n");
     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
         event_del(pstIoChannel->pstWriteEvent);
 

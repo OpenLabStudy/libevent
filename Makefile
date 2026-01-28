@@ -41,13 +41,14 @@ include apps/trackingController/module.mk
 
 
 define BUILD_START
+	@echo
 	@echo ">>>>>>>>>"
 	@echo "Start building $(1)"
 endef
 
 define BUILD_DONE
-	@echo "<<<<<<<<<<"
 	@echo "Finished building $(1)"
+	@echo "<<<<<<<<<<"	
 endef
 
 acuCtrl_build:

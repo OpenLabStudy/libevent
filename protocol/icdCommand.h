@@ -46,7 +46,8 @@ enum AZ_EL_SEND_FLAG {
 
 enum ACU_MODE {
 	RATE = 0x00,
-	POSITION
+	POSITION,
+	ACU_MODE_NONE
 };
 
 enum AUTO_TRACKING_FLAG {
@@ -101,6 +102,7 @@ enum COMMAND_ID
     CDM_KEYBOARD_DATA,
 	CMD_CTRL_AZ_EL_DATA,
     CMD_ID_INFO     = 0x1000, /**< 장비 정보 요청 */
+	CMD_UNKNOWN		= 0xFFFF
 };
 
 
@@ -391,6 +393,13 @@ int buildResImuData(const void* pvUserData, void* pvOutData);
 int buildResGpsData(const void* pvUserData, void* pvOutData);
 
 int buildResCtrlAzElData(const void* pvUserData, void* pvOutData);
+
+int buildResSpData(const void* pvUserData, void* pvOutData);
+
+int buildResExternData(const void* pvUserData, void* pvOutData);
+
+int buildResKeyboardData(const void* pvUserData, void* pvOutData);
+
 
 #endif /* ICD_COMMAND_H */
  

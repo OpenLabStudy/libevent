@@ -3,7 +3,8 @@
 # ============================================================
 
 SENSOR_FUSION_SRCS := \
- apps/sensorFusion/sensorFusion.c
+ apps/sensorFusion/sensorFusion.c \
+ apps/sensorFusion/lineOfSight.c
 
 SENSOR_FUSION_TARGET := sensorFusion
 

@@ -69,8 +69,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
                     MSG_ID stMsgId = { IMU_RECEIVER, SF_SENSOR_RECEIVER };
                     createCmdResponse(CDM_IMU_DATA, auchImuData, &stMsgId, auchSendBuf);
-                    int iResultSize = getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);
-                    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                    int iResultSize = getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);                    
                     evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf, iResultSize);
                     event_add(pstImuTxIo->pstWriteEvent, NULL);
                 } else {
