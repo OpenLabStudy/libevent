@@ -54,6 +54,7 @@ typedef struct __attribute__((__packed__)){
     char           chYaw[4];
 } XDI_EulerAngles;
 
+//가속도계 값(Accelerometer) Raw 가속도
 typedef struct __attribute__((__packed__)){
     PACKET_INFO    stPacketInfo;
     float          fAccX;
@@ -61,6 +62,7 @@ typedef struct __attribute__((__packed__)){
     float          fAccZ;
 } XDI_Acceleration;
 
+//가속도계 값(Accelerometer) 적분된 가속도
 typedef struct __attribute__((__packed__)){
     PACKET_INFO    stPacketInfo;
     float          fDeltaX;
@@ -68,6 +70,7 @@ typedef struct __attribute__((__packed__)){
     float          fDeltaZ;
 } XDI_DeltaV;
 
+//가속도계 값(Accelerometer) 중력 제거 가속도
 typedef struct __attribute__((__packed__)){
     PACKET_INFO    stPacketInfo;
     float          fFreeAccX;
@@ -75,6 +78,7 @@ typedef struct __attribute__((__packed__)){
     float          fFreeAccZ;
 } XDI_FreeAcceleration;
 
+// Gyroscope
 typedef struct __attribute__((__packed__)){
     PACKET_INFO    stPacketInfo;
     float          fGyrX;
