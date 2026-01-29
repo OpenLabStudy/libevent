@@ -4,6 +4,7 @@
 /* ========================================================================= */
 /* Big Endian Utilities                                                      */
 /* ========================================================================= */
+
 unsigned short mtiBe16(const unsigned char* puch)
 {
     return ((unsigned short)puch[0] << 8) | puch[1];
@@ -24,6 +25,23 @@ float mtiBeFloat(const unsigned char* puch)
     memcpy(&fVal, &uiVal, sizeof(float));
     return fVal;
 }
+
+float mtiSwapFloat(float fIn)
+{
+    unsigned int uiVal;
+    float fOut;
+
+    memcpy(&uiVal, &fIn, sizeof(uiVal));
+
+    uiVal = ((uiVal & 0x000000FFU) << 24) |
+            ((uiVal & 0x0000FF00U) <<  8) |
+            ((uiVal & 0x00FF0000U) >>  8) |
+            ((uiVal & 0xFF000000U) >> 24);
+
+    memcpy(&fOut, &uiVal, sizeof(fOut));
+    return fOut;
+}
+
 
 /* ========================================================================= */
 /* Checksum                                                                  */
@@ -67,10 +85,10 @@ int mti670Feed(MTI670_PARSER_CTX* pstCtx,
     pstCtx->iRxLen += iDataLen;
 
     for (i = 0; i + 4 < pstCtx->iRxLen; i++) {
-        if (pstCtx->auchRxBuf[i]     != MTI_PREAMBLE ||
-            pstCtx->auchRxBuf[i + 1] != MTI_BID ||
-            pstCtx->auchRxBuf[i + 2] != MTI_MID_MTDATA2)
+        if (pstCtx->auchRxBuf[i]     != MTI_PREAMBLE || pstCtx->auchRxBuf[i + 1] != MTI_BID ||
+            pstCtx->auchRxBuf[i + 2] != MTI_MID_MTDATA2){
             continue;
+        }
 
         unsigned char uchLen = pstCtx->auchRxBuf[i + 3];
         int iFrameSize = 4 + uchLen + 1;

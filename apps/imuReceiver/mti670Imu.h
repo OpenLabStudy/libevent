@@ -144,9 +144,10 @@ int  mti670Feed(MTI670_PARSER_CTX* pstCtx,
 /* ========================================================================= */
 /* Utilities                                                                 */
 /* ========================================================================= */
-unsigned short mtiBe16(const unsigned char* puch);
-unsigned int   mtiBe32(const unsigned char* puch);
-float          mtiBeFloat(const unsigned char* puch);
+unsigned short  mtiBe16(const unsigned char* puch);
+unsigned int    mtiBe32(const unsigned char* puch);
+float           mtiBeFloat(const unsigned char* puch);
+float           mtiSwapFloat(float fIn);
 
 #ifdef __cplusplus
 }

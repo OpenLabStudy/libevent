@@ -53,7 +53,16 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                 float fPitch = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chPitch);
                 float fYaw   = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chYaw);
 
-                fprintf(stderr, "[IMU] R=%.3f P=%.3f Y=%.3f\n", fRoll, fPitch, fYaw);
+                fprintf(stderr, "[IMU] Roll=%.3f Pitch=%.3f Yaw=%.3f\n", fRoll, fPitch, fYaw);
+                fprintf(stderr,">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+                fprintf(stderr, "[IMU] AccX=%.3f AccY=%.3f AccZ=%.3f\n", mtiSwapFloat(stImuFormat.stAcceleration.fAccX), 
+                        mtiSwapFloat(stImuFormat.stAcceleration.fAccY), mtiSwapFloat(stImuFormat.stAcceleration.fAccZ));
+                fprintf(stderr, "[IMU] DeltaX=%.3f DeltaY=%.3f DeltaZ=%.3f\n", mtiSwapFloat(stImuFormat.stDeltaV.fDeltaX), 
+                        mtiSwapFloat(stImuFormat.stDeltaV.fDeltaY), mtiSwapFloat(stImuFormat.stDeltaV.fDeltaZ));
+                fprintf(stderr, "[IMU] GyrX=%.3f GyrY=%.3f GyrZ=%.3f\n", mtiSwapFloat(stImuFormat.stRateOfTurn.fGyrX), 
+                        mtiSwapFloat(stImuFormat.stRateOfTurn.fGyrY), mtiSwapFloat(stImuFormat.stRateOfTurn.fGyrZ));
+                fprintf(stderr,"<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n");
+
 
                 /* UDS#2(sensorFusion) 채널로 best-effort 전송 */
                 IO_CHANNEL* pstImuTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, IMU_RECEIVER);

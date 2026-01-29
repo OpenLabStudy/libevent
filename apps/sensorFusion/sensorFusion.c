@@ -240,7 +240,8 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
                         pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyHedaing,
                         &dAz, &dEl);
         pstCtrlAzElData->dAz = dAz;
-        pstCtrlAzElData->dEl = dEl;
+        pstCtrlAzElData->dEl = -dEl;
+        fprintf(stderr,"AZ:%lf, EL:%lf(%lf), Heading:%lf\n", dAz, dEl, -dEl, pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyHedaing);
         break;
 
     default:
