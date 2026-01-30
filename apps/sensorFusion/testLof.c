@@ -10,15 +10,25 @@
  * ============================================================ */
 int main(void)
 {
-    double standbyAz, standbyEl, yawOffset;
+    double standbyAz, standbyEl, yaw;
+    
 
     printf("=== Stabilizer Test Program ===\n");
     printf("Enter StandbyAz (deg): ");
     scanf("%lf", &standbyAz);
     printf("Enter StandbyEl (deg): ");
     scanf("%lf", &standbyEl);
-    printf("Enter YawOffset (deg): ");
-    scanf("%lf", &yawOffset);
+    printf("Enter Yaw (deg): ");
+    scanf("%lf", &yaw);
+    STABILIZER_REF stabRef;
+    IMU_DATA stImuData;
+
+/* 자세보정 진입 */
+    stImuData.dYaw = yaw;
+    stImuData.dRoll = 0.0;
+    stImuData.dPitch = 0.0;
+    stabilizerInit(&stabRef, &stImuData, standbyAz, standbyEl);
+    
 
     while (1) {
         char buf[64];
@@ -34,11 +44,13 @@ int main(void)
         imu.dRoll = atof(buf);
         scanf("%lf %lf", &imu.dPitch, &imu.dYaw);
 
-        stabilizerCompute(
-            &imu,
-            standbyAz, standbyEl, yawOffset,
-            &outAz, &outEl
-        );
+        stabilizerCompute(&imu, &stabRef, &outAz, &outEl);
+
+        // stabilizerCompute(
+        //     &imu,
+        //     standbyAz, standbyEl,
+        //     &outAz, &outEl
+        // );
 
         printf("--------------------------------------------------\n");
         printf("Input  : Roll=%7.3f  Pitch=%7.3f  Yaw=%7.3f\n",
