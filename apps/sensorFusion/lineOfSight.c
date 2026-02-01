@@ -38,8 +38,32 @@ static void transpose3x3(const double dR[3][3], double dRt[3][3])
 }
 
 static void calculateDCM(double dRadRoll, double dRadPitch, double dRadYaw,
-                      double adDcm[3][3])
+                      double dDcm[3][3])
 {
+    #if 0
+    double dCosRoll     = cos(dRadRoll);
+    double dSinRoll     = sin(dRadRoll);
+    double dCosPitch    = cos(dRadPitch);
+    double dSinPitch    = sin(dRadPitch);
+    double dCosYaw      = cos(dRadYaw);
+    double dSinYaw      = sin(dRadYaw);
+
+    dDcm[0][0] =  dCosYaw * dCosPitch;
+    dDcm[0][1] =  dCosYaw * dSinPitch * dSinRoll - dSinYaw * dCosRoll;
+    dDcm[0][2] =  dCosYaw * dSinPitch * dCosRoll + dSinYaw * dSinRoll;
+
+    dDcm[1][0] =  dSinYaw * dCosPitch;
+    dDcm[1][1] =  dSinYaw * dSinPitch * dSinRoll + dCosYaw * dCosRoll;
+    dDcm[1][2] =  dSinYaw * dSinPitch * dCosRoll - dCosYaw * dSinRoll;
+
+    // dDcm[2][0] =  -dSinPitch;
+    // dDcm[2][1] =  dCosPitch * dSinRoll;
+    // dDcm[2][2] =  dCosPitch * dCosRoll;
+    dDcm[2][0] =  dSinPitch;
+    dDcm[2][1] = -dCosPitch * dSinRoll;
+    dDcm[2][2] =  dCosPitch * dCosRoll;
+
+    #else 
     double Rroll[3][3] = {
         {1, 0,              0},
         {0, cos(dRadRoll),  sin(dRadRoll)},
@@ -69,23 +93,14 @@ static void calculateDCM(double dRadRoll, double dRadPitch, double dRadYaw,
     /* (Ryaw * Rpitch) * Rroll */
     for (int i=0;i<3;i++)
         for (int j=0;j<3;j++) {
-            adDcm[i][j] = 0;
+            dDcm[i][j] = 0;
             for (int k=0;k<3;k++)
-                adDcm[i][j] += temp[i][k] * Rroll[k][j];
+                dDcm[i][j] += temp[i][k] * Rroll[k][j];
         }
-}
-
-static void calcAzElFromEnu2Body(double dE, double dN, double dU,
-                const double adDcm[3][3],
-                double *dOutAz, double *dOutEl)
-{
-    double dBodyX   = adDcm[0][0]*dE + adDcm[0][1]*dN + adDcm[0][2]*dU;
-    double dBodyY   = adDcm[1][0]*dE + adDcm[1][1]*dN + adDcm[1][2]*dU;
-    double dBodyZ   = adDcm[2][0]*dE + adDcm[2][1]*dN + adDcm[2][2]*dU;
-
-    // *dOutAz     = RADIAN_TO_DEGREE(atan2(dBodyX, dBodyY));
-    *dOutAz     = RADIAN_TO_DEGREE(atan2(dBodyY, dBodyX));
-    *dOutEl     = RADIAN_TO_DEGREE(atan2(dBodyZ, sqrt(dBodyX*dBodyX + dBodyY*dBodyY)));
+#endif
+    for (int i=0;i<3;i++)
+        for (int j=0;j<3;j++)
+            fprintf(stderr,"dDcm[%d][%d] = %lf\n", i, j, dDcm[i][j]);
 }
 
 
@@ -95,65 +110,25 @@ double calOffsetForDesiredHeading(double dYaw, double dStandbyAz)
 }
 
 
-void stabilizerInit(STABILIZER_REF *pstStabilizerRef,
-                    const IMU_DATA *pstImuData,
-                    double dStandbyAz, double dStandbyEl)
-{
-    pstStabilizerRef->stImuData.dRoll  = pstImuData->dRoll;
-    pstStabilizerRef->stImuData.dPitch = pstImuData->dPitch;
-    pstStabilizerRef->stImuData.dYaw   = pstImuData->dYaw;
-
-    pstStabilizerRef->dStandbyAz        = dStandbyAz;
-    pstStabilizerRef->dStandbyEl        = dStandbyEl;
-}
-
-#if 0
-void stabilizerCompute(const IMU_DATA *stImu,
-                        double dStandbyAz, double dStandbyEl,
-                        double *dOutAz, double *dOutEl)
-{
-    double dDcmBody2World[3][3];
-    double dDcmWorld2Body[3][3];
-    double dUsedAz;
-    dUsedAz = dStandbyAz + (90.0 - stImu->dYaw);
-    /* EAR */
-    EAR stEar = {
-        .dAzimuth   = dStandbyAz,
-        .dElevation = dStandbyEl,
-        .dRange     = 1.0
-    };
-
-    ENU stEnu;
-    ear2enu(&stEar, &stEnu);
-
-    calculateDCM(   DEGREE_TO_RADIAN(stImu->dRoll), 
-                    DEGREE_TO_RADIAN(stImu->dPitch), 
-                    DEGREE_TO_RADIAN(stImu->dYaw),
-                    dDcmBody2World);
-
-    transpose3x3(dDcmBody2World, dDcmWorld2Body);
-
-    calcAzElFromEnu2Body(stEnu.dEast, stEnu.dNorth, stEnu.dUp,
-                        dDcmWorld2Body, dOutAz, dOutEl);
-
-    *dOutAz = wrapDeg180(*dOutAz);
-}
-    #else
-static void calcRelativeDCM(const IMU_DATA *pstImuData,
-                            const STABILIZER_REF *pstStabilizerRef,
-                            double dcmRel[3][3])
+void calcRefDCM(const IMU_DATA *pstImuData, double dDcmRefTransfer[3][3])
 {
     double dDcmRef[3][3];
-    double dDcmRealData[3][3];
-    double dDcmRefTransfer[3][3];
 
     /* 기준 자세 */
-    calculateDCM(
-        DEGREE_TO_RADIAN(pstStabilizerRef->stImuData.dRoll),
-        DEGREE_TO_RADIAN(pstStabilizerRef->stImuData.dPitch),
-        DEGREE_TO_RADIAN(pstStabilizerRef->stImuData.dYaw),
-        dDcmRef
-    );
+    calculateDCM(   DEGREE_TO_RADIAN(pstImuData->dRoll),
+                    DEGREE_TO_RADIAN(pstImuData->dPitch),
+                    DEGREE_TO_RADIAN(pstImuData->dYaw),
+                    dDcmRef );
+
+    /* 상대 회전: now * ref^T */
+    transpose3x3(dDcmRef, dDcmRefTransfer);
+}
+
+static void calcRelativeDCM(const IMU_DATA *pstImuData,
+                            double dDcmRefTransfer[3][3],
+                            double dcmRel[3][3])
+{
+    double dDcmRealData[3][3];
 
     /* 현재 자세 */
     calculateDCM(
@@ -162,9 +137,6 @@ static void calcRelativeDCM(const IMU_DATA *pstImuData,
         DEGREE_TO_RADIAN(pstImuData->dYaw),
         dDcmRealData
     );
-
-    /* 상대 회전: now * ref^T */
-    transpose3x3(dDcmRef, dDcmRefTransfer);
 
     for (int i=0;i<3;i++){
         for (int j=0;j<3;j++) {
@@ -176,43 +148,41 @@ static void calcRelativeDCM(const IMU_DATA *pstImuData,
 }
 
 void stabilizerCompute(const IMU_DATA *pstImuData,
-                       const STABILIZER_REF *pstStabilizerRef,
-                       double *outAz, double *outEl)
+                        AUTO_TRACKING_WAIT *pstAutoTrackingWait,
+                        double *outAz, double *outEl)
 {
     double dcmRel[3][3];
     double dcmRelT[3][3];
 
     /* 1) 상대 회전 DCM */
-    calcRelativeDCM(pstImuData, pstStabilizerRef, dcmRel);
+    calcRelativeDCM(pstImuData, pstAutoTrackingWait->dRefDcm, dcmRel);
 
     /* 2) 역회전 */
     transpose3x3(dcmRel, dcmRelT);
 
     /* 3) 기준 LOS 벡터 (Body 기준) */
-    double az0 = DEGREE_TO_RADIAN(pstStabilizerRef->dStandbyAz);
-    double el0 = DEGREE_TO_RADIAN(pstStabilizerRef->dStandbyEl);
+    double dStandbyAz = DEGREE_TO_RADIAN(pstAutoTrackingWait->dStandbyAz);
+    double dStandbyEl = DEGREE_TO_RADIAN(pstAutoTrackingWait->dStandbyEl);
 
-    double v0[3] = {
-        cos(el0) * sin(az0),  // X
-        cos(el0) * cos(az0),  // Y
-        sin(el0)              // Z
+    double vRefLos[3] = {
+        cos(dStandbyEl) * sin(dStandbyAz),  // X
+        cos(dStandbyEl) * cos(dStandbyAz),  // Y
+        sin(dStandbyEl)                     // Z
     };
 
     /* 4) 보정 적용 */
-    double vc[3] = {
-        dcmRelT[0][0]*v0[0] + dcmRelT[0][1]*v0[1] + dcmRelT[0][2]*v0[2],
-        dcmRelT[1][0]*v0[0] + dcmRelT[1][1]*v0[1] + dcmRelT[1][2]*v0[2],
-        dcmRelT[2][0]*v0[0] + dcmRelT[2][1]*v0[1] + dcmRelT[2][2]*v0[2]
+    double vCorrectedLos[3] = {
+        dcmRelT[0][0]*vRefLos[0] + dcmRelT[0][1]*vRefLos[1] + dcmRelT[0][2]*vRefLos[2],
+        dcmRelT[1][0]*vRefLos[0] + dcmRelT[1][1]*vRefLos[1] + dcmRelT[1][2]*vRefLos[2],
+        dcmRelT[2][0]*vRefLos[0] + dcmRelT[2][1]*vRefLos[1] + dcmRelT[2][2]*vRefLos[2]
     };
 
     /* 5) Az / El 변환 (Body 기준) */
     *outAz = wrapDeg180(
-        RADIAN_TO_DEGREE(atan2(vc[0], vc[1]))
+        RADIAN_TO_DEGREE(atan2(vCorrectedLos[0], vCorrectedLos[1]))
     );
 
     *outEl = RADIAN_TO_DEGREE(
-        atan2(vc[2], sqrt(vc[0]*vc[0] + vc[1]*vc[1]))
+        atan2(vCorrectedLos[2], sqrt(vCorrectedLos[0]*vCorrectedLos[0] + vCorrectedLos[1]*vCorrectedLos[1]))
     );
 }
-
-#endif

@@ -77,19 +77,14 @@ typedef enum {
     TRIG_KEYBOARD
 } FUSION_TRIGGER;
 
-typedef struct{
-    char chWaitOnOff;
-    double dStandbyAz;
-    double dStandbyEl;
-    double dStandbyHedaing;
-}AUTO_TRACKING_WAIT;
+
 
 typedef struct{
     char chTrackingSelect;
     char chTrackingStartStop;
     double dCurrHeading;
     IMU_DATA stCurrImuData;
-    AUTO_TRACKING_WAIT stAutoTrackingWait;
+    AUTO_TRACKING_WAIT stAutoTrackingWait;    
 } COMMAND_STATE;
 /* ========================================================================== */
 /* SENSOR_STATE                                                               */
@@ -234,14 +229,14 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         pstSensorFusionCtx->stCommandState.stCurrImuData.dRoll = pstSensorState->stImuState.stImu.dRoll;
         pstSensorFusionCtx->stCommandState.stCurrImuData.dPitch = pstSensorState->stImuState.stImu.dPitch;
         pstSensorFusionCtx->stCommandState.stCurrImuData.dYaw = pstSensorState->stImuState.stImu.dYaw;
-        stabilizerCompute(&pstSensorFusionCtx->stCommandState.stCurrImuData,
-                        pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz, 
-                        pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyEl, 
-                        pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyHedaing,
-                        &dAz, &dEl);
+
+        stabilizerCompute(  &pstSensorFusionCtx->stCommandState.stCurrImuData,
+                            &pstSensorFusionCtx->stCommandState.stAutoTrackingWait,
+                            &dAz, &dEl);
         pstCtrlAzElData->dAz = dAz;
         pstCtrlAzElData->dEl = -dEl;
-        fprintf(stderr,"AZ:%lf, EL:%lf(%lf), Heading:%lf\n", dAz, dEl, -dEl, pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyHedaing);
+        fprintf(stderr,"AZ:%lf, EL:%lf(%lf), Heading:%lf\n", dAz, dEl, -dEl, 
+            pstSensorFusionCtx->stCommandState.dCurrHeading);
         break;
 
     default:
@@ -287,16 +282,18 @@ static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short u
         {            
             REQ_AUTO_TRACKING_WAIT *pstReqAutoTrackingWait	                        = (REQ_AUTO_TRACKING_WAIT *)pchCmdData;
 	        RES_AUTO_TRACKING_WAIT *pstReqUserData			                        = (RES_AUTO_TRACKING_WAIT *)pchCmdResult;
+            
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.chWaitOnOff       = pstReqAutoTrackingWait->chWaitOnOff;
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz        = pstReqAutoTrackingWait->dStandbyAz;
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyEl        = pstReqAutoTrackingWait->dStandbyEl;
-            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyHedaing   = pstSensorFusionCtx->stCommandState.dCurrHeading;
             pstReqUserData->chResult = 0x01;
+            calcRefDCM(&pstSensorFusionCtx->stCommandState.stCurrImuData, 
+                pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dRefDcm);
             fprintf(stderr,"AUTO TRACKING WAIT %s, AZ:%.3lf, EL:%.3lf, HEADING:%.3lf\n",
-            (pstReqAutoTrackingWait->chWaitOnOff==0x01)? "ON" : "OFF",
-            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz,
-            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyEl,
-            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyHedaing );
+                            (pstReqAutoTrackingWait->chWaitOnOff==0x01)? "ON" : "OFF",
+                            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz,
+                            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyEl,
+                            pstSensorFusionCtx->stCommandState.dCurrHeading );      
         }
         break;
         case CMD_ID_INFO:

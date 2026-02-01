@@ -42,23 +42,13 @@ typedef struct {
     double dYaw;    // deg
 } IMU_DATA;
 
-typedef struct
-{
-    /* IMU 기준 자세 (자세보정 시작 시점) */
-    IMU_DATA stImuData;
+typedef struct{
+    char    chWaitOnOff;
+    double  dStandbyAz;
+    double  dStandbyEl;
+    double  dRefDcm[3][3];
+}AUTO_TRACKING_WAIT;
 
-    /* 페데스탈 기준 LOS (자세보정 시작 시점) */
-    double dStandbyAz;
-    double dStandbyEl;
-
-} STABILIZER_REF;
-
-void stabilizerInit(STABILIZER_REF *pstStabilizerRef,
-                    const IMU_DATA *pstImuData,
-                    double dStandbyAz, double dStandbyEl);
-void stabilizerCompute(const IMU_DATA *pstImuData,
-                       const STABILIZER_REF *pstStabilizerRef,
-                       double *outAz, double *outEl);                    
-// void stabilizerCompute(const IMU_DATA *stImu,
-//                         double dStandbyAz, double dStandbyEl,
-//                         double *dOutAz, double *dOutEl);
+void calcRefDCM(const IMU_DATA *pstImuData, double dDcmRefTransfer[3][3]);
+void stabilizerCompute(const IMU_DATA *pstImuData, AUTO_TRACKING_WAIT *pstAutoTrackingWait,
+                       double *outAz, double *outEl);
