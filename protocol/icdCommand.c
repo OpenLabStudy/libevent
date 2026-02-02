@@ -344,6 +344,16 @@ int buildResExternData(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_AZ_EL_DATA);
 }
 
+
+int dispatchKeyboardData(const void* pvRecvData, void* pvOutData)
+{
+	REQ_KEYBOARD_DATA *pstReqKeyboard 	= (REQ_KEYBOARD_DATA *)pvRecvData;
+	REQ_KEYBOARD_DATA *pstReqUserData	= (REQ_KEYBOARD_DATA *)pvOutData;
+	pstReqUserData->dAz 		= pstReqKeyboard->dAz;
+	pstReqUserData->dEl 		= pstReqKeyboard->dEl;	
+	fprintf(stderr, "Recv Keyboard Data\n");
+	return sizeof(REQ_KEYBOARD_DATA);
+}
 int buildResKeyboardData(const void* pvUserData, void* pvOutData)
 {
 	RES_AZ_EL_DATA *pstUserData			= (RES_AZ_EL_DATA *)(pvUserData);

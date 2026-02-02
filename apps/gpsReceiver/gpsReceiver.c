@@ -21,6 +21,8 @@
 #include "netUds.h"
 #include "netCore.h"
 #include "ioChannelUtil.h"
+#include "runtime.h"
+#include "udsClientRuntime.h"
 
 /**
  * @brief UART로부터 데이터가 수신될 때 호출되는 Libevent read callback
@@ -99,196 +101,55 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-static void applyCommand(unsigned short unCmd, char *pchCmdData, char *pchCmdResult)
-{
-    (void)pchCmdData;
-    switch (unCmd)
-    {
-    case CMD_ID_INFO:
-        ((RES_ID*)pchCmdResult)->chResult = (char)GPS_RECEIVER;
-        break; 
-    default:
-        fprintf(stderr, "[ACU] Unsupported CMD\n");
-        break;
-    }
-}
-
-static void ioChannelHandleEvent(int iFd, short nEvent, void* pvData)
-{
-    (void)iFd;
-    (void)nEvent;
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
-    FRAME_ERR eErr;
-    unsigned short unCmd = 0;
-    char achRecvBuffer[UDS_MAX_BUFFER_SIZE];
-    switch (eEventType) {
-    case IO_EVT_CHANNEL_CLOSED:
-    case IO_EVT_ERROR:
-        ioMarkChannelDead(pstIoChannel, pstIoChannel->ePendingLogicEvent);
-        break;
-    case IO_EVT_RX_DATA:
-    {
-        int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-        fprintf(stderr,"### %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
-        if (iRecvLen < (int)sizeof(FRAME_HEADER))
-            break;
-
-        memset(achRecvBuffer, 0x00, sizeof(achRecvBuffer));
-        int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
-        eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
-        if (eErr != FRAME_OK) {
-            fprintf(stderr, "[GPS] frameDecode ERR: %s\n", frameErrToStr(eErr));
-            int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
-            if (iOffset > 0) {
-                /* 앞부분 garbage 제거 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                fprintf(stderr,"[GPS] resync: drop %d bytes, retry decode\n", iOffset);
-            } else if (iOffset == -2) {
-                /* STX half-match: 데이터 더 수신 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                fprintf(stderr,"[GPS] STX half match, wait more data\n");
-            } else {
-                /* STX 자체가 없음 → 전부 드랍 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                fprintf(stderr, "[GPS] no STX, drop all\n");
-            }
-        }
-        int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
-        /* === 프레임 소비 === */
-        char achCmdData[128];
-        char achCmdResult[128];
-        char achResult[128];
-        memset(achCmdData, 0x0, sizeof(achCmdData));
-        memset(achCmdResult, 0x0, sizeof(achCmdResult));
-        memset(achResult, 0x0, sizeof(achResult));
-        unsigned int uiReqId;
-        int iResultSize;
-        evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
-        evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
-        eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
-        if (eErr != FRAME_OK){
-            fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
-        }            
-        applyCommand(unCmd, achCmdData, achCmdResult);
-        MSG_ID stMsgId = { GPS_RECEIVER, SF_SENSOR_RECEIVER };
-        eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
-        iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-        // sendUdsResponse(pstIoChannel, unCmd, uiReqId, auchResult, iResultSize);
-        evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
-        event_add(pstIoChannel->pstWriteEvent, NULL);
-    }
-
-    default:
-        break;
-    }
-    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
-}
-
-/* ============================================================
-* SIGINT 콜백
-* ============================================================ */
-static void signalCb(evutil_socket_t sig, short events, void* pvArg)
-{
-    (void)sig;
-    (void)events;
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
-
-    fprintf(stderr,"\n[GPS-RX] SIGINT → shutdown\n");
-    if(pstEventEngine->pstEventBase)
-        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
-}
-
-static void uds2ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
-{
-    (void)fd;
-    (void)nEvent;
-    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
-    /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstIoChannel = ioFindChannelByWorkerId(pstEventEngine, GPS_RECEIVER);
-
-    if (ioIsChannelAlive(pstIoChannel))
-        return;
-
-    int iSock = netUdsCreateClient(UDS_2_PATH);
-    if (iSock < 0) {
-        fprintf(stderr, "[UDS#2] reconnect failed, retry later\n");
-        return; /* 타이머는 계속 살아있음 */
-    }
-
-    fprintf(stderr, "[UDS#2] reconnected!\n");
-    netSetNonblock(iSock);
-
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
-            TYPE_UDS_CLI, ROLE_REQUESTER,
-            NULL, NULL, ioChannelHandleEvent);
-    if (!pstNewIo) {
-        close(iSock);
-        return;
-    }      
-    pstNewIo->iWorkerId = GPS_RECEIVER;
-    pstNewIo->chFdCloseSet =  FD_OPENED;
-}
-
 /* ========================================================================== */
 /* Main Entry                                                                 */
 /* ========================================================================== */
-
 int run(char* pchUartPath)
 {    
     ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
-    struct event*   pstSignalEvent;
-    struct event*   pstUdsRetryEvent = NULL;
     UART_CTX        stUartCtx = {
         .pchDevPath     = pchUartPath,
         .iBaudrate      = 115200,
         .iFd            = -1,
         .iBackoffMsec   = 200
     };
-    struct timeval stRertyTimeOut = {1, 0};
+
+    UDS_CLIENT_RUNTIME_CFG stUdsClnRuntimeCfg = {
+        .iSelfWorkerId  = GPS_RECEIVER,
+        .iDstWorkerId   = SF_SENSOR_RECEIVER,
+        .pchUdsPath     = UDS_2_PATH,
+        .pchTag         = "GPS-SND-TO-SF",
+    };
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        fprintf(stderr, "[GPS-RX] event_base_new() failed\n");
+        fprintf(stderr, "[GPS-RECEIVER] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
     eventEngineInit(&stEventEngine, 0);
 
     /* UART open */
     if (uartOpen(&stUartCtx) < 0) {
-        fprintf(stderr, "[GPS-RX] uartOpen failed: %s\n", strerror(errno));
+        fprintf(stderr, "[GPS-RECEIVER] uartOpen failed: %s\n", strerror(errno));
         return EXIT_FAILURE;
     }
-    eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
+    IO_CHANNEL *pstIoChannel = eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
         TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
-    
-    pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
-                  -1, EV_PERSIST | EV_TIMEOUT,
-                  uds2ReconnectCb, &stEventEngine);
-    event_add(pstUdsRetryEvent, &stRertyTimeOut);
+    pstIoChannel->iWorkerId = GPS_RCV_UART;
 
-    /* SIGINT 처리 등록 */
-    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, SIGINT, signalCb, &stEventEngine);
-    event_add(pstSignalEvent, NULL);
+    UDS_CLIENT_RUNTIME *pstUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, &stUdsClnRuntimeCfg, NULL, NULL);
+    APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "GPS-RECEIVER");
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
-    if (pstUdsRetryEvent) {
-        event_del(pstUdsRetryEvent);
-        event_free(pstUdsRetryEvent);
-        pstUdsRetryEvent = NULL;   
-    }
-    if(pstSignalEvent){
-        event_del(pstSignalEvent);
-        event_free(pstSignalEvent);
-        pstSignalEvent =  NULL;
-    }
+    udsClientRuntimeDestroy(&pstUdsClnRuntime);
+    appSignalDestroy(&pstSigHandle);
     /* 종료 처리 */
-    eventEngineCleanup(&stEventEngine);    
+    eventEngineCleanup(&stEventEngine);
     event_base_free(stEventEngine.pstEventBase);
 
-    fprintf(stderr,"[GPS-RX] Terminated.\n");
+    fprintf(stderr,"[GPS-RECEIVER] Terminated.\n");
     return EXIT_SUCCESS;
 }
 

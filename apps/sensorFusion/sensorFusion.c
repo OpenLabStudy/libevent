@@ -25,6 +25,9 @@
 #include "netCore.h"
 #include "ioChannelUtil.h"
 #include "lineOfSight.h"
+#include "runtime.h"
+#include "udsClientRuntime.h"
+#include "udsServerRuntime.h"
 
 typedef struct {
     char            chValid;
@@ -76,8 +79,6 @@ typedef enum {
     TRIG_SP,
     TRIG_KEYBOARD
 } FUSION_TRIGGER;
-
-
 
 typedef struct{
     char chTrackingSelect;
@@ -410,7 +411,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
     SENSOR_FUSION_CTX* pstSensorFusionCtx =
         (SENSOR_FUSION_CTX*)pstIoChannel->pstEventEngine->pvSharedData;
-    SENSOR_STATE* pstSensorState = &pstSensorFusionCtx->stSensor;        
+    SENSOR_STATE* pstSensorState = &pstSensorFusionCtx->stSensor;
     IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
     char achRecvBuffer[UDS_MAX_BUFFER_SIZE];
     unsigned short unCmd = 0;
@@ -547,6 +548,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
         NULL, NULL, sensorFusionRead);
     pstNewIo->chFdCloseSet =  FD_OPENED;
     pstNewIo->iWorkerId = SF_SENSOR_RECEIVER;
+    
     REQ_ID stReqId;
     MSG_ID stMsgId = { SF_SENSOR_RECEIVER,  IMU_RECEIVER|GPS_RECEIVER};
     unsigned char auSendBuf[64];            
@@ -557,83 +559,6 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
     }
 }
 
-
-/* ============================================================
-* SIGINT 콜백
-* ============================================================ */
-static void signalCb(evutil_socket_t sig, short events, void* pvArg)
-{
-    (void)sig;
-    (void)events;
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
-
-    fprintf(stderr,"\n[SENSOR_FUSION] SIGINT → shutdown\n");
-    if(pstEventEngine->pstEventBase)
-        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
-}
-
-static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)// Tracking Controller 재접속 시도
-{
-    (void)fd;
-    (void)nEvent;
-
-    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
-    /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, SF_CMD_REDEIVER);    
-    if (ioIsChannelAlive(pstCmdIo)){
-        return;
-    }
-
-    int iSock = netUdsCreateClient(UDS_1_PATH);
-    if (iSock < 0) {
-        fprintf(stderr, "[SF_CMD_REDEIVER] reconnect failed, retry later\n");
-        return; /* 타이머는 계속 살아있음 */
-    }
-
-    fprintf(stderr, "[SF_CMD_REDEIVER] reconnected!\n");
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
-            TYPE_UDS_CLI, ROLE_REQUESTER,
-            NULL, NULL, commandEventCb);    
-    if (!pstNewIo) {
-        close(iSock);
-        return;
-    }
-    pstNewIo->chFdCloseSet =  FD_OPENED;
-    pstNewIo->iWorkerId = SF_CMD_REDEIVER;
-}
-
-static void uds3ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)//ACU Conroller 재접속 시도
-{
-    (void)fd;
-    (void)nEvent;
-
-    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
-    /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstCmdIo = ioFindChannelByWorkerId(pstEventEngine, SF_AZ_EL_SENDER);    
-    if (ioIsChannelAlive(pstCmdIo)){
-        return;
-    }
-
-    int iSock = netUdsCreateClient(UDS_3_PATH);
-    if (iSock < 0) {
-        fprintf(stderr, "[SF_AZ_EL_SENDER] reconnect failed, retry later\n");
-        return; /* 타이머는 계속 살아있음 */
-    }
-
-    fprintf(stderr, "[SF_AZ_EL_SENDER] reconnected!\n");
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
-            TYPE_UDS_CLI, ROLE_REQUESTER,
-            NULL, NULL, commandEventCb);
-    if (!pstNewIo) {
-        close(iSock);
-        return;
-    }
-    pstNewIo->chFdCloseSet =  FD_OPENED;
-    pstNewIo->iWorkerId = SF_AZ_EL_SENDER;
-}
-
-
-
 /* ========================================================================== */
 /* Main Entry Point                                                           */
 /* ========================================================================== */
@@ -641,11 +566,27 @@ int run(void)
 {
     ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
-    struct event*   pstSignalEvent;
     struct event*   pstEventAccept;
-    struct event*   pstUds1RetryEvent = NULL;
-    struct event*   pstUds3RetryEvent = NULL;
-    struct timeval  stRertyTimeOut = {1, 0};
+    UDS_CLIENT_RUNTIME_CFG stRcvCmdUdsClnRuntimeCfg = {
+        .iSelfWorkerId  = SF_CMD_REDEIVER,
+        .iDstWorkerId   = TC_UDS_CMD_CTRL,
+        .pchUdsPath     = UDS_1_PATH,
+        .pchTag         = "SF-RCV-FROM-TC"
+    };
+    UDS_CLIENT_RUNTIME_CFG stSndAzElUdsClnRuntimeCfg = {
+        .iSelfWorkerId  = SF_AZ_EL_SENDER,
+        .iDstWorkerId   = TC_UDS_CMD_CTRL,
+        .pchUdsPath     = UDS_3_PATH,
+        .pchTag         = "SF-SND-AZ-EL-TO-ACU"
+    };
+    UDS_SERVER_RUNTIME_CFG stRcvDataUdsSvrRuntimeCfg = {
+        .pchUdsPath  = UDS_2_PATH,
+        .pchTag      = "AZEL-SVR",
+        .iWorkerId   = AC_CURR_AZ_EL_SENDER,
+        .pfOnAccept  = onAzElClientAccepted,
+        .pfIoHandler = sendCurrentAzElValue   /* RX 없으면 더미도 가능 */
+    };
+
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -662,51 +603,30 @@ int run(void)
     pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase, -1, 0,
                   fusionEventCb, &stEventEngine);
 
-    pstUds1RetryEvent = event_new(stEventEngine.pstEventBase,
-                  -1, EV_PERSIST | EV_TIMEOUT,
-                  uds1ReconnectCb, &stEventEngine);
-    event_add(pstUds1RetryEvent, &stRertyTimeOut);
-
-    pstUds3RetryEvent = event_new(stEventEngine.pstEventBase,
-                  -1, EV_PERSIST | EV_TIMEOUT,
-                  uds3ReconnectCb, &stEventEngine);
-    event_add(pstUds3RetryEvent, &stRertyTimeOut);
-
-
     int iListenFd = netUdsCreateServer(UDS_2_PATH);
     if (iListenFd < 0) {
         fprintf(stderr, "[SENSOR_FUSION] netUdsCreateServer() failed\n");
         return EXIT_FAILURE;
     }
     /* Accept 이벤트 등록 */
-    pstEventAccept = event_new(stEventEngine.pstEventBase, iListenFd, 
-            EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
-    event_add(pstEventAccept, NULL);
+    UDS_SERVER_RUNTIME *pstAzElSvr =
+    udsServerRuntimeCreate(&stEventEngine, &stRcvDataUdsSvrRuntimeCfg, pstSensorFusionCtx);
+    // pstEventAccept = event_new(stEventEngine.pstEventBase, iListenFd, 
+    //         EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
+    // event_add(pstEventAccept, NULL);
 
-    /* SIGINT 처리 등록 */
-    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, 
-        SIGINT, signalCb, &stEventEngine);
-    event_add(pstSignalEvent, NULL);
-
+    UDS_CLIENT_RUNTIME *pstRcvCmdUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, 
+        &stRcvCmdUdsClnRuntimeCfg, commandEventCb, NULL);
+    UDS_CLIENT_RUNTIME *pstSndAzElUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, 
+        &stSndAzElUdsClnRuntimeCfg, commandEventCb, NULL);
+    APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "SENSOR-FUSION");
     fprintf(stderr, "[SENSOR_FUSION] Listening at %s\n", UDS_2_PATH);
     
     event_base_dispatch(stEventEngine.pstEventBase);
-    if (pstUds1RetryEvent) {
-        event_del(pstUds1RetryEvent);
-        event_free(pstUds1RetryEvent);
-        pstUds1RetryEvent = NULL;   
-    }
-    if (pstUds3RetryEvent) {
-        event_del(pstUds3RetryEvent);
-        event_free(pstUds3RetryEvent);
-        pstUds3RetryEvent = NULL;   
-    }
-
-    if(pstSignalEvent){
-        event_del(pstSignalEvent);
-        event_free(pstSignalEvent);
-        pstSignalEvent =  NULL;
-    }
+    udsClientRuntimeDestroy(&pstRcvCmdUdsClnRuntime);
+    udsClientRuntimeDestroy(&pstSndAzElUdsClnRuntime);
+    udsServerRuntimeDestroy(&pstAzElSvr);
+    appSignalDestroy(&pstSigHandle);
 
     if(pstEventAccept){
         event_del(pstEventAccept);

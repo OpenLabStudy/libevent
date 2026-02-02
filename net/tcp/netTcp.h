@@ -18,7 +18,9 @@
 extern "C" {
 #endif
 
-#define SERVER_PORT 5000
+#define TRACKING_CTRL_SVR   1141
+#define AZ_EL_SENDER        1142
+#define KEYBOARD_RECEIVER   1143
 
 #define TCP_SVR_ID      0xB1
 #define TCP_CLN_ID      0x10

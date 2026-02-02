@@ -92,20 +92,20 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, uiRecvLen);
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[TCP-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[TRACKING-CTRL-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[TCP-SVR] resync: drop %d bytes, retry decode\n", iOffset);
+                    fprintf(stderr,"[TRACKING-CTRL-SVR] resync: drop %d bytes, retry decode\n", iOffset);
                 } else if (iOffset == -2) {
                     /* STX half-match: 데이터 더 수신 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[TCP-SVR] STX half match, wait more data\n");
+                    fprintf(stderr,"[TRACKING-CTRL-SVR] STX half match, wait more data\n");
                 } else {
                     /* STX 자체가 없음 → 전부 드랍 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[TCP-SVR] no STX, drop all\n");
+                    fprintf(stderr, "[TRACKING-CTRL-SVR] no STX, drop all\n");
                 }
                 continue;
             }
@@ -257,7 +257,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
         if (iClientSock < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK){
                 if (stSockAddrStorage.ss_family == AF_INET || stSockAddrStorage.ss_family == AF_INET6) {
-                    perror("[TCP-SVR] accept");
+                    perror("[TRACKING-CTRL-SVR] accept");
                 } else if (stSockAddrStorage.ss_family == AF_UNIX) {
                     perror("[UDS-SVR] accept");
                 }
@@ -267,7 +267,7 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
 
         netSetNonblock(iClientSock);
         if (stSockAddrStorage.ss_family == AF_INET || stSockAddrStorage.ss_family == AF_INET6) {
-            fprintf(stderr, "[TCP-SVR] New client FD=%d\n", iClientSock);
+            fprintf(stderr, "[TRACKING-CTRL-SVR] New client FD=%d\n", iClientSock);
             pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_TCP_SVR, ROLE_REQUESTER,
                     NULL, tcpWriteCallback, tcpIoChannelHandleEvent);
@@ -324,7 +324,7 @@ int run()
     eventEngineInit(&stEventEngine, 2);
 
     /* TCP Listen 소켓 생성 */
-    iTcpListenFd = netTcpCreateServer(SERVER_PORT);
+    iTcpListenFd = netTcpCreateServer(TRACKING_CTRL_SVR);
     if (iTcpListenFd < 0) {
         perror("netTcpCreateServer");
         return -1;
@@ -352,7 +352,7 @@ int run()
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-    fprintf(stderr,"[TCP-SVR] Listening on port %d\n", SERVER_PORT);
+    fprintf(stderr,"[TRACKING-CTRL-SVR] Listening on port %d\n", TRACKING_CTRL_SVR);
     fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_1_PATH);
 
     /* 이벤트 루프 시작 */

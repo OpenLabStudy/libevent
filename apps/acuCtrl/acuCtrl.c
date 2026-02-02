@@ -15,6 +15,8 @@
 #include "netUds.h"
 #include "netCore.h"
 #include "ioChannelUtil.h"
+#include "runtime.h"
+#include "udsClientRuntime.h"
 
 /* ========================================================================== */
 /* ACU STATE                                                                  */
@@ -602,52 +604,6 @@ static void acceptUds4Cb(evutil_socket_t iListenFd, short nKindOfEvent, void* pv
     pstNewIo->chFdCloseSet =  FD_OPENED;
 }
 
-
-/* ============================================================
- * SIGINT
- * ============================================================ */
-static void signalCb(evutil_socket_t sig, short events, void *pvArg)
-{
-    (void)sig;
-    (void)events;
-    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
-
-    fprintf(stderr, "\n[ACU] SIGINT → shutdown\n");
-    if (pstEventEngine->pstEventBase)
-        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
-}
-
-static void uds1ReconnectCb(evutil_socket_t fd, short nEvent, void *pvArg)
-{
-    (void)fd;
-    (void)nEvent;
-
-    EVENT_ENGINE *pstEventEngine = (EVENT_ENGINE *)pvArg;
-    /* 이미 살아있으면 재접속 불필요 */
-    IO_CHANNEL *pstImuTxIo = ioFindChannelByWorkerId(pstEventEngine, AC_CMD_RECEIVER);
-
-    if (ioIsChannelAlive(pstImuTxIo))
-        return;
-
-    int iSock = netUdsCreateClient(UDS_1_PATH);
-    if (iSock < 0) {
-        fprintf(stderr, "[UDS#1] reconnect failed, retry later\n");
-        return; /* 타이머는 계속 살아있음 */
-    }
-
-    fprintf(stderr, "[UDS#1] reconnected!\n");
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iSock,
-                                                    TYPE_UDS_CLI, ROLE_REQUESTER,
-                                                    NULL, NULL, commandEventCb);
-    if (!pstNewIo) {
-        close(iSock);
-        return;
-    }
-    pstNewIo->chFdCloseSet =  FD_OPENED;
-    pstNewIo->iWorkerId = AC_CMD_RECEIVER;
-}
-
-
 /* ============================================================
  * Main
  * ============================================================ */
@@ -668,7 +624,14 @@ int run(char *pchUartPath)
         .iFd            = -1,
         .iBackoffMsec   = 200
     };
-    struct timeval stRertyTimeOut = {3, 0};
+    UDS_CLIENT_RUNTIME_CFG stRcvCmdUdsClnRuntimeCfg = {
+        .iSelfWorkerId  = AC_CMD_RECEIVER,
+        .iDstWorkerId   = TC_UDS_CMD_CTRL,
+        .pchUdsPath     = UDS_1_PATH,
+        .pchTag         = "AC-RCV-FROM-TC"
+    };
+
+    
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -689,10 +652,8 @@ int run(char *pchUartPath)
         TYPE_UART, ROLE_WORKER, NULL, uartWriteCallback, uartReadCallback);
     pstIoChannel->iWorkerId = ACU_UART;
 
-    pstUdsRetryEvent = event_new(stEventEngine.pstEventBase,
-                                 -1, EV_PERSIST | EV_TIMEOUT,
-                                 uds1ReconnectCb, &stEventEngine);
-    event_add(pstUdsRetryEvent, &stRertyTimeOut);
+    UDS_CLIENT_RUNTIME *pstRcvCmdUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, 
+        &stRcvCmdUdsClnRuntimeCfg, commandEventCb, NULL);
 
     /* Accept 이벤트 등록 */
     int iListenUds3Fd = netUdsCreateServer(UDS_3_PATH);
@@ -712,6 +673,8 @@ int run(char *pchUartPath)
     pstEventAcceptUds4 = event_new(stEventEngine.pstEventBase, iListenUds4Fd,
             EV_READ | EV_PERSIST, acceptUds4Cb, &stEventEngine);
     event_add(pstEventAcceptUds4, NULL);
+
+    APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "ACU-CTRL");
 
     /* ============================
     * [ADDED] Polling Timer
@@ -733,18 +696,9 @@ int run(char *pchUartPath)
     //             uartAliveMonitorCb, pstAcuCtrlCtx);
     // event_add(pstAliveEvt, &tvAlive);
 
-
-
-    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase, SIGINT, signalCb, &stEventEngine);
-    event_add(pstSignalEvent, NULL);
-
     event_base_dispatch(stEventEngine.pstEventBase);
-
-    if (pstUdsRetryEvent){
-        event_del(pstUdsRetryEvent);
-        event_free(pstUdsRetryEvent);
-        pstUdsRetryEvent = NULL;
-    }
+    udsClientRuntimeDestroy(&pstRcvCmdUdsClnRuntime);
+    appSignalDestroy(&pstSigHandle);
 
     if(pstEventAcceptUds3) {
         event_del(pstEventAcceptUds3);

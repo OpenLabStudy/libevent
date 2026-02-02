@@ -16,7 +16,8 @@ INCLUDES := \
     -Inet/uds \
     -Iprotocol \
     -Idrivers/uart \
-    -Iapps
+    -Iapps \
+	-Iapps/common  
 
 # =========================
 # Include module definitions
@@ -25,13 +26,16 @@ include core/module.mk
 include net/module.mk
 include protocol/module.mk
 include drivers/module.mk
+include apps/common/module.mk 
 
 # 공통 소스 묶기
 COMMON_SRCS := \
  $(CORE_SRCS) \
  $(NET_SRCS) \
  $(PROTOCOL_SRCS) \
- $(DRIVERS_SRCS)
+ $(DRIVERS_SRCS) \
+ $(APP_COMMON_SRCS)   
+
 
 include apps/acuCtrl/module.mk
 include apps/gpsReceiver/module.mk

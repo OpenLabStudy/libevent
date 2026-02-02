@@ -98,9 +98,9 @@ static void calculateDCM(double dRadRoll, double dRadPitch, double dRadYaw,
                 dDcm[i][j] += temp[i][k] * Rroll[k][j];
         }
 #endif
-    for (int i=0;i<3;i++)
-        for (int j=0;j<3;j++)
-            fprintf(stderr,"dDcm[%d][%d] = %lf\n", i, j, dDcm[i][j]);
+    // for (int i=0;i<3;i++)
+    //     for (int j=0;j<3;j++)
+    //         fprintf(stderr,"dDcm[%d][%d] = %lf\n", i, j, dDcm[i][j]);
 }
 
 
@@ -184,5 +184,5 @@ void stabilizerCompute(const IMU_DATA *pstImuData,
 
     *outEl = RADIAN_TO_DEGREE(
         atan2(vCorrectedLos[2], sqrt(vCorrectedLos[0]*vCorrectedLos[0] + vCorrectedLos[1]*vCorrectedLos[1]))
-    );
+    ) * -1.0;
 }

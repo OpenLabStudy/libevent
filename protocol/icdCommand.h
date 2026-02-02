@@ -316,6 +316,22 @@ typedef struct PACKED {
 typedef struct PACKED {
     double dAz;
     double dEl;
+	unsigned char uchTriggerFlag;
+} RES_SP_DATA;
+
+typedef struct PACKED {
+    double dAz;
+    double dEl;
+} REQ_KEYBOARD_DATA;
+typedef struct PACKED {
+    double dAz;
+    double dEl;
+} RES_KEYBOARD_DATA;
+
+
+typedef struct PACKED {
+    double dAz;
+    double dEl;
 } RES_AZ_EL_DATA;
 
 typedef struct PACKED {

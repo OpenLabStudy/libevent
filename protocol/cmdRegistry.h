@@ -6,11 +6,12 @@ typedef enum {
     COMMAND_PATH_NONE,
     TC_TCP_CMD_RECEIVER,
     ACU_UART,
+    GPS_RCV_UART,
+    IMU_RCV_UART,
 
     TC_UDS_CMD_CTRL = 0x10,
     SF_SENSOR_RECEIVER,    
     AC_CMD_RECEIVER,
-
     
     SF_CMD_REDEIVER = 0x20, 
     IMU_RECEIVER,
@@ -21,8 +22,6 @@ typedef enum {
     
     AC_CURR_AZ_EL_SENDER = 0x80
 } COMMAND_PATH;
-
-
 
 typedef enum {
     FRAME_TYPE_REQUEST = 0,
@@ -83,7 +82,6 @@ typedef int (*buildForwardReq)(const void* pvUserData, void* pvOutData);
 typedef int (*dispatchCommand)(const void* pvRecvData, void* pvOutData);
 typedef int (*buildResponse)(const void* pvRecvData, void* pvOutData);
 
-
 /* Command Descriptor */
 typedef struct {
     unsigned short      unCmd;
@@ -94,7 +92,6 @@ typedef struct {
     dispatchCommand     fnDispatchCmd;//todo renaming
     buildResponse       fnbuildRes;
 } CMD_DESC;
-
 
 const char*     getCmdString(unsigned short unCmd);
 unsigned int    getDataSize(unsigned short unCmd, FRAME_TYPE frameType);
