@@ -630,8 +630,25 @@ int run(char *pchUartPath)
         .pchUdsPath     = UDS_1_PATH,
         .pchTag         = "AC-RCV-FROM-TC"
     };
-
-    
+    UDS_SERVER_RUNTIME_CFG stRcvDataUdsSvrRuntimeCfg = {
+        .pchUdsPath     = UDS_3_PATH,
+        .pchTag         = "AZEL-SVR",
+        .iSelfWorkerId  = AC_CURR_AZ_EL_SENDER,
+        .iDstWorkerId   = IMU_RECEIVER|GPS_RECEIVER,
+        .pfOnAccept     = NULL,
+        .pfIoHandler    = recvAzElFromSensorFusion
+    };
+    UDS_SERVER_RUNTIME_CFG stRcvDataUdsSvrRuntimeCfg = {
+        .pchUdsPath     = UDS_4_PATH,
+        .pchTag         = "AZEL-SVR",
+        .iSelfWorkerId  = AC_CURR_AZ_EL_SENDER,
+        .iDstWorkerId   = IMU_RECEIVER|GPS_RECEIVER,
+        .pfOnAccept     = NULL,
+        .pfIoHandler    = sensorFusionRead
+    };
+    O_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iClientSock,
+        TYPE_TCP_SVR, ROLE_REQUESTER,
+        NULL, writeNone, recvAzElFromSensorFusion);
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -656,6 +673,10 @@ int run(char *pchUartPath)
         &stRcvCmdUdsClnRuntimeCfg, commandEventCb, NULL);
 
     /* Accept 이벤트 등록 */
+    UDS_SERVER_RUNTIME *pstAzElSvr =
+        udsServerRuntimeCreate(&stEventEngine, &stRcvDataUdsSvrRuntimeCfg, pstSensorFusionCtx);
+    UDS_SERVER_RUNTIME *pstAzElSvr =
+        udsServerRuntimeCreate(&stEventEngine, &stRcvDataUdsSvrRuntimeCfg, pstSensorFusionCtx);    
     int iListenUds3Fd = netUdsCreateServer(UDS_3_PATH);
     if (iListenUds3Fd < 0) {
         fprintf(stderr, "[ACU_CTRL] netUdsCreateServer() failed\n");
@@ -697,6 +718,8 @@ int run(char *pchUartPath)
     // event_add(pstAliveEvt, &tvAlive);
 
     event_base_dispatch(stEventEngine.pstEventBase);
+    udsServerRuntimeDestroy(&pstAzElSvr);
+    udsServerRuntimeDestroy(&pstAzElSvr);
     udsClientRuntimeDestroy(&pstRcvCmdUdsClnRuntime);
     appSignalDestroy(&pstSigHandle);
 

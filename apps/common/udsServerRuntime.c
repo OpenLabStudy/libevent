@@ -19,19 +19,17 @@
 /* ============================================================
  * accept callback
  * ============================================================ */
-static void udsServerAcceptCb(evutil_socket_t listenFd,
-                              short nEvent,
-                              void *pvArg)
+static void udsServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvArg)
 {
     (void)nEvent;
 
-    UDS_SERVER_RUNTIME *rt = (UDS_SERVER_RUNTIME *)pvArg;
-    EVENT_ENGINE *ee = rt->pstEventEngine;
+    UDS_SERVER_RUNTIME *pstUdsSvrRuntime = (UDS_SERVER_RUNTIME *)pvArg;
+    EVENT_ENGINE *pstEventEngine = pstUdsSvrRuntime->pstEventEngine;
 
     struct sockaddr_un addr;
     socklen_t len = sizeof(addr);
 
-    int clientFd = accept(listenFd, (struct sockaddr *)&addr, &len);
+    int clientFd = accept(iListenFd, (struct sockaddr *)&addr, &len);
     if (clientFd < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
             perror("[UDS-SVR] accept");
@@ -40,9 +38,9 @@ static void udsServerAcceptCb(evutil_socket_t listenFd,
 
     netSetNonblock(clientFd);
 
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(ee, clientFd,
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
         TYPE_UDS_SVR, ROLE_REQUESTER,
-        NULL, NULL, rt->pfIoHandler
+        NULL, NULL, pstUdsSvrRuntime->pfIoHandler
     );
 
     if (!pstNewIo) {
@@ -50,24 +48,22 @@ static void udsServerAcceptCb(evutil_socket_t listenFd,
         return;
     }
 
-    pstNewIo->iWorkerId    = rt->iSelfWorkerId;
+    pstNewIo->iWorkerId    = pstUdsSvrRuntime->iSelfWorkerId;
     pstNewIo->chFdCloseSet = FD_OPENED;
 
     fprintf(stderr, "[%s] client accepted fd=%d\n",
-            rt->pchTag ? rt->pchTag : "UDS-SVR",
+        pstUdsSvrRuntime->pchTag ? pstUdsSvrRuntime->pchTag : "UDS-SVR",
             clientFd);
     
     REQ_ID stReqId;
-    MSG_ID stMsgId = {(char)rt->iSelfWorkerId,  (char)rt->iDstWorkerId};
+    MSG_ID stMsgId = {  (char)pstUdsSvrRuntime->iSelfWorkerId, 
+                        (char)pstUdsSvrRuntime->iDstWorkerId };
     unsigned char auSendBuf[64];            
     stReqId.chTmp = 0x01;        
     if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, auSendBuf) == FRAME_OK){
         evbuffer_add(pstNewIo->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
         event_add(pstNewIo->pstWriteEvent, NULL);
     }
-
-    // if (rt->pfOnAccept)
-    //     rt->pfOnAccept(pstNewIo, rt->pvUserCtx);
 }
 
 /* ============================================================
@@ -81,91 +77,91 @@ udsServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
     if (!pstEventEngine || !pstEventEngine->pstEventBase || !pstCfg)
         return NULL;
 
-    UDS_SERVER_RUNTIME *rt = calloc(1, sizeof(UDS_SERVER_RUNTIME));
-    if (!rt)
+    UDS_SERVER_RUNTIME *pstUdsSvrRuntime = calloc(1, sizeof(UDS_SERVER_RUNTIME));
+    if (!pstUdsSvrRuntime)
         return NULL;
 
-    rt->pstEventEngine = pstEventEngine;
-    rt->pchUdsPath     = pstCfg->pchUdsPath;
-    rt->pchTag         = pstCfg->pchTag;
-    rt->iSelfWorkerId      = pstCfg->iSelfWorkerId;
-    rt->pfOnAccept     = pstCfg->pfOnAccept;
-    rt->pfIoHandler    = pstCfg->pfIoHandler;
-    rt->pvUserCtx      = pvUserCtx;
+    pstUdsSvrRuntime->pstEventEngine    = pstEventEngine;
+    pstUdsSvrRuntime->pchUdsPath        = pstCfg->pchUdsPath;
+    pstUdsSvrRuntime->pchTag            = pstCfg->pchTag;
+    pstUdsSvrRuntime->iSelfWorkerId     = pstCfg->iSelfWorkerId;
+    pstUdsSvrRuntime->pfOnAccept        = pstCfg->pfOnAccept;
+    pstUdsSvrRuntime->pfIoHandler       = pstCfg->pfIoHandler;
+    pstUdsSvrRuntime->pvUserCtx         = pvUserCtx;
 
     /* 기존 소켓 파일 제거 */
-    unlink(rt->pchUdsPath);
+    unlink(pstUdsSvrRuntime->pchUdsPath);
 
     int listenFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (listenFd < 0) {
         perror("[UDS-SVR] socket");
-        free(rt);
+        free(pstUdsSvrRuntime);
         return NULL;
     }
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, rt->pchUdsPath, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, pstUdsSvrRuntime->pchUdsPath, sizeof(addr.sun_path) - 1);
 
     if (bind(listenFd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("[UDS-SVR] bind");
         close(listenFd);
-        free(rt);
+        free(pstUdsSvrRuntime);
         return NULL;
     }
 
     if (listen(listenFd, 5) < 0) {
         perror("[UDS-SVR] listen");
         close(listenFd);
-        free(rt);
+        free(pstUdsSvrRuntime);
         return NULL;
     }
 
     netSetNonblock(listenFd);
 
-    rt->iListenFd = listenFd;
-    rt->pstAcceptEvent = event_new(
+    pstUdsSvrRuntime->iListenFd = listenFd;
+    pstUdsSvrRuntime->pstAcceptEvent = event_new(
         pstEventEngine->pstEventBase,
         listenFd,
         EV_READ | EV_PERSIST,
         udsServerAcceptCb,
-        rt
+        pstUdsSvrRuntime
     );
 
-    if (!rt->pstAcceptEvent) {
+    if (!pstUdsSvrRuntime->pstAcceptEvent) {
         close(listenFd);
-        free(rt);
+        free(pstUdsSvrRuntime);
         return NULL;
     }
 
-    event_add(rt->pstAcceptEvent, NULL);
+    event_add(pstUdsSvrRuntime->pstAcceptEvent, NULL);
 
     fprintf(stderr, "[%s] UDS server listening (%s)\n",
-            rt->pchTag ? rt->pchTag : "UDS-SVR",
-            rt->pchUdsPath);
+        pstUdsSvrRuntime->pchTag ? pstUdsSvrRuntime->pchTag : "UDS-SVR",
+        pstUdsSvrRuntime->pchUdsPath);
 
-    return rt;
+    return pstUdsSvrRuntime;
 }
 
-void udsServerRuntimeDestroy(UDS_SERVER_RUNTIME **ppstRt)
+void udsServerRuntimeDestroy(UDS_SERVER_RUNTIME **ppstUdsSvrRuntime)
 {
-    if (!ppstRt || !*ppstRt)
+    if (!ppstUdsSvrRuntime || !*ppstUdsSvrRuntime)
         return;
 
-    UDS_SERVER_RUNTIME *rt = *ppstRt;
+    UDS_SERVER_RUNTIME *pstUdsSvrRuntime = *ppstUdsSvrRuntime;
 
-    if (rt->pstAcceptEvent) {
-        event_del(rt->pstAcceptEvent);
-        event_free(rt->pstAcceptEvent);
+    if (pstUdsSvrRuntime->pstAcceptEvent) {
+        event_del(pstUdsSvrRuntime->pstAcceptEvent);
+        event_free(pstUdsSvrRuntime->pstAcceptEvent);
     }
 
-    if (rt->iListenFd >= 0)
-        close(rt->iListenFd);
+    if (pstUdsSvrRuntime->iListenFd >= 0)
+        close(pstUdsSvrRuntime->iListenFd);
 
-    if (rt->pchUdsPath)
-        unlink(rt->pchUdsPath);
+    if (pstUdsSvrRuntime->pchUdsPath)
+        unlink(pstUdsSvrRuntime->pchUdsPath);
 
-    free(rt);
-    *ppstRt = NULL;
+    free(pstUdsSvrRuntime);
+    *ppstUdsSvrRuntime = NULL;
 }

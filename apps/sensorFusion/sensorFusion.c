@@ -521,43 +521,6 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
 }
 
 
-/* ============================================================
-* Accept 콜백
-* ============================================================ */
-static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
-{
-    (void)nKindOfEvent;
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
-
-    struct sockaddr_in stClientAddr;
-    socklen_t uiClientLen = sizeof(stClientAddr);
-
-    int iClientSock = accept(iListenFd, (struct sockaddr*)&stClientAddr, &uiClientLen);
-    if (iClientSock < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK)
-            perror("[SF_SENSOR_RECEIVER] accept");
-        return;
-    }
-
-    printf("[SF_SENSOR_RECEIVER] New client FD=%d\n", iClientSock);
-
-    netSetNonblock(iClientSock);
-
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, iClientSock,
-        TYPE_TCP_SVR, ROLE_REQUESTER,
-        NULL, NULL, sensorFusionRead);
-    pstNewIo->chFdCloseSet =  FD_OPENED;
-    pstNewIo->iWorkerId = SF_SENSOR_RECEIVER;
-    
-    REQ_ID stReqId;
-    MSG_ID stMsgId = { SF_SENSOR_RECEIVER,  IMU_RECEIVER|GPS_RECEIVER};
-    unsigned char auSendBuf[64];            
-    stReqId.chTmp = 0x01;        
-    if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, auSendBuf) == FRAME_OK){
-        evbuffer_add(pstNewIo->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
-        event_add(pstNewIo->pstWriteEvent, NULL);
-    }
-}
 
 /* ========================================================================== */
 /* Main Entry Point                                                           */
@@ -580,13 +543,13 @@ int run(void)
         .pchTag         = "SF-SND-AZ-EL-TO-ACU"
     };
     UDS_SERVER_RUNTIME_CFG stRcvDataUdsSvrRuntimeCfg = {
-        .pchUdsPath  = UDS_2_PATH,
-        .pchTag      = "AZEL-SVR",
-        .iWorkerId   = AC_CURR_AZ_EL_SENDER,
-        .pfOnAccept  = onAzElClientAccepted,
-        .pfIoHandler = sendCurrentAzElValue   /* RX 없으면 더미도 가능 */
+        .pchUdsPath     = UDS_2_PATH,
+        .pchTag         = "AZEL-SVR",
+        .iSelfWorkerId  = AC_CURR_AZ_EL_SENDER,
+        .iDstWorkerId   = IMU_RECEIVER|GPS_RECEIVER,
+        .pfOnAccept     = NULL,
+        .pfIoHandler    = sensorFusionRead
     };
-
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -610,10 +573,7 @@ int run(void)
     }
     /* Accept 이벤트 등록 */
     UDS_SERVER_RUNTIME *pstAzElSvr =
-    udsServerRuntimeCreate(&stEventEngine, &stRcvDataUdsSvrRuntimeCfg, pstSensorFusionCtx);
-    // pstEventAccept = event_new(stEventEngine.pstEventBase, iListenFd, 
-    //         EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
-    // event_add(pstEventAccept, NULL);
+        udsServerRuntimeCreate(&stEventEngine, &stRcvDataUdsSvrRuntimeCfg, pstSensorFusionCtx);
 
     UDS_CLIENT_RUNTIME *pstRcvCmdUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, 
         &stRcvCmdUdsClnRuntimeCfg, commandEventCb, NULL);
@@ -621,18 +581,12 @@ int run(void)
         &stSndAzElUdsClnRuntimeCfg, commandEventCb, NULL);
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "SENSOR-FUSION");
     fprintf(stderr, "[SENSOR_FUSION] Listening at %s\n", UDS_2_PATH);
-    
+        
     event_base_dispatch(stEventEngine.pstEventBase);
     udsClientRuntimeDestroy(&pstRcvCmdUdsClnRuntime);
     udsClientRuntimeDestroy(&pstSndAzElUdsClnRuntime);
     udsServerRuntimeDestroy(&pstAzElSvr);
     appSignalDestroy(&pstSigHandle);
-
-    if(pstEventAccept){
-        event_del(pstEventAccept);
-        event_free(pstEventAccept);
-        pstEventAccept =  NULL;
-    }  
 
     /* === 종료 처리 === */
     eventEngineCleanup(&stEventEngine);
