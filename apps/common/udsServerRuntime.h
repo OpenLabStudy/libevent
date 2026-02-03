@@ -20,7 +20,7 @@ typedef struct {
      *  - client 초기화
      *  - client 리스트 등록 등
      */
-    void (*pfOnAccept)(IO_CHANNEL *pstIo, void *pvUserCtx);
+    void (*pfWrite)(IO_CHANNEL *pstIo, void *pvUserCtx);
 
     /* client RX 처리 핸들러 (필수) */
     void (*pfIoHandler)(int iFd, short nEvent, void *pvData);
@@ -38,7 +38,7 @@ typedef struct {
     int          iSelfWorkerId;
     int          iDstWorkerId;
 
-    void (*pfOnAccept)(IO_CHANNEL *, void *);
+    void (*pfWrite)(IO_CHANNEL *, void *);
     void (*pfIoHandler)(int, short, void *);
 
     void         *pvUserCtx;

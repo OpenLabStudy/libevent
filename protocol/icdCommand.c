@@ -57,12 +57,14 @@ int buildForwardReqIdInfo(const void* pvUserData, void* pvOutData)
 	(void)pvUserData;
 	REQ_ID *pstReqId = (REQ_ID *)pvOutData;
 	pstReqId->chTmp = 0x01;
+	fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 	return sizeof(REQ_ID);
 }
 int dispatchCmdIdInfo(const void* pvRecvData, void* pvOutData)
 {
 	(void)pvRecvData;
 	(void)pvOutData;
+	fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 	return sizeof(RES_ID);
 }
 int buildResIdInfo(const void* pvUserData, void* pvOutData)

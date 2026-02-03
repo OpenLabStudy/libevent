@@ -188,14 +188,14 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
     if (eTrigger == TRIG_NONE)
         return;
 
-    IO_CHANNEL *pstIoChannel = ioFindChannelByWorkerId(pstEventEngine, SF_AZ_EL_SENDER);
+    IO_CHANNEL *pstIoChannel = ioFindChannelByWorkerId(pstEventEngine, SF_SND_AZ_EL_TO_AC);
     if (!ioIsChannelAlive(pstIoChannel)){
         return;
     }
     
     switch (eTrigger) {
     case TRIG_KEYBOARD:
-        fprintf(stderr, "[FUSION] KEYBOARD override\n");
+        fprintf(stderr, "[SF_SND_AZ_EL_TO_AC] KEYBOARD override\n");
         pstSensorState->stKeyboardState.chValid = 0;
         //현재 수신된 키보드값으로 ACU제어 값 생성 후 UDS3으로 전송
         // pstSensorState->stKeyboardState.stKeyboard.dAz;
@@ -203,7 +203,7 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         break;
 
     case TRIG_SP:
-        fprintf(stderr, "[FUSION] SP PID control\n");
+        fprintf(stderr, "[SF_SND_AZ_EL_TO_AC] SP PID control\n");
         pstSensorState->stSpState.chValid = 0;
         // PID제어 알고리즘 수행 후 ACU제어 값 생성 후 UDS3으로 전송
         // pstSensorState->stSpState.stSp.dAz;
@@ -211,7 +211,7 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         break;
 
     case TRIG_EXTERN:
-        fprintf(stderr, "[FUSION] EXTERN target calculation\n");
+        fprintf(stderr, "[SF_SND_AZ_EL_TO_AC] EXTERN target calculation\n");
         pstSensorState->stExternState.chValid = 0;
         // GPS+IMU 융합 후 EXTERN 타겟 좌표 계산 → ACU제어 값 생성 후 UDS3으로 전송
         // pstSensorState->stExternState.stExtern.dLatitude;
@@ -221,7 +221,7 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
 
     case TRIG_GPS:
     case TRIG_IMU:
-        fprintf(stderr, "[FUSION] GPS+IMU attitude compensation (%s)\n",
+        fprintf(stderr, "[SF_SND_AZ_EL_TO_AC] GPS+IMU attitude compensation (%s)\n",
                 eTrigger == TRIG_GPS ? "GPS-trigger" : "IMU-trigger");
         double dAz, dEl;
         // GPS+IMU 융합 후 자세교정을 위한 알고리즘 수행후 → ACU제어 값 생성 후 UDS3으로 전송        
@@ -249,7 +249,7 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
     if(pstSensorFusionCtx->stCommandState.stAutoTrackingWait.chWaitOnOff == AUTO_TRACKING_ON 
             || pstSensorFusionCtx->stCommandState.chTrackingStartStop == TRACKING_START)
     {
-        MSG_ID stMsgId = { SF_AZ_EL_SENDER, AC_AZ_EL_RECEIVER };
+        MSG_ID stMsgId = { SF_SND_AZ_EL_TO_AC, AC_RCV_AZ_EL_FROM_SF };
         createCmdResponse(CMD_CTRL_AZ_EL_DATA, auchCtrlAzElData, &stMsgId, auchSendBuf);
         int iResultSize = getFrameSizeWithCmd(CMD_CTRL_AZ_EL_DATA, FRAME_TYPE_RESPONSE);
         evbuffer_add(pstIoChannel->pstWriteBuffer, auchSendBuf, iResultSize);
@@ -300,7 +300,7 @@ static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short u
         case CMD_ID_INFO:
         {
             RES_ID *pstResId = (RES_ID *)(pchCmdResult);
-            pstResId->chResult = (char)SF_CMD_REDEIVER;
+            pstResId->chResult = (char)SF_RCV_CMD_FROM_TC;
             fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
         }
         break;
@@ -332,7 +332,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
     case IO_EVT_RX_DATA:
         while (1) {
             int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            fprintf(stderr,"SF_AZ_EL_SENDER %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
+            fprintf(stderr,"SF_RCV_CMD_FROM_TC %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
             if (iRecvLen < (int)sizeof(FRAME_HEADER))
                 break;
 
@@ -340,20 +340,20 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[SF_AZ_EL_SENDER] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[SF_RCV_CMD_FROM_TC] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
                 if (iOffset > 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[SF_AZ_EL_SENDER] resync: drop %d bytes, retry decode\n", iOffset);
+                    fprintf(stderr,"[SF_RCV_CMD_FROM_TC] resync: drop %d bytes, retry decode\n", iOffset);
                 } else if (iOffset == -2) {
                     /* STX half-match: 데이터 더 수신 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[SF_AZ_EL_SENDER] STX half match, wait more data\n");
+                    fprintf(stderr,"[SF_RCV_CMD_FROM_TC] STX half match, wait more data\n");
                 } else {
                     /* STX 자체가 없음 → 전부 드랍 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[SF_AZ_EL_SENDER] no STX, drop all\n");
+                    fprintf(stderr, "[SF_RCV_CMD_FROM_TC] no STX, drop all\n");
                 }
                 continue;
             }
@@ -371,11 +371,11 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
             eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
             if (eErr != FRAME_OK){
-                fprintf(stderr,"SF_AZ_EL_SENDER ERROR:%s\n", frameErrToStr(eErr));
+                fprintf(stderr,"SF_RCV_CMD_FROM_TC ERROR:%s\n", frameErrToStr(eErr));
                 continue;
             }            
             applyCommand(pstSensorFusionCtx, unCmd, achCmdData, achCmdResult);
-            MSG_ID stMsgId = { SF_CMD_REDEIVER, TC_UDS_CMD_CTRL };
+            MSG_ID stMsgId = { SF_RCV_CMD_FROM_TC, TC_SND_CMD_TO_CLN };
             eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
             iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
             evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
@@ -430,20 +430,20 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
             /*추후 evbuffer에 삭제 크기 알 필요 있음*/
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[SF_SENSOR_RECEIVER] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[SF_RCV_SENSOR_DATA] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
                 if (iOffset >= 0) {
                     /* 앞부분 garbage 제거 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[SF_SENSOR_RECEIVER] resync: drop %d bytes, retry decode\n", iOffset);
+                    fprintf(stderr,"[SF_RCV_SENSOR_DATA] resync: drop %d bytes, retry decode\n", iOffset);
                 } else if (iOffset == -2) {
                     /* STX half-match: 데이터 더 수신 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[SF_SENSOR_RECEIVER] STX half match, wait more data\n");
+                    fprintf(stderr,"[SF_RCV_SENSOR_DATA] STX half match, wait more data\n");
                 } else {
                     /* STX 자체가 없음 → 전부 드랍 */
                     evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[SF_SENSOR_RECEIVER] no STX, drop all\n");
+                    fprintf(stderr, "[SF_RCV_SENSOR_DATA] no STX, drop all\n");
                 }
                 continue;
             }
@@ -457,6 +457,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
             memset(achCmdData, 0x0, sizeof(achCmdData));
             memset(achResult, 0x0, sizeof(achResult));
             eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
+            fprintf(stderr,"[SF_RCV_SENSOR_DATA] ");
             switch(unCmd){
                 case CDM_GPS_DATA: {
                     memcpy(&pstSensorState->stGpsState.stGps, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_GPS_DATA));
@@ -509,7 +510,7 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
 
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
-        fprintf(stderr,"[SF_SENSOR_RECEIVER] channel error fd=%d\n", pstIoChannel->iFd);
+        fprintf(stderr,"[SF_RCV_SENSOR_DATA] channel error fd=%d\n", pstIoChannel->iFd);
         ioMarkChannelDead(pstIoChannel, eEventType);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
@@ -530,26 +531,27 @@ int run(void)
     ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
     struct event*   pstEventAccept;
-    UDS_CLIENT_RUNTIME_CFG stRcvCmdUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = SF_CMD_REDEIVER,
-        .iDstWorkerId   = TC_UDS_CMD_CTRL,
-        .pchUdsPath     = UDS_1_PATH,
-        .pchTag         = "SF-RCV-FROM-TC"
-    };
-    UDS_CLIENT_RUNTIME_CFG stSndAzElUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = SF_AZ_EL_SENDER,
-        .iDstWorkerId   = TC_UDS_CMD_CTRL,
-        .pchUdsPath     = UDS_3_PATH,
-        .pchTag         = "SF-SND-AZ-EL-TO-ACU"
-    };
     UDS_SERVER_RUNTIME_CFG stRcvDataUdsSvrRuntimeCfg = {
         .pchUdsPath     = UDS_2_PATH,
-        .pchTag         = "AZEL-SVR",
-        .iSelfWorkerId  = AC_CURR_AZ_EL_SENDER,
-        .iDstWorkerId   = IMU_RECEIVER|GPS_RECEIVER,
-        .pfOnAccept     = NULL,
+        .pchTag         = "SF_RCV_SENSOR_DATA",
+        .iSelfWorkerId  = SF_RCV_SENSOR_DATA,
+        .iDstWorkerId   = IMU_SND_TO_SF|GPS_SND_TO_SF,
+        .pfWrite        = NULL,
         .pfIoHandler    = sensorFusionRead
     };
+    UDS_CLIENT_RUNTIME_CFG stRcvCmdUdsClnRuntimeCfg = {
+        .iSelfWorkerId  = SF_RCV_CMD_FROM_TC,
+        .iDstWorkerId   = TC_SND_CMD_TO_CLN,
+        .pchUdsPath     = UDS_1_PATH,
+        .pchTag         = "SF_RCV_CMD_FROM_TC"
+    };    
+    UDS_CLIENT_RUNTIME_CFG stSndAzElUdsClnRuntimeCfg = {
+        .iSelfWorkerId  = SF_SND_AZ_EL_TO_AC,
+        .iDstWorkerId   = AC_RCV_AZ_EL_FROM_SF,
+        .pchUdsPath     = UDS_3_PATH,
+        .pchTag         = "SF_SND_AZ_EL_TO_AC"
+    };
+    
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -565,20 +567,16 @@ int run(void)
 
     pstSensorFusionCtx->pstFusionEvent = event_new(stEventEngine.pstEventBase, -1, 0,
                   fusionEventCb, &stEventEngine);
-
-    int iListenFd = netUdsCreateServer(UDS_2_PATH);
-    if (iListenFd < 0) {
-        fprintf(stderr, "[SENSOR_FUSION] netUdsCreateServer() failed\n");
-        return EXIT_FAILURE;
-    }
     /* Accept 이벤트 등록 */
     UDS_SERVER_RUNTIME *pstAzElSvr =
         udsServerRuntimeCreate(&stEventEngine, &stRcvDataUdsSvrRuntimeCfg, pstSensorFusionCtx);
 
     UDS_CLIENT_RUNTIME *pstRcvCmdUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, 
         &stRcvCmdUdsClnRuntimeCfg, commandEventCb, NULL);
+    usleep(3 * 1000);
+    //todo udsClientRuntimeCreate을 거의 동시 진입시 놓치는 경우 발생
     UDS_CLIENT_RUNTIME *pstSndAzElUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, 
-        &stSndAzElUdsClnRuntimeCfg, commandEventCb, NULL);
+        &stSndAzElUdsClnRuntimeCfg, NULL, NULL);
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "SENSOR-FUSION");
     fprintf(stderr, "[SENSOR_FUSION] Listening at %s\n", UDS_2_PATH);
         

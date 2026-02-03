@@ -14,15 +14,7 @@
 /* ============================================================
  * 공통 RX 핸들러
  * ============================================================ */
-static const char* tagOrDefault(int iId)
-{
-    switch(iId){
-        case GPS_RECEIVER:
-            return "GPS-RECEIVER";
-        default :
-            return "UDS-CLIENT";
-    }
-}
+
 
 static void applyCommand(int iId, unsigned short unCmd, char *pchCmdResult)
 {
@@ -32,7 +24,7 @@ static void applyCommand(int iId, unsigned short unCmd, char *pchCmdResult)
         ((RES_ID*)pchCmdResult)->chResult = (char)iId;
         break; 
     default:
-        fprintf(stderr, "[GPS] Unsupported CMD\n");
+        fprintf(stderr, "[%s] Unsupported CMD\n", getWorkerName(iId));
         break;
     }
 }
@@ -63,20 +55,20 @@ static void udsClientRecvCommandCb(int iFd, short nEvent, void *pvArg)
         int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
         eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
         if (eErr != FRAME_OK) {
-            fprintf(stderr, "[%s] frameDecode ERR: %s\n", tagOrDefault(pstIoChannel->iWorkerId), frameErrToStr(eErr));
+            fprintf(stderr, "[%s] frameDecode ERR: %s\n", getWorkerName(pstIoChannel->iWorkerId), frameErrToStr(eErr));
             int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
             if (iOffset > 0) {
                 /* 앞부분 garbage 제거 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                fprintf(stderr,"[%s] resync: drop %d bytes, retry decode\n", tagOrDefault(pstIoChannel->iWorkerId), iOffset);
+                fprintf(stderr,"[%s] resync: drop %d bytes, retry decode\n", getWorkerName(pstIoChannel->iWorkerId), iOffset);
             } else if (iOffset == -2) {
                 /* STX half-match: 데이터 더 수신 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                fprintf(stderr,"[%s] STX half match, wait more data\n", tagOrDefault(pstIoChannel->iWorkerId));
+                fprintf(stderr,"[%s] STX half match, wait more data\n", getWorkerName(pstIoChannel->iWorkerId));
             } else {
                 /* STX 자체가 없음 → 전부 드랍 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                fprintf(stderr, "[%s] no STX, drop all\n", tagOrDefault(pstIoChannel->iWorkerId));
+                fprintf(stderr, "[%s] no STX, drop all\n", getWorkerName(pstIoChannel->iWorkerId));
             }
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
@@ -96,7 +88,7 @@ static void udsClientRecvCommandCb(int iFd, short nEvent, void *pvArg)
             fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
         }            
         applyCommand(pstIoChannel->iWorkerId, unCmd, achCmdResult);
-        MSG_ID stMsgId = { (char)pstIoChannel->iWorkerId, SF_SENSOR_RECEIVER };
+        MSG_ID stMsgId = { (char)pstIoChannel->iWorkerId, SF_RCV_SENSOR_DATA };
         eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
         iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
         evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
@@ -115,15 +107,14 @@ static void udsClientRecvCommandCb(int iFd, short nEvent, void *pvArg)
 static void udsClientReconnectCb(evutil_socket_t fd, short ev, void *pvArg)
 {
     (void)fd;
-    (void)ev;
-
+    (void)ev;    
     UDS_CLIENT_RUNTIME *pstUdsClnRuntime = (struct UDS_CLIENT_RUNTIME *)pvArg;
     if (!pstUdsClnRuntime || !pstUdsClnRuntime->pstEventEngine)
         return;
-
+    
     if (pstUdsClnRuntime->pstIoChannel && ioIsChannelAlive(pstUdsClnRuntime->pstIoChannel))
         return;
-
+    
     int sock = netUdsCreateClient(pstUdsClnRuntime->pchUdsPath);
     if (sock < 0) {
         fprintf(stderr, "[%s] reconnect failed\n",

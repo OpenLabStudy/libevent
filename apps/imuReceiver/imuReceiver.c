@@ -55,7 +55,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                 float fPitch = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chPitch);
                 float fYaw   = mtiBeFloat((unsigned char*)stImuFormat.stEulerAngles.chYaw);
 
-                fprintf(stderr, "[IMU] Roll=%.3f Pitch=%.3f Yaw=%.3f\n", fRoll, fPitch, fYaw);
+                fprintf(stderr, "[IMU_SND_TO_SF] Roll=%.3f Pitch=%.3f Yaw=%.3f\n", fRoll, fPitch, fYaw);
                 // fprintf(stderr,">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
                 // fprintf(stderr, "[IMU] AccX=%.3f AccY=%.3f AccZ=%.3f\n", mtiSwapFloat(stImuFormat.stAcceleration.fAccX), 
                 //         mtiSwapFloat(stImuFormat.stAcceleration.fAccY), mtiSwapFloat(stImuFormat.stAcceleration.fAccZ));
@@ -67,7 +67,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
 
                 /* UDS#2(sensorFusion) 채널로 best-effort 전송 */
-                IO_CHANNEL* pstImuTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, IMU_RECEIVER);
+                IO_CHANNEL* pstImuTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, IMU_SND_TO_SF);
                 if (ioIsChannelAlive(pstImuTxIo)) {
                     unsigned char auchSendBuf[UDS_MAX_BUFFER_SIZE];
                     unsigned char auchImuData[UDS_MAX_BUFFER_SIZE];
@@ -78,14 +78,14 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     pstImuData->dPitch = (double)fPitch;
                     pstImuData->dYaw   = (double)fYaw;
 
-                    MSG_ID stMsgId = { IMU_RECEIVER, SF_SENSOR_RECEIVER };
+                    MSG_ID stMsgId = { IMU_SND_TO_SF, SF_RCV_SENSOR_DATA };
                     createCmdResponse(CDM_IMU_DATA, auchImuData, &stMsgId, auchSendBuf);
                     int iResultSize = getFrameSizeWithCmd(CDM_IMU_DATA, FRAME_TYPE_RESPONSE);                    
                     evbuffer_add(pstImuTxIo->pstWriteBuffer, auchSendBuf, iResultSize);
                     event_add(pstImuTxIo->pstWriteEvent, NULL);
                 } else {
                     /* sensorFusion 미연결/끊김 → 드롭 */
-                    /* fprintf(stderr, "[IMU] UDS_2 not alive, drop\n"); */
+                    /* fprintf(stderr, "[IMU_SND_TO_SF] UDS_2 not alive, drop\n"); */
                 }
             }
             evbuffer_drain(pstIoChannel->pstReadBuffer, uiCopySize);
@@ -94,7 +94,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
-        fprintf(stderr, "[IMU] UART channel error fd=%d\n", pstIoChannel->iFd);
+        fprintf(stderr, "[IMU_SND_TO_SF] UART channel error fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
@@ -124,23 +124,23 @@ int run(char* pchUartPath)
     };
 
     UDS_CLIENT_RUNTIME_CFG stUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = IMU_RECEIVER,
-        .iDstWorkerId   = SF_SENSOR_RECEIVER,
+        .iSelfWorkerId  = IMU_SND_TO_SF,
+        .iDstWorkerId   = SF_RCV_SENSOR_DATA,
         .pchUdsPath     = UDS_2_PATH,
-        .pchTag         = "IMU-SND-TO-SF"
+        .pchTag         = "IMU_SND_TO_SF"
     };
     
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
-        fprintf(stderr, "[IMU-RX] event_base_new() failed\n");
+        fprintf(stderr, "[IMU-RECEIVER] event_base_new() failed\n");
         return EXIT_FAILURE;
     }
     eventEngineInit(&stEventEngine, 0);
 
     /* UART open */
     if (uartOpen(&stUartCtx) < 0) {
-        fprintf(stderr, "[IMU-RX] uartOpen failed: %s\n", strerror(errno));
+        fprintf(stderr, "[IMU-RECEIVER] uartOpen failed: %s\n", strerror(errno));
         return EXIT_FAILURE;
     }
     IO_CHANNEL *pstIoChannel = eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
@@ -158,7 +158,7 @@ int run(char* pchUartPath)
     eventEngineCleanup(&stEventEngine);
     event_base_free(stEventEngine.pstEventBase);
 
-    fprintf(stderr, "[IMU-RX] Terminated.\n");
+    fprintf(stderr, "[IMU-RECEIVER] Terminated.\n");
     return EXIT_SUCCESS;
 }
 

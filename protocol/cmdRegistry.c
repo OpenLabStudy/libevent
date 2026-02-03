@@ -10,20 +10,48 @@
  *  - REQ_xxx / RES_xxx 구조체 정의
  * ====================================================================== */
 
-/* ============================================================
- * 4. 명령별 Request / Response 처리 함수
- * ============================================================ */
-// static int buildKeepAlive(void* pvOutData, unsigned int iSize, const void* pvUserArg)
-// {
-//     (void)pvUserArg;
-//     if (iSize < sizeof(REQ_KEEP_ALIVE))
-//         return -1;
 
-//     REQ_KEEP_ALIVE req = { .chTmp = 0 };
-//     memcpy(pvOutData, &req, sizeof(req));
-//     return sizeof(req);
-// }
-
+const char* getWorkerName(int iId)
+{
+    switch(iId){
+        case COMMAND_PATH_FAIL:
+            return "COMMAND_PATH_FAIL";
+        case COMMAND_PATH_NONE:
+            return "COMMAND_PATH_NONE";
+        case TC_RCV_CMD_FROM_CTRL_PC:
+            return "TC_RCV_CMD_FROM_CTRL_PC";
+        case ACU_CTRL_UART:
+            return "ACU_CTRL_UART";
+        case GPS_RCV_UART:
+            return "GPS_RCV_UART";
+        case IMU_RCV_UART:
+            return "IMU_RCV_UART";
+        case EXTERN_RCV_NET:
+            return "EXTERN_RCV_NET";
+        case AC_SND_AZ_EL_TO_TC:
+            return "AC_SND_AZ_EL_TO_TC";
+        case TC_RCV_AZ_EL_FROM_AC:
+            return "TC_RCV_AZ_EL_FROM_AC";
+        case AC_RCV_AZ_EL_FROM_SF:
+            return "AC_RCV_AZ_EL_FROM_SF";
+        case SF_SND_AZ_EL_TO_AC:
+            return "SF_SND_AZ_EL_TO_AC";
+        case TC_SND_CMD_TO_CLN:
+            return "TC_SND_CMD_TO_CLN";
+        case SF_RCV_CMD_FROM_TC:
+            return "SF_RCV_CMD_FROM_TC";
+        case AC_RCV_CMD_FROM_TC:
+            return "AC_RCV_CMD_FROM_TC";
+        case SF_RCV_SENSOR_DATA:
+            return "SF_RCV_SENSOR_DATA";
+        case IMU_SND_TO_SF:
+            return "IMU_SND_TO_SF";
+        case GPS_SND_TO_SF:
+            return "GPS_SND_TO_SF";        
+        default :
+            return "UNKNOWN";
+    }
+}
 
 /* ----------------------------------------------------------------------
  *  커맨드 테이블: 여기만 수정하면 “명령 추가”가 끝

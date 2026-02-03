@@ -65,7 +65,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                     printf("Head  : %.3f\n", stGpsInfo.m_stMsg3.m_fHeading);
                 
                     // UDS#2의 클라이언트를 찾기
-                    IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, GPS_RECEIVER);
+                    IO_CHANNEL* pstGpsTxIo = ioFindChannelByWorkerId(pstIoChannel->pstEventEngine, GPS_SND_TO_SF);
                     if (ioIsChannelAlive(pstGpsTxIo)) {
                         unsigned char auchSendBuf[UDS_MAX_BUFFER_SIZE];
                         unsigned char auchGpsData[UDS_MAX_BUFFER_SIZE];
@@ -76,7 +76,7 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
                         pstGpsData->dLatitude       = stGpsInfo.m_stMsg3.m_dLatitude;
                         pstGpsData->dLongitude      = stGpsInfo.m_stMsg3.m_dLongitude;
 
-                        MSG_ID stMsgId = { GPS_RECEIVER, SF_SENSOR_RECEIVER };
+                        MSG_ID stMsgId = { GPS_SND_TO_SF, SF_RCV_SENSOR_DATA };
                         createCmdResponse(CDM_GPS_DATA, auchGpsData, &stMsgId, auchSendBuf);
                         int iResultSize = getFrameSizeWithCmd(CDM_GPS_DATA, FRAME_TYPE_RESPONSE);
                         evbuffer_add(pstGpsTxIo->pstWriteBuffer, auchSendBuf, iResultSize);
@@ -116,10 +116,10 @@ int run(char* pchUartPath)
     };
 
     UDS_CLIENT_RUNTIME_CFG stUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = GPS_RECEIVER,
-        .iDstWorkerId   = SF_SENSOR_RECEIVER,
+        .iSelfWorkerId  = GPS_SND_TO_SF,
+        .iDstWorkerId   = SF_RCV_SENSOR_DATA,
         .pchUdsPath     = UDS_2_PATH,
-        .pchTag         = "GPS-SND-TO-SF",
+        .pchTag         = "GPS_SND_TO_SF",
     };
 
     stEventEngine.pstEventBase = event_base_new();

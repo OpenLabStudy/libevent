@@ -52,7 +52,8 @@ void writeCallback(int iFd, short nEvent, void* pvData)
     if (iWriteSize == 0) {
         event_del(pstIoChannel->pstWriteEvent);
         return;
-    }    
+    }
+    fprintf(stderr,"### %s():%d Size is %d ###\n",__func__,__LINE__, iWriteSize);    
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
     if (iWriteSize <= 0) {
@@ -142,10 +143,10 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
 
     if(pfWrite == NULL){
         pstIoChannel->pstWriteEvent = event_new(pstEventEngine->pstEventBase, 
-            iFd, EV_WRITE|EV_PERSIST, writeCallback, pstIoChannel);
+            iFd, EV_WRITE, writeCallback, pstIoChannel);
     }else{
         pstIoChannel->pstWriteEvent = event_new(pstEventEngine->pstEventBase, 
-            iFd, EV_WRITE|EV_PERSIST, pfWrite, pstIoChannel);
+            iFd, EV_WRITE, pfWrite, pstIoChannel);
     }
     pstIoChannel->pstWriteBuffer = evbuffer_new();
 

@@ -40,7 +40,7 @@ static void udsServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvA
 
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
         TYPE_UDS_SVR, ROLE_REQUESTER,
-        NULL, NULL, pstUdsSvrRuntime->pfIoHandler
+        NULL, pstUdsSvrRuntime->pfWrite, pstUdsSvrRuntime->pfIoHandler
     );
 
     if (!pstNewIo) {
@@ -59,11 +59,12 @@ static void udsServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvA
     MSG_ID stMsgId = {  (char)pstUdsSvrRuntime->iSelfWorkerId, 
                         (char)pstUdsSvrRuntime->iDstWorkerId };
     unsigned char auSendBuf[64];            
-    stReqId.chTmp = 0x01;        
+    stReqId.chTmp = 0x01;
     if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, auSendBuf) == FRAME_OK){
         evbuffer_add(pstNewIo->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
         event_add(pstNewIo->pstWriteEvent, NULL);
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 }
 
 /* ============================================================
@@ -85,40 +86,11 @@ udsServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
     pstUdsSvrRuntime->pchUdsPath        = pstCfg->pchUdsPath;
     pstUdsSvrRuntime->pchTag            = pstCfg->pchTag;
     pstUdsSvrRuntime->iSelfWorkerId     = pstCfg->iSelfWorkerId;
-    pstUdsSvrRuntime->pfOnAccept        = pstCfg->pfOnAccept;
+    pstUdsSvrRuntime->pfWrite           = pstCfg->pfWrite;
     pstUdsSvrRuntime->pfIoHandler       = pstCfg->pfIoHandler;
     pstUdsSvrRuntime->pvUserCtx         = pvUserCtx;
 
-    /* 기존 소켓 파일 제거 */
-    unlink(pstUdsSvrRuntime->pchUdsPath);
-
-    int listenFd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (listenFd < 0) {
-        perror("[UDS-SVR] socket");
-        free(pstUdsSvrRuntime);
-        return NULL;
-    }
-
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, pstUdsSvrRuntime->pchUdsPath, sizeof(addr.sun_path) - 1);
-
-    if (bind(listenFd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("[UDS-SVR] bind");
-        close(listenFd);
-        free(pstUdsSvrRuntime);
-        return NULL;
-    }
-
-    if (listen(listenFd, 5) < 0) {
-        perror("[UDS-SVR] listen");
-        close(listenFd);
-        free(pstUdsSvrRuntime);
-        return NULL;
-    }
-
-    netSetNonblock(listenFd);
+    int listenFd = netUdsCreateServer(pstUdsSvrRuntime->pchUdsPath);
 
     pstUdsSvrRuntime->iListenFd = listenFd;
     pstUdsSvrRuntime->pstAcceptEvent = event_new(

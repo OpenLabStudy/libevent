@@ -25,19 +25,19 @@ static COMMAND_PATH decideProcessingPath(unsigned short unCmd)
         case CMD_KEEP_ALIVE:
             return COMMAND_PATH_NONE;
         case CMD_IBIT:
-            return AC_CMD_RECEIVER|SF_CMD_REDEIVER;
+            return SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC;
         case CMD_RBIT:
-            return AC_CMD_RECEIVER|SF_CMD_REDEIVER;
+            return SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC;
         case CMD_CBIT:
-            return AC_CMD_RECEIVER|SF_CMD_REDEIVER;
+            return SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC;
         case CMD_POSITIONER_AZ_EL_SET:
-            return AC_CMD_RECEIVER;
+            return AC_RCV_CMD_FROM_TC;
         case CMD_TRACKING_SELECT:
-            return SF_CMD_REDEIVER;
+            return SF_RCV_CMD_FROM_TC;
         case CMD_ACU_MODE_SELECT:
-            return AC_CMD_RECEIVER;
+            return AC_RCV_CMD_FROM_TC;
         case CMD_AUTO_TRACKING_WAIT:
-            return SF_CMD_REDEIVER;
+            return SF_RCV_CMD_FROM_TC;
         default:
             return COMMAND_PATH_FAIL;
     }
@@ -133,8 +133,8 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
                 evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
-            } else if (eCommandPath == SF_CMD_REDEIVER || eCommandPath == AC_CMD_RECEIVER || 
-                eCommandPath == (SF_CMD_REDEIVER|AC_CMD_RECEIVER)) {
+            } else if (eCommandPath == SF_RCV_CMD_FROM_TC || eCommandPath == AC_RCV_CMD_FROM_TC || 
+                eCommandPath == (SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC)) {
                 /* === IPC 전달 (Fan-out 진입점) === */
                 pstEventEngine->uiRequestSeq++;
                 fprintf(stderr,"### %s():%d IPC Forwarding CMD:0x%04x Path:%d Copy Size:%d ###\n", __func__, __LINE__, unCmd, eCommandPath, iFrameSize);
@@ -201,20 +201,20 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);
         eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
         if (eErr != FRAME_OK) {
-            fprintf(stderr, "[UDS1Server] frameDecode ERR: %s\n", frameErrToStr(eErr));
+            fprintf(stderr, "[TC_SND_CMD_TO_CLN] frameDecode ERR: %s\n", frameErrToStr(eErr));
             int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
             if (iOffset > 0) {
                 /* 앞부분 garbage 제거 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                fprintf(stderr,"[UDS1Server] resync: drop %d bytes, retry decode\n", iOffset);
+                fprintf(stderr,"[TC_SND_CMD_TO_CLN] resync: drop %d bytes, retry decode\n", iOffset);
             } else if (iOffset == -2) {
                 /* STX half-match: 데이터 더 수신 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                fprintf(stderr,"[UDS1Server] STX half match, wait more data\n");
+                fprintf(stderr,"[TC_SND_CMD_TO_CLN] STX half match, wait more data\n");
             } else {
                 /* STX 자체가 없음 → 전부 드랍 */
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                fprintf(stderr, "[UDS1Server] no STX, drop all\n");
+                fprintf(stderr, "[TC_SND_CMD_TO_CLN] no STX, drop all\n");
             }
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
@@ -229,7 +229,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
 
     case IO_EVT_CHANNEL_CLOSED:
     case IO_EVT_ERROR:
-        printf("[UDS-SVR] channel closed fd=%d\n", pstIoChannel->iFd);
+        printf("[TC_SND_CMD_TO_CLN] channel closed fd=%d\n", pstIoChannel->iFd);
         event_active(pstIoChannel->pstShutdownEvent, 0, 0);
         break;
 
@@ -271,17 +271,17 @@ static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
             pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_TCP_SVR, ROLE_REQUESTER,
                     NULL, tcpWriteCallback, tcpIoChannelHandleEvent);
-            pstIoChannel->iWorkerId = TC_TCP_CMD_RECEIVER;
+            pstIoChannel->iWorkerId = TC_RCV_CMD_FROM_CTRL_PC;
             pstIoChannel->chFdCloseSet = FD_OPENED;
         } else if (stSockAddrStorage.ss_family == AF_UNIX) {
-            fprintf(stderr, "[UDS-SVR] New client FD=%d\n", iClientSock);
+            fprintf(stderr, "[TC_SND_CMD_TO_CLN] New client FD=%d\n", iClientSock);
             pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
                     TYPE_UDS_SVR, ROLE_WORKER,
                     NULL, udsWriteCallback, udsIoChannelHandleEvent);
             pstIoChannel->chFdCloseSet = FD_OPENED;
-            pstIoChannel->iWorkerId = TC_UDS_CMD_CTRL;
+            pstIoChannel->iWorkerId = TC_SND_CMD_TO_CLN;
             REQ_ID stReqId;
-            MSG_ID stMsgId = { TC_UDS_CMD_CTRL,  SF_CMD_REDEIVER|AC_CMD_RECEIVER};
+            MSG_ID stMsgId = { TC_SND_CMD_TO_CLN,  SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC};
             char achSendBuf[64];            
             stReqId.chTmp = 0x01;        
             if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, achSendBuf) == FRAME_OK){
@@ -331,7 +331,7 @@ int run()
     }
     iUdsListenFd = netUdsCreateServer(UDS_1_PATH);
     if (iUdsListenFd < 0) {
-        fprintf(stderr, "[UDS-SVR] netUdsCreateServer() failed\n");
+        fprintf(stderr, "[TC_SND_CMD_TO_CLN] netUdsCreateServer() failed\n");
         return EXIT_FAILURE;
     }
 
@@ -352,8 +352,8 @@ int run()
         SIGINT, signalCb, &stEventEngine);
     event_add(pstSignalEvent, NULL);
 
-    fprintf(stderr,"[TRACKING-CTRL-SVR] Listening on port %d\n", TRACKING_CTRL_SVR);
-    fprintf(stderr, "[UDS-SVR] Listening at %s\n", UDS_1_PATH);
+    fprintf(stderr,"[TC_RCV_CMD_FROM_CTRL_PC] Listening on port %d\n", TRACKING_CTRL_SVR);
+    fprintf(stderr,"[TC_SND_CMD_TO_CLN] Listening at %s\n", UDS_1_PATH);
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
@@ -378,8 +378,8 @@ int run()
     eventEngineCleanup(&stEventEngine);
     event_base_free(stEventEngine.pstEventBase);
 
-    fprintf(stderr,"[TCP-SVR] Terminated.\n");
-    fprintf(stderr,"[UDS-SVR] Terminated.\n");
+    fprintf(stderr,"[TC_RCV_CMD_FROM_CTRL_PC] Terminated.\n");
+    fprintf(stderr,"[TC_SND_CMD_TO_CLN] Terminated.\n");
     return 0;
 }
 

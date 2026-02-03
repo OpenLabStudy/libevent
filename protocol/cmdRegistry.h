@@ -4,23 +4,26 @@
 typedef enum {
     COMMAND_PATH_FAIL = 0x00,
     COMMAND_PATH_NONE,
-    TC_TCP_CMD_RECEIVER,
-    ACU_UART,
+    TC_RCV_CMD_FROM_CTRL_PC,    
+    ACU_CTRL_UART,
     GPS_RCV_UART,
     IMU_RCV_UART,
+    EXTERN_RCV_NET,
+    AC_SND_AZ_EL_TO_TC,
+    TC_RCV_AZ_EL_FROM_AC,
 
-    TC_UDS_CMD_CTRL = 0x10,
-    SF_SENSOR_RECEIVER,    
-    AC_CMD_RECEIVER,
+    AC_RCV_AZ_EL_FROM_SF,
+    SF_SND_AZ_EL_TO_AC,
+
+    TC_SND_CMD_TO_CLN = 0x10,
+    SF_RCV_CMD_FROM_TC,
+    AC_RCV_CMD_FROM_TC,
+
+    SF_RCV_SENSOR_DATA = 0x20,
+    IMU_SND_TO_SF,
+    GPS_SND_TO_SF
+
     
-    SF_CMD_REDEIVER = 0x20, 
-    IMU_RECEIVER,
-    GPS_RECEIVER,
-    
-    AC_AZ_EL_RECEIVER = 0x40,
-    SF_AZ_EL_SENDER,
-    
-    AC_CURR_AZ_EL_SENDER = 0x80
 } COMMAND_PATH;
 
 typedef enum {
@@ -93,6 +96,7 @@ typedef struct {
     buildResponse       fnbuildRes;
 } CMD_DESC;
 
+const char*     getWorkerName(int iId);
 const char*     getCmdString(unsigned short unCmd);
 unsigned int    getDataSize(unsigned short unCmd, FRAME_TYPE frameType);
 unsigned int    getFrameSizeWithCmd(unsigned short unCmd, FRAME_TYPE eFrameType);
@@ -103,9 +107,9 @@ FRAME_ERR       cmdDispatch(const void* pvRecvData, int iFrameSize, void* pvOutD
 FRAME_ERR       createCmdResponse(unsigned short unCmd, const void* pvUserData, MSG_ID* pstMsgId, void* pvOutData);
 const char*     frameErrToStr(FRAME_ERR eErr);
 int             findFrameHeader(char *puchData, int iSize);
-FRAME_ERR cmdRegistryOverrideHandler( unsigned short unCmd,
-    buildForwardReq fnBuildForwardReq, dispatchCommand fnDispatchCmd, buildResponse fnbuildRes);
-FRAME_ERR repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize);
+FRAME_ERR       cmdRegistryOverrideHandler( unsigned short unCmd,
+                    buildForwardReq fnBuildForwardReq, dispatchCommand fnDispatchCmd, buildResponse fnbuildRes);
+FRAME_ERR       repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize);
 
-FRAME_ERR frameDecode(char *puchBuf, int iFrameSize,
-                      FRAME_TYPE eFrameType, unsigned short *punOutCmd);
+FRAME_ERR       frameDecode(char *puchBuf, int iFrameSize,
+                    FRAME_TYPE eFrameType, unsigned short *punOutCmd);
