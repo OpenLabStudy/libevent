@@ -17,6 +17,9 @@
 #include "netUds.h"
 #include "netCore.h"
 #include "ioChannelUtil.h"
+#include "runtime.h"
+#include "udsServerRuntime.h"
+#include "tcpServerRuntime.h"
 
 static COMMAND_PATH decideProcessingPath(unsigned short unCmd)
 {
@@ -315,6 +318,22 @@ int run()
     struct event   *pstSignalEvent;
     int iTcpListenFd, iUdsListenFd;
     struct event* pstTcpEventAccept, *pstUdsEventAccept;
+    UDS_SERVER_RUNTIME_CFG stUdsCmdCtrlSvrRuntimeCfg = {
+        .pchUdsPath     = UDS_1_PATH,        
+        .iSelfWorkerId  = TC_SND_CMD_TO_CLN,
+        .iDstWorkerId   = SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC,
+        .pfWrite        = udsWriteCallback,
+        .pfIoHandler    = udsIoChannelHandleEvent,
+        .pchTag         = "TC_SND_CMD_TO_CLN"
+    };
+    TCP_SERVER_RUNTIME_CFG stTcpCmdCtrlSvrRuntimeCfg = {
+        .unPort         = TRACKING_CTRL_PORT,        
+        .iSelfWorkerId  = TC_RCV_CMD_FROM_CTRL_PC,
+        .iDstWorkerId   = CTRL_PC,
+        .pfWrite        = tcpWriteCallback,
+        .pfIoHandler    = tcpIoChannelHandleEvent,
+        .pchTag         = "TC_RCV_CMD_FROM_CTRL_PC"
+    };
 
     stEventEngine.pstEventBase = event_base_new();
     if (!stEventEngine.pstEventBase) {
@@ -322,57 +341,22 @@ int run()
         return -1;
     }
     eventEngineInit(&stEventEngine, 2);
+    TCP_SERVER_RUNTIME *pstTcpCmdCtrlSvr =
+        tcpServerRuntimeCreate(&stEventEngine, &stTcpCmdCtrlSvrRuntimeCfg, NULL); 
 
-    /* TCP Listen 소켓 생성 */
-    iTcpListenFd = netTcpCreateServer(TRACKING_CTRL_SVR);
-    if (iTcpListenFd < 0) {
-        perror("netTcpCreateServer");
-        return -1;
-    }
-    iUdsListenFd = netUdsCreateServer(UDS_1_PATH);
-    if (iUdsListenFd < 0) {
-        fprintf(stderr, "[TC_SND_CMD_TO_CLN] netUdsCreateServer() failed\n");
-        return EXIT_FAILURE;
-    }
+    UDS_SERVER_RUNTIME *pstUdsCmdCtrlSvr =
+        udsServerRuntimeCreate(&stEventEngine, &stUdsCmdCtrlSvrRuntimeCfg, NULL); 
 
-    /* Accept 이벤트 등록 */
-    pstTcpEventAccept = event_new(
-            stEventEngine.pstEventBase, iTcpListenFd, 
-            EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
-    event_add(pstTcpEventAccept, NULL);
+    APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "TRACKING-CTRL");
 
-    pstUdsEventAccept = event_new(
-            stEventEngine.pstEventBase, iUdsListenFd, 
-            EV_READ | EV_PERSIST, acceptCb, &stEventEngine);
-    event_add(pstUdsEventAccept, NULL);
-
-
-    /* SIGINT 처리 등록 */
-    pstSignalEvent = evsignal_new(stEventEngine.pstEventBase,
-        SIGINT, signalCb, &stEventEngine);
-    event_add(pstSignalEvent, NULL);
-
-    fprintf(stderr,"[TC_RCV_CMD_FROM_CTRL_PC] Listening on port %d\n", TRACKING_CTRL_SVR);
+    fprintf(stderr,"[TC_RCV_CMD_FROM_CTRL_PC] Listening on port %d\n", TRACKING_CTRL_PORT);
     fprintf(stderr,"[TC_SND_CMD_TO_CLN] Listening at %s\n", UDS_1_PATH);
 
     /* 이벤트 루프 시작 */
     event_base_dispatch(stEventEngine.pstEventBase);
-    if(pstSignalEvent){
-        event_del(pstSignalEvent);
-        event_free(pstSignalEvent);
-        pstSignalEvent =  NULL;
-    }
-
-    if(pstTcpEventAccept){
-        event_del(pstTcpEventAccept);
-        event_free(pstTcpEventAccept);
-        pstTcpEventAccept =  NULL;
-    }
-    if(pstUdsEventAccept){
-        event_del(pstUdsEventAccept);
-        event_free(pstUdsEventAccept);
-        pstUdsEventAccept =  NULL;
-    }
+    udsServerRuntimeDestroy(&pstUdsCmdCtrlSvr);
+    tcpServerRuntimeDestroy(&pstTcpCmdCtrlSvr);
+    appSignalDestroy(&pstSigHandle);
     
     /* 종료 처리 */
     eventEngineCleanup(&stEventEngine);

@@ -4,6 +4,7 @@
 typedef enum {
     COMMAND_PATH_FAIL = 0x00,
     COMMAND_PATH_NONE,
+    CTRL_PC,
     TC_RCV_CMD_FROM_CTRL_PC,    
     ACU_CTRL_UART,
     GPS_RCV_UART,

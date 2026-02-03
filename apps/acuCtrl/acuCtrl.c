@@ -197,7 +197,7 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
 
     EVENT_ENGINE* pstEngine = pstUartIo->pstEventEngine;
     ACU_CTRL_CTX* pstCtx = (ACU_CTRL_CTX*)pstEngine->pvSharedData;
-fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     char acUartBuf[2048];    
     switch (eEventType)
     {
