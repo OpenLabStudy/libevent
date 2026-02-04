@@ -13,6 +13,8 @@ typedef struct {
     int          iDstWorkerId;
     const char  *pchUdsPath;
     const char  *pchTag;
+    IO_ROLE     eRole;
+    IO_TYPE     eType;
 } UDS_CLIENT_RUNTIME_CFG;
 
 typedef struct {
@@ -24,6 +26,8 @@ typedef struct {
     int          iDstWorkerId;
     const char  *pchUdsPath;
     const char  *pchTag;
+    IO_ROLE     eRole;
+    IO_TYPE     eType;
 
     void (*pfWriteRespCb)(int, short, void*);
     void (*pfRecvCommandCb)(int, short, void*);

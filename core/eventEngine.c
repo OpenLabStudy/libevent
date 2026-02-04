@@ -262,8 +262,9 @@ REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, 
     while (pstIo) {
         if (pstIo->eRole == ROLE_WORKER) {            
             int iWorkerId = pstIo->iWorkerId;
+            fprintf(stderr,"### %s():%d  %d:%d:%d ###\n", __func__,__LINE__, iWorkerIndex, pstIo->iWorkerId, iUdsId);
             if(iWorkerId == (iUdsId & iWorkerId)){
-                // fprintf(stderr,"### %s():%d  %d:%d:%d ###\n", __func__,__LINE__, iWorkerIndex, pstIo->iWorkerId, iUdsId);
+                
                 pstReq->pstWorkerInfoList[iWorkerIndex].iWorkerId = iWorkerId;
                 pstReq->pstWorkerInfoList[iWorkerIndex].pstWorkerBuf = evbuffer_new();
                 pstReq->uiExpectedMask |= (1u << iWorkerId);
@@ -303,11 +304,12 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
     EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
     int iUdsId = 0;
     REQUEST_CONTEXT* pstReq = NULL;
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     while (1) {
         if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(int))
             break;        
         evbuffer_remove(pstRequester->pstRequestBuffer, &iUdsId, sizeof(int));
+        fprintf(stderr,"### %s():%d ID is %d ###\n",__func__,__LINE__, iUdsId);
         unsigned int uiRemain = evbuffer_get_length(pstRequester->pstRequestBuffer);
         unsigned char auchBuf[2048];
         unsigned int uiCopySize = evbuffer_remove(pstRequester->pstRequestBuffer, auchBuf, uiRemain);        
@@ -320,11 +322,9 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         while (pstIo && pstReq) {            
             if (pstIo->eRole == ROLE_WORKER){                
                 int iWorkerId = pstIo->iWorkerId;
-                // fprintf(stderr,"Worker ID is %d, UDS ID is %d\n", iWorkerId, iUdsId);
-                if(iWorkerId == (iUdsId & iWorkerId) && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))){    
-                    /* requestId를 프레임 끝에 부착 */
+                fprintf(stderr,"Worker ID is %d, UDS ID is %d\n", iWorkerId, iUdsId);
+                if(iWorkerId == (iUdsId & iWorkerId) && (pstReq->uiExpectedMask & (1u << pstIo->iWorkerId))){
                     evbuffer_add(pstIo->pstWriteBuffer, auchBuf, uiCopySize);
-                    /* write 이벤트 트리거 */
                     event_add(pstIo->pstWriteEvent, NULL);
                 }
             }

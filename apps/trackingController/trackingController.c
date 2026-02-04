@@ -83,8 +83,8 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     char achRecvBuffer[2048];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     switch (eEventType) {
-
     case IO_EVT_RX_DATA:
         while (1) {
             unsigned int uiRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
@@ -121,6 +121,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             /* === 처리 경로 결정 === */
             COMMAND_PATH eCommandPath = decideProcessingPath(unCmd);
+            fprintf(stderr,"### %s():%d Path:%d ###\n",__func__,__LINE__, eCommandPath);
             if (eCommandPath == COMMAND_PATH_NONE) {
                 /* === 명령 처리 === */
                 char achCmdResult[128];
@@ -315,9 +316,6 @@ static void signalCb(evutil_socket_t sig, short events, void* pvArg)
 int run()
 {
     EVENT_ENGINE   stEventEngine;
-    struct event   *pstSignalEvent;
-    int iTcpListenFd, iUdsListenFd;
-    struct event* pstTcpEventAccept, *pstUdsEventAccept;
     UDS_SERVER_RUNTIME_CFG stUdsCmdCtrlSvrRuntimeCfg = {
         .pchUdsPath     = UDS_1_PATH,        
         .iSelfWorkerId  = TC_SND_CMD_TO_CLN,

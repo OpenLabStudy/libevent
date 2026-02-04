@@ -11,8 +11,10 @@ extern "C" {
 typedef struct {
     const char *pchUdsPath;   /* listen socket path */
     const char *pchTag;       /* log tag */
-    int          iSelfWorkerId;
-    int          iDstWorkerId;
+    int         iSelfWorkerId;
+    int         iDstWorkerId;
+    IO_ROLE     eRole;
+    IO_TYPE     eType;
 
     /*
      * 새 client accept 후 호출됨
@@ -28,15 +30,15 @@ typedef struct {
 } UDS_SERVER_RUNTIME_CFG;
 
 typedef struct {
-    EVENT_ENGINE *pstEventEngine;
-
-    int           iListenFd;
-    struct event *pstAcceptEvent;
-
-    const char   *pchUdsPath;
-    const char   *pchTag;
-    int          iSelfWorkerId;
-    int          iDstWorkerId;
+    EVENT_ENGINE    *pstEventEngine;
+    struct event    *pstAcceptEvent;
+    int             iListenFd;
+    const char      *pchUdsPath;
+    const char      *pchTag;
+    int             iSelfWorkerId;
+    int             iDstWorkerId;
+    IO_ROLE         eRole;
+    IO_TYPE         eType;
 
     void (*pfWrite)(IO_CHANNEL *, void *);
     void (*pfIoHandler)(int, short, void *);

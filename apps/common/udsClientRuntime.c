@@ -125,7 +125,7 @@ static void udsClientReconnectCb(evutil_socket_t fd, short ev, void *pvArg)
     netSetNonblock(sock);
 
     IO_CHANNEL *pstIoChannel = eventSourceCreateWithBev(pstUdsClnRuntime->pstEventEngine, sock,
-                                                TYPE_UDS_CLI, ROLE_REQUESTER,
+                                                pstUdsClnRuntime->eType, pstUdsClnRuntime->eRole,
                                                 NULL, pstUdsClnRuntime->pfWriteRespCb,
                                                 pstUdsClnRuntime->pfRecvCommandCb);
     if (!pstIoChannel) {
