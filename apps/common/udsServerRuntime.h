@@ -9,50 +9,43 @@ extern "C" {
 #endif
 
 typedef struct {
-    const char *pchUdsPath;   /* listen socket path */
-    const char *pchTag;       /* log tag */
-    int         iSelfWorkerId;
-    int         iDstWorkerId;
+    char        chWorkerId;
+    char        chDstWorkerId;
+    const char* pchUdsPath;
+    const char* pchTag;
     IO_ROLE     eRole;
     IO_TYPE     eType;
 
-    /*
-     * 새 client accept 후 호출됨
-     *  - az/el 즉시 전송
-     *  - client 초기화
-     *  - client 리스트 등록 등
-     */
-    void (*pfWrite)(IO_CHANNEL *pstIo, void *pvUserCtx);
-
-    /* client RX 처리 핸들러 (필수) */
+    void (*pfWrite)(int iFd, short nEvent, void *pvData);
     void (*pfIoHandler)(int iFd, short nEvent, void *pvData);
-
 } UDS_SERVER_RUNTIME_CFG;
 
 typedef struct {
-    EVENT_ENGINE    *pstEventEngine;
-    struct event    *pstAcceptEvent;
+    EVENT_ENGINE*   pstEventEngine;
+    struct event*   pstAcceptEvent;
     int             iListenFd;
-    const char      *pchUdsPath;
-    const char      *pchTag;
+    char            chWorkerId;
+    char            chDstWorkerId;
+    const char*     pchUdsPath;
+    const char*     pchTag;
     int             iSelfWorkerId;
     int             iDstWorkerId;
     IO_ROLE         eRole;
     IO_TYPE         eType;
 
-    void (*pfWrite)(IO_CHANNEL *, void *);
-    void (*pfIoHandler)(int, short, void *);
+    void (*pfWrite)(int iFd, short nEvent, void *pvData);
+    void (*pfIoHandler)(int iFd, short nEvent, void *pvData);
 
-    void         *pvUserCtx;
+    void*           pvUserCtx;
 }UDS_SERVER_RUNTIME;
 
 /* 생성 / 파괴 */
 UDS_SERVER_RUNTIME *
 udsServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
-                       const UDS_SERVER_RUNTIME_CFG *pstCfg,
+                       const UDS_SERVER_RUNTIME_CFG *pstUdsSvrRtCfg,
                        void *pvUserCtx);
 
-void udsServerRuntimeDestroy(UDS_SERVER_RUNTIME **ppstRt);
+void udsServerRuntimeDestroy(UDS_SERVER_RUNTIME **ppstUdsSvrRt);
 
 #ifdef __cplusplus
 }

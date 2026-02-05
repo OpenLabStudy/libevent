@@ -9,25 +9,25 @@ extern "C" {
 #endif
 
 typedef struct {
-    int          iSelfWorkerId;
-    int          iDstWorkerId;
-    const char  *pchUdsPath;
-    const char  *pchTag;
-    IO_ROLE     eRole;
-    IO_TYPE     eType;
+    char            chWorkerId;
+    char            chDstWorkerId;
+    const char*     pchUdsPath;
+    const char*     pchTag;
+    IO_ROLE         eRole;
+    IO_TYPE         eType;
 } UDS_CLIENT_RUNTIME_CFG;
 
 typedef struct {
-    EVENT_ENGINE *pstEventEngine;
-    struct event *pstReconnectEvent;
-    IO_CHANNEL   *pstIoChannel;   /* 현재 연결된 채널 (없을 수 있음) */
+    EVENT_ENGINE*   pstEventEngine;
+    struct event*   pstReconnectEvent;
+    IO_CHANNEL*     pstIoChannel;
 
-    int          iSelfWorkerId;
-    int          iDstWorkerId;
-    const char  *pchUdsPath;
-    const char  *pchTag;
-    IO_ROLE     eRole;
-    IO_TYPE     eType;
+    char            chWorkerId;
+    char            chDstWorkerId;
+    const char*     pchUdsPath;
+    const char*     pchTag;
+    IO_ROLE         eRole;
+    IO_TYPE         eType;
 
     void (*pfWriteRespCb)(int, short, void*);
     void (*pfRecvCommandCb)(int, short, void*);
@@ -35,11 +35,11 @@ typedef struct {
 
 /* 생성 / 파괴 */
 UDS_CLIENT_RUNTIME *
-udsClientRuntimeCreate(EVENT_ENGINE *pstEventEngine, const UDS_CLIENT_RUNTIME_CFG *pstCfg,
+udsClientRuntimeCreate(EVENT_ENGINE *pstEventEngine, const UDS_CLIENT_RUNTIME_CFG *pstUdsClnRtCfg,
                         void (*pfRecvCommandCb)(int, short, void*),
                         void (*pfWriteRespCb)(int, short, void*) );
 
-void udsClientRuntimeDestroy(UDS_CLIENT_RUNTIME **ppstUdsClnRuntime);
+void udsClientRuntimeDestroy(UDS_CLIENT_RUNTIME **ppstUdsClnRt);
 
 #ifdef __cplusplus
 }

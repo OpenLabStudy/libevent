@@ -111,11 +111,8 @@ static void uartReadCallback(int iFd, short nEvent, void* pvData)
 int run(char* pchUartPath)
 {    
     //이미 끊어진 소켓에 write() 했을 때 프로세스가 즉사(SIGPIPE)하는 것을 막는다.
-    ioIgnoreSigpipeOnce();    
-
+    ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
-    struct event*   pstSignalEvent = NULL;
-    struct event*   pstUdsRetryEvent = NULL;
     UART_CTX stUartCtx = {
         .pchDevPath     = pchUartPath,
         .iBaudrate      = 115200,
@@ -124,8 +121,8 @@ int run(char* pchUartPath)
     };
 
     UDS_CLIENT_RUNTIME_CFG stUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = IMU_SND_TO_SF,
-        .iDstWorkerId   = SF_RCV_SENSOR_DATA,
+        .chWorkerId     = (char)IMU_SND_TO_SF,
+        .chDstWorkerId  = (char)SF_RCV_SENSOR_DATA,
         .pchUdsPath     = UDS_2_PATH,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_UDS_CLI,
@@ -147,7 +144,7 @@ int run(char* pchUartPath)
     }
     IO_CHANNEL *pstIoChannel = eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
         TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
-    pstIoChannel->iWorkerId = IMU_RCV_UART;
+    pstIoChannel->chWorkerId = (char)IMU_RCV_UART;
 
     UDS_CLIENT_RUNTIME *pstUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, &stUdsClnRuntimeCfg, NULL, NULL);
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "IMU-RECEIVER");

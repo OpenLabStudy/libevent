@@ -50,7 +50,8 @@ typedef enum {
 typedef struct _IO_CHANNEL {
     int                 iFd;
     char                chFdCloseSet;
-    int                 iWorkerId;
+    char                chWorkerId;
+    char                chDstWorkerId;
     IO_TYPE             eType;
     IO_ROLE             eRole;
 

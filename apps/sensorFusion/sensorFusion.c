@@ -300,8 +300,8 @@ static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short u
         case CMD_ID_INFO:
         {
             RES_ID *pstResId = (RES_ID *)(pchCmdResult);
-            pstResId->chResult = (char)SF_RCV_CMD_FROM_TC;
-            fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+            pstResId->chId = (char)SF_RCV_CMD_FROM_TC;
+            fprintf(stderr, "RES_ID %04X\n", pstResId->chId);
         }
         break;
         default:
@@ -506,28 +506,27 @@ int run(void)
 {
     ioIgnoreSigpipeOnce();
     EVENT_ENGINE    stEventEngine;
-    struct event*   pstEventAccept;
     UDS_SERVER_RUNTIME_CFG stRcvDataUdsSvrRuntimeCfg = {
         .pchUdsPath     = UDS_2_PATH,
         .pchTag         = "SF_RCV_SENSOR_DATA",
-        .iSelfWorkerId  = SF_RCV_SENSOR_DATA,
-        .iDstWorkerId   = IMU_SND_TO_SF|GPS_SND_TO_SF,
+        .chWorkerId     = SF_RCV_SENSOR_DATA,
+        .chDstWorkerId  = IMU_SND_TO_SF|GPS_SND_TO_SF,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_UDS_SVR,
         .pfWrite        = NULL,
         .pfIoHandler    = sensorFusionRead
     };
     UDS_CLIENT_RUNTIME_CFG stRcvCmdUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = SF_RCV_CMD_FROM_TC,
-        .iDstWorkerId   = TC_SND_CMD_TO_CLN,
+        .chWorkerId     = SF_RCV_CMD_FROM_TC,
+        .chDstWorkerId  = TC_SND_CMD_TO_CLN,
         .pchUdsPath     = UDS_1_PATH,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_UDS_CLI,
         .pchTag         = "SF_RCV_CMD_FROM_TC"
     };    
     UDS_CLIENT_RUNTIME_CFG stSndAzElUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = SF_SND_AZ_EL_TO_AC,
-        .iDstWorkerId   = AC_RCV_AZ_EL_FROM_SF,
+        .chWorkerId     = SF_SND_AZ_EL_TO_AC,
+        .chDstWorkerId  = AC_RCV_AZ_EL_FROM_SF,
         .pchUdsPath     = UDS_3_PATH,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_UDS_CLI,

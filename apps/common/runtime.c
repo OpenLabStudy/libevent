@@ -4,69 +4,59 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void appSignalCb(evutil_socket_t sig, short events, void* arg)
+static void appSignalCb(int iFd, short nEvent, void* pvData)
 {
-    (void)sig;
-    (void)events;
+    (void)iFd;
+    (void)nEvent;
 
-    APP_SIGNAL_HANDLE *h = (APP_SIGNAL_HANDLE*)arg;
+    APP_SIGNAL_HANDLE* pstAppSignalHandle = (APP_SIGNAL_HANDLE*)pvData;
 
-    if (!h || h->bShuttingDown)
+    if (!pstAppSignalHandle || pstAppSignalHandle->iShuttingDown)
         return;
 
-    h->bShuttingDown = 1;
+    pstAppSignalHandle->iShuttingDown = 1;
 
     fprintf(stderr, "\n[%s] SIGINT -> shutdown\n",
-            h->pchTag ? h->pchTag : "APP");
-
+            pstAppSignalHandle->pchTag ? pstAppSignalHandle->pchTag : "APP");
     /* 즉시 이벤트 루프 탈출 */
-    if (h->pstEventEngine &&
-        h->pstEventEngine->pstEventBase) {
-        event_base_loopbreak(h->pstEventEngine->pstEventBase);
+    if (pstAppSignalHandle->pstEventEngine && pstAppSignalHandle->pstEventEngine->pstEventBase) {
+        event_base_loopbreak(pstAppSignalHandle->pstEventEngine->pstEventBase);
     }
 }
 
-APP_SIGNAL_HANDLE*
-appSignalCreate(EVENT_ENGINE *pstEventEngine,
-                const char *pchTag)
+APP_SIGNAL_HANDLE* appSignalCreate(EVENT_ENGINE *pstEventEngine, const char *pchTag)
 {
     if (!pstEventEngine || !pstEventEngine->pstEventBase)
         return NULL;
 
-    APP_SIGNAL_HANDLE *h = calloc(1, sizeof(*h));
-    if (!h)
+    APP_SIGNAL_HANDLE *pstAppSignalHandle = calloc(1, sizeof(APP_SIGNAL_HANDLE));
+    if (!pstAppSignalHandle)
         return NULL;
 
-    h->pstEventEngine = pstEventEngine;
-    h->pchTag         = pchTag;
-    h->bShuttingDown  = 0;
+    pstAppSignalHandle->pstEventEngine = pstEventEngine;
+    pstAppSignalHandle->pchTag         = pchTag;
+    pstAppSignalHandle->iShuttingDown  = 0;
 
-    h->pstSigEvent = evsignal_new(
-        pstEventEngine->pstEventBase,
-        SIGINT,
-        appSignalCb,
-        h
-    );
-
-    if (!h->pstSigEvent) {
-        free(h);
+    pstAppSignalHandle->pstSigEvent = evsignal_new(pstEventEngine->pstEventBase,
+        SIGINT, appSignalCb, pstAppSignalHandle);
+    if (!pstAppSignalHandle->pstSigEvent) {
+        free(pstAppSignalHandle);
         return NULL;
     }
-
-    event_add(h->pstSigEvent, NULL);
-    return h;
+    event_add(pstAppSignalHandle->pstSigEvent, NULL);
+    return pstAppSignalHandle;
 }
 
-void appSignalDestroy(APP_SIGNAL_HANDLE **ppstHandle)
+void appSignalDestroy(APP_SIGNAL_HANDLE **ppstAppSignalHandle)
 {
-    if (!ppstHandle || !*ppstHandle)
+    if (!ppstAppSignalHandle || !*ppstAppSignalHandle)
         return;
 
-    APP_SIGNAL_HANDLE *h = *ppstHandle;
+    APP_SIGNAL_HANDLE* pstAppSignalHandle = *ppstAppSignalHandle;
 
-    if (h->pstSigEvent)
-        event_free(h->pstSigEvent);  /* del 포함 */
+    if (pstAppSignalHandle->pstSigEvent)
+        event_free(pstAppSignalHandle->pstSigEvent);
 
-    free(h);
-    *ppstHandle = NULL;
+    free(pstAppSignalHandle);
+    *ppstAppSignalHandle = NULL;
 }

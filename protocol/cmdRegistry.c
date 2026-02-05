@@ -11,9 +11,9 @@
  * ====================================================================== */
 
 
-const char* getWorkerName(int iId)
+const char* getWorkerName(char chWorkId)
 {
-    switch(iId){
+    switch(chWorkId){
         case COMMAND_PATH_FAIL:
             return "COMMAND_PATH_FAIL";
         case COMMAND_PATH_NONE:
@@ -119,10 +119,10 @@ static CMD_DESC g_cmdTable[] = {
         0, sizeof(RES_LLA_DATA),        
         NULL, NULL, buildResExternData 
     },
-    {   CDM_KEYBOARD_DATA, "KEYBOARD_DATA",
-        0, sizeof(RES_AZ_EL_DATA),        
-        NULL, NULL, buildResKeyboardData 
-    },
+    // {   CDM_KEYBOARD_DATA, "KEYBOARD_DATA",
+    //     0, sizeof(RES_AZ_EL_DATA),        
+    //     NULL, NULL, buildResKeyboardData 
+    // },
 
 
 
@@ -347,11 +347,9 @@ FRAME_ERR createCmdRequest(unsigned short unCmd, MSG_ID *pstMsgId, void* uchUser
     const CMD_DESC* pstCmdDesc = cmdFind(unCmd);
     frameMakeHeader(unCmd, pstMsgId, pvOutData, FRAME_TYPE_REQUEST);
     if (!pstCmdDesc || !pstCmdDesc->fnBuildForwardReq)
-        return -1;
+        return FRAME_NOK;//todo 오류 정보 추가 필요
 
-    if(pstCmdDesc->fnBuildForwardReq(uchUserData, pvOutData+sizeof(FRAME_HEADER))){
-
-    }
+    pstCmdDesc->fnBuildForwardReq(uchUserData, pvOutData+sizeof(FRAME_HEADER));
     frameMakeTail(unCmd, pvOutData, FRAME_TYPE_REQUEST);
     return FRAME_OK;
 }
@@ -456,7 +454,7 @@ FRAME_ERR frameDecode(char *pchBuf, int iFrameSize,
 char getIdInfo(char *puchData)
 {
     RES_ID *pstResId = (RES_ID *)(puchData);
-    return pstResId->chResult;
+    return pstResId->chId;
 }
 
 int findFrameHeader(char *pchData, int iSize)

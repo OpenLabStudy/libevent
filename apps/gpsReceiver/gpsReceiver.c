@@ -116,8 +116,8 @@ int run(char* pchUartPath)
     };
 
     UDS_CLIENT_RUNTIME_CFG stUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = GPS_SND_TO_SF,
-        .iDstWorkerId   = SF_RCV_SENSOR_DATA,
+        .chWorkerId     = (char)GPS_SND_TO_SF,
+        .chDstWorkerId  = (char)SF_RCV_SENSOR_DATA,
         .pchUdsPath     = UDS_2_PATH,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_UDS_CLI,
@@ -138,7 +138,7 @@ int run(char* pchUartPath)
     }
     IO_CHANNEL *pstIoChannel = eventSourceCreateWithBev(&stEventEngine, stUartCtx.iFd,
         TYPE_UART, ROLE_REQUESTER, NULL, NULL, uartReadCallback);
-    pstIoChannel->iWorkerId = GPS_RCV_UART;
+    pstIoChannel->chWorkerId = (char)GPS_RCV_UART;
 
     UDS_CLIENT_RUNTIME *pstUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, &stUdsClnRuntimeCfg, NULL, NULL);
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "GPS-RECEIVER");

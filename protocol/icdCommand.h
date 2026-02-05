@@ -126,7 +126,7 @@ typedef struct PACKED {
  * @brief CMD_ID_INFO 응답 구조체
  */
 typedef struct PACKED {
-    char chResult;
+    char chId;
 } RES_ID;
 
 /**

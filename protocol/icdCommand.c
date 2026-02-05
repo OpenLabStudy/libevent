@@ -10,6 +10,7 @@
 #include "cmdRegistry.h"
 #include <stdio.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 double endianChange(char* i_chData)
 {
@@ -54,22 +55,20 @@ int buildForwardReqIdInfo(const void* pvUserData, void* pvOutData)
 	(void)pvUserData;
 	REQ_ID *pstReqId = (REQ_ID *)pvOutData;
 	pstReqId->chTmp = 0x01;
-	fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 	return sizeof(REQ_ID);
 }
 int dispatchCmdIdInfo(const void* pvRecvData, void* pvOutData)
 {
 	(void)pvRecvData;
 	(void)pvOutData;
-	fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-	return sizeof(RES_ID);
+	return sizeof(REQ_ID);
 }
 int buildResIdInfo(const void* pvUserData, void* pvOutData)
 {
 	RES_ID *pstUserData	= (RES_ID *)(pvUserData);
 	RES_ID *pstResId 	= (RES_ID *)(pvOutData);
-	pstResId->chResult 	= pstUserData->chResult;
-	fprintf(stderr, "RES_ID %04X\n", pstResId->chResult);
+	pstResId->chId 	= pstUserData->chId;
+	fprintf(stderr, "RES_ID 0x%02X\n", pstResId->chId);
 	return sizeof(RES_ID);
 }
 
@@ -296,6 +295,7 @@ int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData)
 
 int buildForwardReqKeyboardAzEl(const void* pvUserData, void* pvOutData)
 {    
+	//내부 프로세스 통신 UDS를 통해 keyboardReceiver -> sensorFusion으로 보낼 데이터 생성
 	REQ_KEYBOARD_AZ_EL *pstReqUserData		= (REQ_KEYBOARD_AZ_EL *)pvUserData;
 	REQ_KEYBOARD_AZ_EL *pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvOutData;
 	pstReqKeyboardAzEl->iAz					= pstReqUserData->iAz;
@@ -304,6 +304,7 @@ int buildForwardReqKeyboardAzEl(const void* pvUserData, void* pvOutData)
 }
 int dispatchKeyboardAzEl(const void* pvRecvData, void* pvOutData)
 {
+	//제어PC또는 내부 UDS 명령 수신처리 
 	REQ_KEYBOARD_AZ_EL 	*pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvRecvData;
 	RES_KEYBOARD_DATA 	*pstReqUserData		= (RES_KEYBOARD_DATA *)pvOutData;
 	pstReqUserData->dAz						= (((double)pstReqKeyboardAzEl->iAz) / 1000.0);
@@ -313,6 +314,7 @@ int dispatchKeyboardAzEl(const void* pvRecvData, void* pvOutData)
 }
 int buildResKeyboardAzEl(const void* pvUserData, void* pvOutData)
 {
+	//제어 PC로 요청 처리 결과 전송
 	RES_KEYBOARD_AZ_EL *pstUserData			= (RES_KEYBOARD_AZ_EL *)(pvUserData);
 	RES_KEYBOARD_AZ_EL *pstResKeyboardAzEl	= (RES_KEYBOARD_AZ_EL *)(pvOutData);
 	pstResKeyboardAzEl->chResult 			= pstUserData->chResult;	
@@ -331,32 +333,41 @@ int buildResKeyboardData(const void* pvUserData, void* pvOutData)
 
 int buildForwardCurrAzEl(const void* pvUserData, void* pvOutData)
 {    
-	REQ_KEYBOARD_AZ_EL *pstReqUserData		= (REQ_KEYBOARD_AZ_EL *)pvUserData;
-	REQ_KEYBOARD_AZ_EL *pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvOutData;
-	pstReqKeyboardAzEl->iAz					= pstReqUserData->iAz;
-	pstReqKeyboardAzEl->iEl					= pstReqUserData->iEl;
-    return sizeof(REQ_KEYBOARD_AZ_EL);
+	SEND_CURR_AZ_EL *pstUserData		= (SEND_CURR_AZ_EL *)(pvUserData);
+	SEND_CURR_AZ_EL *pstSndCurrAzEl		= (SEND_CURR_AZ_EL *)(pvOutData);
+	pstSndCurrAzEl->chExtSerialState	= pstUserData->chExtSerialState;
+	pstSndCurrAzEl->chTriggerState 		= pstUserData->chTriggerState;
+	pstSndCurrAzEl->iAz 				= htonl(pstUserData->iAz);
+	pstSndCurrAzEl->iEl 				= htonl(pstUserData->iEl);
+	pstSndCurrAzEl->iRecvAz 			= htonl(pstUserData->iRecvAz);
+	pstSndCurrAzEl->iRecvEl 			= htonl(pstUserData->iRecvEl);
+	pstSndCurrAzEl->iTime 				= htonl(pstUserData->iTime);
+	return sizeof(SEND_CURR_AZ_EL);
 }
 int dispatchCurrAzEl(const void* pvRecvData, void* pvOutData)
 {
-	REQ_KEYBOARD_AZ_EL 	*pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvRecvData;
-	RES_KEYBOARD_DATA 	*pstReqUserData		= (RES_KEYBOARD_DATA *)pvOutData;
-	pstReqUserData->dAz						= (((double)pstReqKeyboardAzEl->iAz) / 1000.0);
-	pstReqUserData->dEl						= (((double)pstReqKeyboardAzEl->iEl) / 1000.0);
-	fprintf(stderr,"Recv Keyboard Az:%lf, El:%lf\n", pstReqUserData->dAz, pstReqUserData->dEl);	
-	return sizeof(REQ_KEYBOARD_AZ_EL);
+	SEND_CURR_AZ_EL *pstUserData	= (SEND_CURR_AZ_EL *)(pvOutData);
+	SEND_CURR_AZ_EL *pstRcvCurrAzEl	= (SEND_CURR_AZ_EL *)(pvRecvData);
+	pstUserData->chExtSerialState	= pstRcvCurrAzEl->chExtSerialState;
+	pstUserData->chTriggerState 	= pstRcvCurrAzEl->chTriggerState;
+	pstUserData->iAz 				= pstRcvCurrAzEl->iAz;
+	pstUserData->iEl 				= pstRcvCurrAzEl->iEl;
+	pstUserData->iRecvAz 			= pstRcvCurrAzEl->iRecvAz;
+	pstUserData->iRecvEl 			= pstRcvCurrAzEl->iRecvEl;
+	pstUserData->iTime 				= pstRcvCurrAzEl->iTime;
+	return sizeof(SEND_CURR_AZ_EL);
 }
 int buildResCurrAzEl(const void* pvUserData, void* pvOutData)
 {
-	SEND_CURR_AZ_EL *pstUserData	= (SEND_CURR_AZ_EL *)(pvUserData);
-	SEND_CURR_AZ_EL *pstResCurrAzEl	= (SEND_CURR_AZ_EL *)(pvOutData);
-	pstResCurrAzEl->chExtSerialState = 0x00;
-	pstResCurrAzEl->chTriggerState = 0x00;
-	pstResCurrAzEl->iAz = htonl(pstUserData->iAz);
-	pstResCurrAzEl->iEl = htonl(pstUserData->iEl);
-	pstResCurrAzEl->iRecvAz = 0;
-	pstResCurrAzEl->iRecvEl = 0;
-	pstResCurrAzEl->iTime = htonl(pstUserData->iTime);
+	SEND_CURR_AZ_EL *pstUserData		= (SEND_CURR_AZ_EL *)(pvUserData);
+	SEND_CURR_AZ_EL *pstSndCurrAzEl		= (SEND_CURR_AZ_EL *)(pvOutData);
+	pstSndCurrAzEl->chExtSerialState	= pstUserData->chExtSerialState;
+	pstSndCurrAzEl->chTriggerState 		= pstUserData->chTriggerState;
+	pstSndCurrAzEl->iAz 				= htonl(pstUserData->iAz);
+	pstSndCurrAzEl->iEl 				= htonl(pstUserData->iEl);
+	pstSndCurrAzEl->iRecvAz 			= htonl(pstUserData->iRecvAz);
+	pstSndCurrAzEl->iRecvEl 			= htonl(pstUserData->iRecvEl);
+	pstSndCurrAzEl->iTime 				= htonl(pstUserData->iTime);
 	return sizeof(SEND_CURR_AZ_EL);
 }
 

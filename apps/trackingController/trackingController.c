@@ -198,7 +198,7 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
         evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));        
         if(unCmd == CMD_ID_INFO){
-            pstIoChannel->iWorkerId = (int)getIdInfo(achRecvBuffer+sizeof(FRAME_HEADER));
+            pstIoChannel->chWorkerId = (int)getIdInfo(achRecvBuffer+sizeof(FRAME_HEADER));
         }else{
             eventEngineHandleWorkerResponse(pstIoChannel->pstEventEngine, pstIoChannel,
                 pstEventEngine->uiRequestSeq, achRecvBuffer, iFrameSize);
@@ -223,8 +223,8 @@ int run()
     EVENT_ENGINE   stEventEngine;
     UDS_SERVER_RUNTIME_CFG stUdsCmdCtrlSvrRuntimeCfg = {
         .pchUdsPath     = UDS_1_PATH,        
-        .iSelfWorkerId  = TC_SND_CMD_TO_CLN,
-        .iDstWorkerId   = SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC,
+        .chWorkerId     = (char)TC_SND_CMD_TO_CLN,
+        .chDstWorkerId  = (char)(SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC),
         .eRole          = ROLE_WORKER,
         .eType          = TYPE_UDS_SVR,
         .pfWrite        = udsWriteCallback,
@@ -233,8 +233,8 @@ int run()
     };
     TCP_SERVER_RUNTIME_CFG stTcpCmdCtrlSvrRuntimeCfg = {
         .unPort         = TRACKING_CTRL_PORT,        
-        .iSelfWorkerId  = TC_RCV_CMD_FROM_CTRL_PC,
-        .iDstWorkerId   = CTRL_PC,
+        .chWorkerId     = (char)TC_RCV_CMD_FROM_CTRL_PC,
+        .chDstWorkerId  = (char)CTRL_PC,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_TCP_SVR,
         .pfWrite        = tcpWriteCallback,

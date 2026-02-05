@@ -124,7 +124,8 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
 
     pstIoChannel->iFd                   = iFd;
     pstIoChannel->chFdCloseSet          = FD_CLOSED;
-    pstIoChannel->iWorkerId             = 0;
+    pstIoChannel->chWorkerId            = 0;
+    pstIoChannel->chDstWorkerId         = 0;
     pstIoChannel->eType                 = eType;
     pstIoChannel->eRole                 = eRole;
     pstIoChannel->ePendingLogicEvent    = IO_EVENT_NONE; 

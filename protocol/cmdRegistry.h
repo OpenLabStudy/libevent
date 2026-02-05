@@ -100,7 +100,7 @@ typedef struct {
     buildResponse       fnbuildRes;
 } CMD_DESC;
 
-const char*     getWorkerName(int iId);
+const char*     getWorkerName(char chWorkId);
 const char*     getCmdString(unsigned short unCmd);
 unsigned int    getDataSize(unsigned short unCmd, FRAME_TYPE frameType);
 unsigned int    getFrameSizeWithCmd(unsigned short unCmd, FRAME_TYPE eFrameType);

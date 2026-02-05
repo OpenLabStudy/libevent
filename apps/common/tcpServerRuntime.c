@@ -19,52 +19,46 @@
 /* ============================================================
  * accept callback
  * ============================================================ */
-static void tcpServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvArg)
+static void tcpServerAcceptCb(int iFd, short nEvent, void* pvData)
 {
     (void)nEvent;
-
-    TCP_SERVER_RUNTIME *pstTcpSvrRuntime = (TCP_SERVER_RUNTIME *)pvArg;
-    EVENT_ENGINE *pstEventEngine = pstTcpSvrRuntime->pstEventEngine;
+    TCP_SERVER_RUNTIME *pstTcpSvrRt = (TCP_SERVER_RUNTIME *)pvData;
+    EVENT_ENGINE *pstEventEngine = pstTcpSvrRt->pstEventEngine;
 
     struct sockaddr_un addr;
     socklen_t len = sizeof(addr);
 
-    int clientFd = accept(iListenFd, (struct sockaddr *)&addr, &len);
+    int clientFd = accept(iFd, (struct sockaddr *)&addr, &len);
     if (clientFd < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
             perror("[TCP-SVR] accept");
         return;
     }
-
     netSetNonblock(clientFd);
-    fprintf(stderr,"### %s():%d eRole is %d ###\n", __func__,__LINE__, pstTcpSvrRuntime->eRole);
-    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
-        pstTcpSvrRuntime->eType, pstTcpSvrRuntime->eRole,
-        NULL, pstTcpSvrRuntime->pfWrite, pstTcpSvrRuntime->pfIoHandler
-    );
 
+    IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
+        pstTcpSvrRt->eType, pstTcpSvrRt->eRole,
+        NULL, pstTcpSvrRt->pfWrite, pstTcpSvrRt->pfIoHandler);
     if (!pstNewIo) {
         close(clientFd);
         return;
     }
 
-    pstNewIo->iWorkerId    = pstTcpSvrRuntime->iSelfWorkerId;
+    pstNewIo->chWorkerId    = pstTcpSvrRt->chWorkerId;
+    pstNewIo->chDstWorkerId = pstTcpSvrRt->chDstWorkerId;
     pstNewIo->chFdCloseSet = FD_OPENED;
 
     fprintf(stderr, "[%s] client accepted fd=%d\n",
-        pstTcpSvrRuntime->pchTag ? pstTcpSvrRuntime->pchTag : "TCP-SVR",
-            clientFd);
+        pstTcpSvrRt->pchTag ? pstTcpSvrRt->pchTag : "TCP-SVR", clientFd);
     
-    REQ_ID stReqId;
-    MSG_ID stMsgId = {  (char)pstTcpSvrRuntime->iSelfWorkerId, 
-                        (char)pstTcpSvrRuntime->iDstWorkerId };
+    REQ_ID stReqId = {.chTmp = 0x01};
+    MSG_ID stMsgId = {pstTcpSvrRt->chWorkerId, pstTcpSvrRt->chDstWorkerId};
     unsigned char auSendBuf[64];            
     stReqId.chTmp = 0x01;
     if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, auSendBuf) == FRAME_OK){
         evbuffer_add(pstNewIo->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
         event_add(pstNewIo->pstWriteEvent, NULL);
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 }
 
 /* ============================================================
@@ -72,10 +66,10 @@ static void tcpServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvA
  * ============================================================ */
 TCP_SERVER_RUNTIME *
 tcpServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
-                       const TCP_SERVER_RUNTIME_CFG *pstCfg,
+                       const TCP_SERVER_RUNTIME_CFG *pstTcpSvrRtCfg,
                        void *pvUserCtx)
 {
-    if (!pstEventEngine || !pstEventEngine->pstEventBase || !pstCfg)
+    if (!pstEventEngine || !pstEventEngine->pstEventBase || !pstTcpSvrRtCfg)
         return NULL;
 
     TCP_SERVER_RUNTIME *pstTcpSvrRuntime = calloc(1, sizeof(TCP_SERVER_RUNTIME));
@@ -83,26 +77,23 @@ tcpServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
         return NULL;
 
     pstTcpSvrRuntime->pstEventEngine    = pstEventEngine;
-    pstTcpSvrRuntime->unPort            = pstCfg->unPort;
-    pstTcpSvrRuntime->pchTag            = pstCfg->pchTag;
-    pstTcpSvrRuntime->iSelfWorkerId     = pstCfg->iSelfWorkerId;
-    pstTcpSvrRuntime->eRole             = pstCfg->eRole;
-    pstTcpSvrRuntime->eType             = pstCfg->eType;
-    pstTcpSvrRuntime->pfWrite           = pstCfg->pfWrite;
-    pstTcpSvrRuntime->pfIoHandler       = pstCfg->pfIoHandler;
+    pstTcpSvrRuntime->unPort            = pstTcpSvrRtCfg->unPort;
+    pstTcpSvrRuntime->pchTag            = pstTcpSvrRtCfg->pchTag;
+    pstTcpSvrRuntime->chWorkerId        = pstTcpSvrRtCfg->chWorkerId;
+    pstTcpSvrRuntime->chDstWorkerId     = pstTcpSvrRtCfg->chDstWorkerId;
+    pstTcpSvrRuntime->eRole             = pstTcpSvrRtCfg->eRole;
+    pstTcpSvrRuntime->eType             = pstTcpSvrRtCfg->eType;
+    pstTcpSvrRuntime->pfWrite           = pstTcpSvrRtCfg->pfWrite;
+    pstTcpSvrRuntime->pfIoHandler       = pstTcpSvrRtCfg->pfIoHandler;
     pstTcpSvrRuntime->pvUserCtx         = pvUserCtx;
 
     int listenFd = netTcpCreateServer(pstTcpSvrRuntime->unPort);
 
     pstTcpSvrRuntime->iListenFd = listenFd;
     pstTcpSvrRuntime->pstAcceptEvent = event_new(
-        pstEventEngine->pstEventBase,
-        listenFd,
+        pstEventEngine->pstEventBase, listenFd,
         EV_READ | EV_PERSIST,
-        tcpServerAcceptCb,
-        pstTcpSvrRuntime
-    );
-
+        tcpServerAcceptCb, pstTcpSvrRuntime);
     if (!pstTcpSvrRuntime->pstAcceptEvent) {
         close(listenFd);
         free(pstTcpSvrRuntime);
@@ -118,21 +109,20 @@ tcpServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
     return pstTcpSvrRuntime;
 }
 
-void tcpServerRuntimeDestroy(TCP_SERVER_RUNTIME **ppstTcpSvrRuntime)
+void tcpServerRuntimeDestroy(TCP_SERVER_RUNTIME **ppstTcpSvrRt)
 {
-    if (!ppstTcpSvrRuntime || !*ppstTcpSvrRuntime)
+    if (!ppstTcpSvrRt || !*ppstTcpSvrRt)
         return;
 
-    TCP_SERVER_RUNTIME *pstTcpSvrRuntime = *ppstTcpSvrRuntime;
+    TCP_SERVER_RUNTIME *pstTcpSvrRt = *ppstTcpSvrRt;
 
-    if (pstTcpSvrRuntime->pstAcceptEvent) {
-        event_del(pstTcpSvrRuntime->pstAcceptEvent);
-        event_free(pstTcpSvrRuntime->pstAcceptEvent);
+    if (pstTcpSvrRt->pstAcceptEvent) {
+        event_del(pstTcpSvrRt->pstAcceptEvent);
+        event_free(pstTcpSvrRt->pstAcceptEvent);
     }
+    if (pstTcpSvrRt->iListenFd >= 0)
+        close(pstTcpSvrRt->iListenFd);
 
-    if (pstTcpSvrRuntime->iListenFd >= 0)
-        close(pstTcpSvrRuntime->iListenFd);
-
-    free(pstTcpSvrRuntime);
-    *ppstTcpSvrRuntime = NULL;
+    free(pstTcpSvrRt);
+    pstTcpSvrRt = NULL;
 }

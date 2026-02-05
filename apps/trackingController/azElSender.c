@@ -15,31 +15,31 @@
 #include "udsClientRuntime.h"
 #include "tcpServerRuntime.h"
 
-static void sendCurrAzElToCtrlPc(int iFd, short nEvent, void* pvData)
-{
-    (void)iFd;
-    (void)nEvent;
-    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-    unsigned char auchWriteBuffer[2048];
-    int iWriteSize;
-    iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
-    if (iWriteSize == 0) {
-        event_del(pstIoChannel->pstWriteEvent);
-        return;
-    }
-    iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
-    MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-    repackageResponse(auchWriteBuffer, &stMsgId, iWriteSize);
-    iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
-    if (iWriteSize <= 0) {
-        perror("write");
-        return;
-    }    
-    if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
-        event_del(pstIoChannel->pstWriteEvent);
-}
+// static void sendCurrAzElToCtrlPc(int iFd, short nEvent, void* pvData)
+// {
+//     (void)iFd;
+//     (void)nEvent;
+//     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+//     unsigned char auchWriteBuffer[2048];
+//     int iWriteSize;
+//     iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
+//     if (iWriteSize == 0) {
+//         event_del(pstIoChannel->pstWriteEvent);
+//         return;
+//     }
+//     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
+//     MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
+//     repackageResponse(auchWriteBuffer, &stMsgId, iWriteSize);
+//     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
+//     if (iWriteSize <= 0) {
+//         perror("write");
+//         return;
+//     }    
+//     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
+//         event_del(pstIoChannel->pstWriteEvent);
+// }
 
-static void commandEventCb(int iFd, short nEvent, void* pvData)
+static void recvDataFromAC(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
     (void)nEvent;
@@ -73,6 +73,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
                 continue;
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+
             /* === 프레임 소비 === */
             char achCmdData[128];
             char achCmdResult[128];
@@ -86,7 +87,7 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
             fprintf(stderr,"### %s():%d Request Id is %d ###\n",__func__,__LINE__, uiReqId);
             if(unCmd == CMD_ID_INFO){
-                ((RES_ID*)achCmdData)->chResult = (char)TC_RCV_AZ_EL_FROM_AC;
+                ((RES_ID*)achCmdData)->chId = (char)TC_RCV_AZ_EL_FROM_AC;
                 MSG_ID stMsgId = { TC_RCV_AZ_EL_FROM_AC, AC_SND_AZ_EL_TO_TC };
                 eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
@@ -127,8 +128,8 @@ int run()
     EVENT_ENGINE   stEventEngine;
     TCP_SERVER_RUNTIME_CFG stTcpSndAzElSvrRuntimeCfg = {
         .unPort         = AZ_EL_SND_PORT,
-        .iSelfWorkerId  = TC_SND_AZ_EL_TO_CTRL_PC,
-        .iDstWorkerId   = CTRL_PC,
+        .chWorkerId     = (char)TC_SND_AZ_EL_TO_CTRL_PC,
+        .chDstWorkerId  = (char)CTRL_PC,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_TCP_SVR,
         .pfWrite        = NULL,
@@ -136,8 +137,8 @@ int run()
         .pchTag         = "TC_SND_AZ_EL_TO_CTRL_PC"
     };
     UDS_CLIENT_RUNTIME_CFG stUdsClnRuntimeCfg = {
-        .iSelfWorkerId  = TC_RCV_AZ_EL_FROM_AC,
-        .iDstWorkerId   = AC_SND_AZ_EL_TO_TC,
+        .chWorkerId     = (char)TC_RCV_AZ_EL_FROM_AC,
+        .chDstWorkerId  = (char)AC_SND_AZ_EL_TO_TC,
         .pchUdsPath     = UDS_4_PATH,
         .eRole          = ROLE_REQUESTER,
         .eType          = TYPE_UDS_CLI,
@@ -152,7 +153,7 @@ int run()
     eventEngineInit(&stEventEngine, 0);
     TCP_SERVER_RUNTIME *pstTcpSndAzElSvr = tcpServerRuntimeCreate(&stEventEngine, &stTcpSndAzElSvrRuntimeCfg, NULL); 
     UDS_CLIENT_RUNTIME *pstUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, &stUdsClnRuntimeCfg, 
-        commandEventCb, NULL);
+        recvDataFromAC, NULL);
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "SEND_CURRENT_AZ_EL_TO_CTRL_PC");
     fprintf(stderr,"[SEND_CURRENT_AZ_EL_TO_CTRL_PC] Listening on port %d\n", KEYBOARD_RCV_PORT);
 
