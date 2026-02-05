@@ -88,7 +88,7 @@ static COMMAND_PATH decideProcessingPath(unsigned short unCmd)
 }
 
 
-static void applyCommand(ACU_CTRL_CTX* pstAcuCtrlCtx, unsigned short unCmd, 
+static void createAcuUartData(ACU_CTRL_CTX* pstAcuCtrlCtx, unsigned short unCmd, 
     char* pchCmdData, char* pchOut, unsigned int* pOutLen)
 {
     switch(unCmd)
@@ -236,11 +236,11 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
             stMsgId.uchDstId = TC_RCV_AZ_EL_FROM_AC;
             int iSplitCnt = splitAcuDataString(acUartBuf, ';', chSplitData, 2);
             if(iSplitCnt == 2){
-                pstSendCurrAzEl->iAz = (atof(chSplitData[0]) * 1000);
-                pstSendCurrAzEl->iEl = (atof(chSplitData[1]) * 1000);
+                pstSendCurrAzEl->iAz = (int)(atof(chSplitData[0]) * 1000.0);
+                pstSendCurrAzEl->iEl = (int)(atof(chSplitData[1]) * 1000.0);
                 fprintf(stderr,"ACU Current AZ EL Value is %d[%.03lf], %d[%.03lf]\n", 
-                    pstSendCurrAzEl->iAz, ((double)pstSendCurrAzEl->iAz/1000.0), 
-                    pstSendCurrAzEl->iEl, ((double)pstSendCurrAzEl->iEl)/1000.0);
+                    pstSendCurrAzEl->iAz, (((double)pstSendCurrAzEl->iAz)/1000.0), 
+                    pstSendCurrAzEl->iEl, (((double)pstSendCurrAzEl->iEl)/1000.0));
             }
             iSendSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL, FRAME_TYPE_REQUEST);
             if(createCmdRequest(CMD_POSITIONER_AZ_EL, &stMsgId, achCmdResult, auchSendData) == FRAME_OK){
@@ -252,9 +252,7 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
         break;
         default:
             break;
-        }        
-        
-
+        }
     }    
     pstCtx->eState = ACU_STATE_IDLE;
     break;
@@ -276,6 +274,8 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
 /* ============================================================
  * [ADDED] 100ms AZ/EL Polling Timer Callback
  * ============================================================ */
+// acuAzElPollingCb()콜백 함수는 100밀리초 마다 수행하며 ACU의 Uart와 연결이 
+// 되었는지 확인하기 위해서 현재 방위각, 고각을 요청하는 Uart메시지를 전송한다. 
 static void acuAzElPollingCb(int iFd, short nEvent, void *pvData)
 {
     (void)iFd;
@@ -291,11 +291,11 @@ static void acuAzElPollingCb(int iFd, short nEvent, void *pvData)
     }
     COMMAND_PATH eCommandPath = ACU_CTRL_UART;
     pstAcuCtrlCtx->unCmd = CMD_POSITIONER_AZ_EL;
-    applyCommand(pstAcuCtrlCtx, CMD_POSITIONER_AZ_EL, achCmdData, achResult, &uiUartDataSize);
+    createAcuUartData(pstAcuCtrlCtx, CMD_POSITIONER_AZ_EL, achCmdData, achResult, &uiUartDataSize);
     if(pstAcuCtrlCtx->uiLocalReqId == pstEventEngine->uiRequestSeq){
         pstAcuCtrlCtx->uiLocalReqId++;
     }
-    pstEventEngine->uiRequestSeq = pstAcuCtrlCtx->uiLocalReqId++;    
+    pstEventEngine->uiRequestSeq = pstAcuCtrlCtx->uiLocalReqId++;
     evbuffer_add(pstIoChannel->pstRequestBuffer, &eCommandPath, sizeof(eCommandPath));
     evbuffer_add(pstIoChannel->pstRequestBuffer, achResult, uiUartDataSize);
     event_active(pstIoChannel->pstRequestEvent, 0, 0);
@@ -355,7 +355,7 @@ static void commandEventCb(int iFd, short nEvent, void *pvData)
                 fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, frameErrToStr(eErr));
                 continue;
             }            
-            applyCommand(pstAcuCtrlCtx, unCmd, achCmdData, achResult, &uiUartDataSize);
+            createAcuUartData(pstAcuCtrlCtx, unCmd, achCmdData, achResult, &uiUartDataSize);
             if (eCommandPath == COMMAND_PATH_NONE) {
                 MSG_ID stMsgId = { AC_RCV_CMD_FROM_TC, TC_SND_CMD_TO_CLN };
                 eErr = createCmdResponse(unCmd, achCmdData, &stMsgId, achResult);

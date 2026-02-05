@@ -96,8 +96,8 @@ static void recvDataFromAC(int iFd, short nEvent, void* pvData)
             }else if(unCmd == CMD_POSITIONER_AZ_EL){                
                 SEND_CURR_AZ_EL* pstSendCurrAzEl = (SEND_CURR_AZ_EL *)(achRecvBuffer+sizeof(FRAME_HEADER));
                 fprintf(stderr,"ACU Current AZ EL Value is %d[%.03lf], %d[%.03lf]\n", 
-                    pstSendCurrAzEl->iAz, ((double)ntohl(pstSendCurrAzEl->iAz)/1000.0), 
-                    pstSendCurrAzEl->iEl, ((double)ntohl(pstSendCurrAzEl->iEl)/1000.0));
+                    pstSendCurrAzEl->iAz, (((double)pstSendCurrAzEl->iAz)/1000.0), 
+                    pstSendCurrAzEl->iEl, (((double)pstSendCurrAzEl->iEl)/1000.0));
                 IO_CHANNEL* pstSndAzElIo = ioFindChannelByWorkerId(pstEventEngine, TC_SND_AZ_EL_TO_CTRL_PC);
                 if(ioIsChannelAlive(pstSndAzElIo)){
                     fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
