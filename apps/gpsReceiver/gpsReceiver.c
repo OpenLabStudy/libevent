@@ -119,6 +119,8 @@ int run(char* pchUartPath)
         .iSelfWorkerId  = GPS_SND_TO_SF,
         .iDstWorkerId   = SF_RCV_SENSOR_DATA,
         .pchUdsPath     = UDS_2_PATH,
+        .eRole          = ROLE_REQUESTER,
+        .eType          = TYPE_UDS_CLI,
         .pchTag         = "GPS_SND_TO_SF",
     };
 

@@ -14,32 +14,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define UDS_1_PATH              "/tmp/uds1.sock"
-#define UDS_1_SVR_ID            0x00
-#define UDS_1_SENSOR_FUSION     0x01
-#define UDS_1_ACU_CONTROLLER    0x02
-
-#define UDS_2_PATH              "/tmp/uds2.sock"
-#define UDS_2_SVR_ID            0x30
-#define UDS_2_GPS_RECEIVER      0x11
-#define UDS_2_IMU_RECEIVER      0x12
-#define UDS_2_SP_RECEIVER       0x14
-#define UDS_2_EXTERN_RECEIVER   0x18
-#define UDS_2_KEYBOARD_RECEIVER 0x21
-
-#define UDS_3_PATH              "/tmp/uds3.sock"
-#define UDS_3_SVR_ID            0x40
-#define UDS_3_SENSOR_FUSION     0x41
-
-
-#define UDS_4_PATH              "/tmp/uds4.sock"
-#define UDS_4_SVR_ID            0x80
-#define UDS_4_KEYBOARD_RECEIVER 0x81
-
 #define UDS_MAX_BUFFER_SIZE     2048
-
-
+#define UDS_1_PATH              "/tmp/uds1.sock"
+#define UDS_2_PATH              "/tmp/uds2.sock"
+#define UDS_3_PATH              "/tmp/uds3.sock"
+#define UDS_4_PATH              "/tmp/uds4.sock"
 
 
 /* ========================================================================== */

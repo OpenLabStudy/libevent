@@ -80,20 +80,33 @@ trackingController_build:
 	@$(MAKE) trackingController
 	$(call BUILD_DONE,trackingController)
 
+keyboardReceiver_build:
+	$(call BUILD_START,keyboardReceiver)
+	@$(MAKE) keyboardReceiver
+	$(call BUILD_DONE,keyboardReceiver)
+
+azElSender_build:
+	$(call BUILD_START,azElSender)
+	@$(MAKE) azElSender
+	$(call BUILD_DONE,azElSender)
 
 ALL_APPS := \
     acuCtrl \
     gpsReceiver \
     imuReceiver \
     sensorFusion \
-    trackingController
+    trackingController \
+	keyboardReceiver \
+	azElSender
 
 ALL_BUILD := \
     acuCtrl_build \
     gpsReceiver_build \
     imuReceiver_build \
     sensorFusion_build \
-    trackingController_build
+    trackingController_build \
+    keyboardReceiver_build \
+    azElSender_build
 
 all: $(ALL_BUILD)
 	@echo "======================================"

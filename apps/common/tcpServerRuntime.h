@@ -9,39 +9,33 @@ extern "C" {
 #endif
 
 typedef struct {
-    unsigned short unPort;   /* listen socket path */
-    const char *pchTag;       /* log tag */
-    int          iSelfWorkerId;
-    int          iDstWorkerId;
+    unsigned short  unPort;   /* listen socket path */
+    const char      *pchTag;       /* log tag */
+    int             iSelfWorkerId;
+    int             iDstWorkerId;
+    IO_ROLE         eRole;
+    IO_TYPE         eType;
 
-    /*
-     * 새 client accept 후 호출됨
-     *  - az/el 즉시 전송
-     *  - client 초기화
-     *  - client 리스트 등록 등
-     */
     void (*pfWrite)(IO_CHANNEL *pstIo, void *pvUserCtx);
-
-    /* client RX 처리 핸들러 (필수) */
     void (*pfIoHandler)(int iFd, short nEvent, void *pvData);
 
 } TCP_SERVER_RUNTIME_CFG;
 
 typedef struct {
-    EVENT_ENGINE *pstEventEngine;
-
-    int           iListenFd;
-    struct event *pstAcceptEvent;
-
-    unsigned short unPort;
-    const char   *pchTag;
-    int          iSelfWorkerId;
-    int          iDstWorkerId;
+    EVENT_ENGINE    *pstEventEngine;
+    struct event    *pstAcceptEvent;
+    int             iListenFd;
+    unsigned short  unPort;
+    const char      *pchTag;
+    int             iSelfWorkerId;
+    int             iDstWorkerId;
+    IO_ROLE         eRole;
+    IO_TYPE         eType;
 
     void (*pfWrite)(IO_CHANNEL *, void *);
     void (*pfIoHandler)(int, short, void *);
 
-    void         *pvUserCtx;
+    void            *pvUserCtx;
 }TCP_SERVER_RUNTIME;
 
 /* 생성 / 파괴 */

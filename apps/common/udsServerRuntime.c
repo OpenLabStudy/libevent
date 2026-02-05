@@ -39,7 +39,7 @@ static void udsServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvA
     netSetNonblock(clientFd);
 
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
-        TYPE_UDS_SVR, ROLE_REQUESTER,
+        pstUdsSvrRuntime->eType, pstUdsSvrRuntime->eRole,
         NULL, pstUdsSvrRuntime->pfWrite, pstUdsSvrRuntime->pfIoHandler
     );
 
@@ -64,7 +64,6 @@ static void udsServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvA
         evbuffer_add(pstNewIo->pstWriteBuffer, auSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
         event_add(pstNewIo->pstWriteEvent, NULL);
     }
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
 }
 
 /* ============================================================
@@ -86,6 +85,8 @@ udsServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
     pstUdsSvrRuntime->pchUdsPath        = pstCfg->pchUdsPath;
     pstUdsSvrRuntime->pchTag            = pstCfg->pchTag;
     pstUdsSvrRuntime->iSelfWorkerId     = pstCfg->iSelfWorkerId;
+    pstUdsSvrRuntime->eRole             = pstCfg->eRole;
+    pstUdsSvrRuntime->eType             = pstCfg->eType;
     pstUdsSvrRuntime->pfWrite           = pstCfg->pfWrite;
     pstUdsSvrRuntime->pfIoHandler       = pstCfg->pfIoHandler;
     pstUdsSvrRuntime->pvUserCtx         = pvUserCtx;

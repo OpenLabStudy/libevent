@@ -228,7 +228,7 @@ REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, 
     REQUEST_CONTEXT* pstReq = calloc(1, sizeof(REQUEST_CONTEXT));
     if (!pstReq)
         return NULL;
-
+    
     pstReq->uiRequestId         = pstEventEngine->uiRequestSeq;
     pstReq->pstTcpIoChannel     = pstRequester;
     pstReq->uiWorkerCount       = pstEventEngine->uiMaxWorkers;
@@ -304,7 +304,6 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
     EVENT_ENGINE* pstEventEngine = pstRequester->pstEventEngine;
     int iUdsId = 0;
     REQUEST_CONTEXT* pstReq = NULL;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     while (1) {
         if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(int))
             break;        

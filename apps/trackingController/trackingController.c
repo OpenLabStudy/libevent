@@ -58,7 +58,7 @@ void tcpWriteCallback(int iFd, short nEvent, void* pvData)
     if (iWriteSize == 0) {
         event_del(pstIoChannel->pstWriteEvent);
         return;
-    }    
+    }
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
     MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
     repackageResponse(auchWriteBuffer, &stMsgId, iWriteSize);
@@ -83,7 +83,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     char achRecvBuffer[2048];
     unsigned short unCmd = 0;
     FRAME_ERR eErr;
-    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     switch (eEventType) {
     case IO_EVT_RX_DATA:
         while (1) {
@@ -96,20 +95,8 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[TRACKING-CTRL-SVR] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
-                if (iOffset > 0) {
-                    /* 앞부분 garbage 제거 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[TRACKING-CTRL-SVR] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
-                    /* STX half-match: 데이터 더 수신 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[TRACKING-CTRL-SVR] STX half match, wait more data\n");
-                } else {
-                    /* STX 자체가 없음 → 전부 드랍 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[TRACKING-CTRL-SVR] no STX, drop all\n");
-                }
+                int iDeleteDataSize = findFrameHeader(achRecvBuffer, iCopyLen);
+                evbuffer_drain(pstIoChannel->pstReadBuffer, iDeleteDataSize);
                 continue;
             }
             /* === CMD 먼저 추출 (가벼운 파싱) === */
@@ -121,7 +108,6 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             /* === 처리 경로 결정 === */
             COMMAND_PATH eCommandPath = decideProcessingPath(unCmd);
-            fprintf(stderr,"### %s():%d Path:%d ###\n",__func__,__LINE__, eCommandPath);
             if (eCommandPath == COMMAND_PATH_NONE) {
                 /* === 명령 처리 === */
                 char achCmdResult[128];
@@ -144,7 +130,7 @@ static void tcpIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
                 fprintf(stderr,"### %s():%d IPC Forwarding CMD:0x%04x Path:%d Copy Size:%d ###\n", __func__, __LINE__, unCmd, eCommandPath, iFrameSize);
                 evbuffer_add(pstIoChannel->pstRequestBuffer, &eCommandPath, sizeof(int));
                 evbuffer_add(pstIoChannel->pstRequestBuffer, achRecvBuffer, iFrameSize);
-                event_active(pstIoChannel->pstRequestEvent, 0, 0);
+                event_active(pstIoChannel->pstRequestEvent, 0, 0);                
             }
         }
         break;
@@ -206,20 +192,8 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
         eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
         if (eErr != FRAME_OK) {
             fprintf(stderr, "[TC_SND_CMD_TO_CLN] frameDecode ERR: %s\n", frameErrToStr(eErr));
-            int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
-            if (iOffset > 0) {
-                /* 앞부분 garbage 제거 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                fprintf(stderr,"[TC_SND_CMD_TO_CLN] resync: drop %d bytes, retry decode\n", iOffset);
-            } else if (iOffset == -2) {
-                /* STX half-match: 데이터 더 수신 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                fprintf(stderr,"[TC_SND_CMD_TO_CLN] STX half match, wait more data\n");
-            } else {
-                /* STX 자체가 없음 → 전부 드랍 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                fprintf(stderr, "[TC_SND_CMD_TO_CLN] no STX, drop all\n");
-            }
+            int iDeleteDataSize = findFrameHeader(achRecvBuffer, iCopyLen);
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iDeleteDataSize);
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
         evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize + sizeof(unsigned int));        
@@ -244,75 +218,6 @@ static void udsIoChannelHandleEvent(int iFd, short nEvent, void* pvData)
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
 }
 
-/* ============================================================
-* Accept 콜백
-* ============================================================ */
-static void acceptCb(evutil_socket_t iListenFd, short nKindOfEvent, void* pvArg)
-{
-    (void)nKindOfEvent;
-    IO_CHANNEL* pstIoChannel;
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
-    struct sockaddr_storage stSockAddrStorage;
-    struct sockaddr_in stClientAddr;
-    unsigned int uiClientLen = sizeof(stClientAddr);
-    unsigned int uiLen = sizeof(stSockAddrStorage);
-    if (getsockname(iListenFd, (struct sockaddr*)&stSockAddrStorage, &uiLen) == 0) {
-        int iClientSock = accept(iListenFd, (struct sockaddr*)&stClientAddr, &uiClientLen);
-        if (iClientSock < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK){
-                if (stSockAddrStorage.ss_family == AF_INET || stSockAddrStorage.ss_family == AF_INET6) {
-                    perror("[TRACKING-CTRL-SVR] accept");
-                } else if (stSockAddrStorage.ss_family == AF_UNIX) {
-                    perror("[UDS-SVR] accept");
-                }
-            }
-            return;
-        }
-
-        netSetNonblock(iClientSock);
-        if (stSockAddrStorage.ss_family == AF_INET || stSockAddrStorage.ss_family == AF_INET6) {
-            fprintf(stderr, "[TRACKING-CTRL-SVR] New client FD=%d\n", iClientSock);
-            pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
-                    TYPE_TCP_SVR, ROLE_REQUESTER,
-                    NULL, tcpWriteCallback, tcpIoChannelHandleEvent);
-            pstIoChannel->iWorkerId = TC_RCV_CMD_FROM_CTRL_PC;
-            pstIoChannel->chFdCloseSet = FD_OPENED;
-        } else if (stSockAddrStorage.ss_family == AF_UNIX) {
-            fprintf(stderr, "[TC_SND_CMD_TO_CLN] New client FD=%d\n", iClientSock);
-            pstIoChannel = eventSourceCreateWithBev(pstEventEngine, iClientSock,
-                    TYPE_UDS_SVR, ROLE_WORKER,
-                    NULL, udsWriteCallback, udsIoChannelHandleEvent);
-            pstIoChannel->chFdCloseSet = FD_OPENED;
-            pstIoChannel->iWorkerId = TC_SND_CMD_TO_CLN;
-            REQ_ID stReqId;
-            MSG_ID stMsgId = { TC_SND_CMD_TO_CLN,  SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC};
-            char achSendBuf[64];            
-            stReqId.chTmp = 0x01;        
-            if(createCmdRequest(CMD_ID_INFO, &stMsgId, &stReqId, achSendBuf) == FRAME_OK){
-                evbuffer_add(pstIoChannel->pstWriteBuffer, achSendBuf, getFrameSizeWithCmd(CMD_ID_INFO, FRAME_TYPE_REQUEST));
-                event_add(pstIoChannel->pstWriteEvent, NULL);
-            }
-        }
-    }
-}
-
-/* ============================================================
-* SIGINT 콜백
-* ============================================================ */
-static void signalCb(evutil_socket_t sig, short events, void* pvArg)
-{
-    (void)sig;
-    (void)events;
-    EVENT_ENGINE* pstEventEngine = (EVENT_ENGINE *)pvArg;
-
-    fprintf(stderr,"\n[TCP-UDS-SVR] SIGINT → shutdown\n");
-    if(pstEventEngine->pstEventBase)
-        event_base_loopexit(pstEventEngine->pstEventBase, NULL);
-}
-
-/* ============================================================
-* main()
-* ============================================================ */
 int run()
 {
     EVENT_ENGINE   stEventEngine;
@@ -320,6 +225,8 @@ int run()
         .pchUdsPath     = UDS_1_PATH,        
         .iSelfWorkerId  = TC_SND_CMD_TO_CLN,
         .iDstWorkerId   = SF_RCV_CMD_FROM_TC|AC_RCV_CMD_FROM_TC,
+        .eRole          = ROLE_WORKER,
+        .eType          = TYPE_UDS_SVR,
         .pfWrite        = udsWriteCallback,
         .pfIoHandler    = udsIoChannelHandleEvent,
         .pchTag         = "TC_SND_CMD_TO_CLN"
@@ -328,6 +235,8 @@ int run()
         .unPort         = TRACKING_CTRL_PORT,        
         .iSelfWorkerId  = TC_RCV_CMD_FROM_CTRL_PC,
         .iDstWorkerId   = CTRL_PC,
+        .eRole          = ROLE_REQUESTER,
+        .eType          = TYPE_TCP_SVR,
         .pfWrite        = tcpWriteCallback,
         .pfIoHandler    = tcpIoChannelHandleEvent,
         .pchTag         = "TC_RCV_CMD_FROM_CTRL_PC"

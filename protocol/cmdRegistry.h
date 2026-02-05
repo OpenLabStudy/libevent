@@ -5,7 +5,9 @@ typedef enum {
     COMMAND_PATH_FAIL = 0x00,
     COMMAND_PATH_NONE,
     CTRL_PC,
-    TC_RCV_CMD_FROM_CTRL_PC,    
+    TC_RCV_CMD_FROM_CTRL_PC,
+    TC_RCV_AZ_EL_FROM_CTRL_PC,
+    TC_SND_AZ_EL_TO_CTRL_PC,
     ACU_CTRL_UART,
     GPS_RCV_UART,
     IMU_RCV_UART,
@@ -22,7 +24,8 @@ typedef enum {
 
     SF_RCV_SENSOR_DATA = 0x20,
     IMU_SND_TO_SF,
-    GPS_SND_TO_SF
+    GPS_SND_TO_SF,
+    KEYBOARD_SND_TO_SF
 
     
 } COMMAND_PATH;

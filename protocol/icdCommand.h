@@ -94,7 +94,6 @@ enum COMMAND_ID
 	CMD_KEYBOARD_AZ_EL = 0x0030,
 	CMD_SRIP_RING_SET = 0x0090,
 	CMD_COMMAND_FAIL = 0x00FF,
-	CMD_GET_CURRENT_AZ_EL_SET = 0x0200,
     CDM_GPS_DATA = 0x7001,
     CDM_IMU_DATA,
     CDM_SP_DATA,
@@ -287,6 +286,14 @@ typedef struct PACKED {
 } RES_AZ_EL_OFFSET_SET;
 
 typedef struct PACKED {
+    int iAz;
+    int iEl;
+} REQ_KEYBOARD_AZ_EL;
+typedef struct PACKED {
+    char chResult;
+} RES_KEYBOARD_AZ_EL;
+
+typedef struct PACKED {
 	char chSelect;
 } REQ_EXTERN_DEV_SELECT;
 
@@ -343,6 +350,16 @@ typedef struct PACKED {
 typedef struct PACKED {
 	char chResult;
 } RES_AUTO_TRACKING_WAIT;
+
+typedef struct __attribute__((__packed__)){
+	int iTime;
+	int iAz;
+	int iEl;
+	char chExtSerialState;
+	char chTriggerState;
+	int iRecvAz;
+	int iRecvEl;
+}SEND_CURR_AZ_EL;
 
 
 
@@ -403,6 +420,18 @@ int buildResAcuModeSelect(const void* pvUserData, void* pvOutData);
 int buildForwardReqAutoTrackingWait(const void* pvUserData, void* pvOutData);
 int dispatchCmdAutoTrackingWait(const void* pvRecvData, void* pvOutData);
 int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData);
+
+int buildForwardReqKeyboardAzEl(const void* pvUserData, void* pvOutData);
+int dispatchKeyboardAzEl(const void* pvRecvData, void* pvOutData);
+int buildResKeyboardAzEl(const void* pvUserData, void* pvOutData);
+
+int buildForwardCurrAzEl(const void* pvUserData, void* pvOutData);
+int dispatchCurrAzEl(const void* pvRecvData, void* pvOutData);
+int buildResCurrAzEl(const void* pvUserData, void* pvOutData);
+
+
+
+
 
 int buildResImuData(const void* pvUserData, void* pvOutData);
 

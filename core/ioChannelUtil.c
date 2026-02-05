@@ -44,6 +44,7 @@ IO_CHANNEL* ioFindChannelByWorkerId(EVENT_ENGINE* pstEngine, int iWorkerId)
         
     IO_CHANNEL* pstCur = pstEngine->pstIoChannelList;
     while (pstCur) {
+        fprintf(stderr,"### %s():%d %d %d ###\n",__func__,__LINE__,iWorkerId, pstCur->iWorkerId);
         if (pstCur->iWorkerId == iWorkerId){
             return pstCur;
         }

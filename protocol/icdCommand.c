@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <string.h>
 
-
 double endianChange(char* i_chData)
 {
 	int i;
@@ -25,8 +24,6 @@ double endianChange(char* i_chData)
 	memcpy(&dValue, chChangeEndian, sizeof(double));
 	return dValue;
 }
-
-
 
 uint64_t swap_uint64(uint64_t val) {
     return ((val << 56) & 0xFF00000000000000ULL) |
@@ -263,7 +260,6 @@ int buildResAcuModeSelect(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_ACU_MODE);
 }
 
-
 int buildForwardReqAutoTrackingWait(const void* pvUserData, void* pvOutData)
 {    
 	REQ_AUTO_TRACKING_WAIT *pstReqUserData			= (REQ_AUTO_TRACKING_WAIT *)pvUserData;
@@ -296,6 +292,82 @@ int buildResAutoTrackingWait(const void* pvUserData, void* pvOutData)
 	pstResAutoTrackingWait->chResult 				= pstUserData->chResult;	
 	return sizeof(RES_AUTO_TRACKING_WAIT);
 }
+
+
+int buildForwardReqKeyboardAzEl(const void* pvUserData, void* pvOutData)
+{    
+	REQ_KEYBOARD_AZ_EL *pstReqUserData		= (REQ_KEYBOARD_AZ_EL *)pvUserData;
+	REQ_KEYBOARD_AZ_EL *pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvOutData;
+	pstReqKeyboardAzEl->iAz					= pstReqUserData->iAz;
+	pstReqKeyboardAzEl->iEl					= pstReqUserData->iEl;
+    return sizeof(REQ_KEYBOARD_AZ_EL);
+}
+int dispatchKeyboardAzEl(const void* pvRecvData, void* pvOutData)
+{
+	REQ_KEYBOARD_AZ_EL 	*pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvRecvData;
+	RES_KEYBOARD_DATA 	*pstReqUserData		= (RES_KEYBOARD_DATA *)pvOutData;
+	pstReqUserData->dAz						= (((double)pstReqKeyboardAzEl->iAz) / 1000.0);
+	pstReqUserData->dEl						= (((double)pstReqKeyboardAzEl->iEl) / 1000.0);
+	fprintf(stderr,"Recv Keyboard Az:%lf, El:%lf\n", pstReqUserData->dAz, pstReqUserData->dEl);	
+	return sizeof(REQ_KEYBOARD_AZ_EL);
+}
+int buildResKeyboardAzEl(const void* pvUserData, void* pvOutData)
+{
+	RES_KEYBOARD_AZ_EL *pstUserData			= (RES_KEYBOARD_AZ_EL *)(pvUserData);
+	RES_KEYBOARD_AZ_EL *pstResKeyboardAzEl	= (RES_KEYBOARD_AZ_EL *)(pvOutData);
+	pstResKeyboardAzEl->chResult 			= pstUserData->chResult;	
+	return sizeof(RES_KEYBOARD_AZ_EL);
+}
+
+int buildResKeyboardData(const void* pvUserData, void* pvOutData)
+{
+	RES_KEYBOARD_DATA *pstUserData			= (RES_KEYBOARD_DATA *)(pvUserData);
+	RES_KEYBOARD_DATA *pstResKeyboardData	= (RES_KEYBOARD_DATA *)(pvOutData);
+	pstResKeyboardData->dAz					= pstUserData->dAz;
+	pstResKeyboardData->dEl					= pstUserData->dEl;
+	return sizeof(RES_KEYBOARD_DATA);
+}
+
+
+int buildForwardCurrAzEl(const void* pvUserData, void* pvOutData)
+{    
+	REQ_KEYBOARD_AZ_EL *pstReqUserData		= (REQ_KEYBOARD_AZ_EL *)pvUserData;
+	REQ_KEYBOARD_AZ_EL *pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvOutData;
+	pstReqKeyboardAzEl->iAz					= pstReqUserData->iAz;
+	pstReqKeyboardAzEl->iEl					= pstReqUserData->iEl;
+    return sizeof(REQ_KEYBOARD_AZ_EL);
+}
+int dispatchCurrAzEl(const void* pvRecvData, void* pvOutData)
+{
+	REQ_KEYBOARD_AZ_EL 	*pstReqKeyboardAzEl	= (REQ_KEYBOARD_AZ_EL *)pvRecvData;
+	RES_KEYBOARD_DATA 	*pstReqUserData		= (RES_KEYBOARD_DATA *)pvOutData;
+	pstReqUserData->dAz						= (((double)pstReqKeyboardAzEl->iAz) / 1000.0);
+	pstReqUserData->dEl						= (((double)pstReqKeyboardAzEl->iEl) / 1000.0);
+	fprintf(stderr,"Recv Keyboard Az:%lf, El:%lf\n", pstReqUserData->dAz, pstReqUserData->dEl);	
+	return sizeof(REQ_KEYBOARD_AZ_EL);
+}
+int buildResCurrAzEl(const void* pvUserData, void* pvOutData)
+{
+	SEND_CURR_AZ_EL *pstUserData	= (SEND_CURR_AZ_EL *)(pvUserData);
+	SEND_CURR_AZ_EL *pstResCurrAzEl	= (SEND_CURR_AZ_EL *)(pvOutData);
+	pstResCurrAzEl->chExtSerialState = 0x00;
+	pstResCurrAzEl->chTriggerState = 0x00;
+	pstResCurrAzEl->iAz = htonl(pstUserData->iAz);
+	pstResCurrAzEl->iEl = htonl(pstUserData->iEl);
+	pstResCurrAzEl->iRecvAz = 0;
+	pstResCurrAzEl->iRecvEl = 0;
+	pstResCurrAzEl->iTime = htonl(pstUserData->iTime);
+	return sizeof(SEND_CURR_AZ_EL);
+}
+
+
+
+
+
+
+
+
+
 
 int buildResImuData(const void* pvUserData, void* pvOutData)
 {
@@ -346,21 +418,3 @@ int buildResExternData(const void* pvUserData, void* pvOutData)
 	return sizeof(RES_AZ_EL_DATA);
 }
 
-
-int dispatchKeyboardData(const void* pvRecvData, void* pvOutData)
-{
-	REQ_KEYBOARD_DATA *pstReqKeyboard 	= (REQ_KEYBOARD_DATA *)pvRecvData;
-	REQ_KEYBOARD_DATA *pstReqUserData	= (REQ_KEYBOARD_DATA *)pvOutData;
-	pstReqUserData->dAz 		= pstReqKeyboard->dAz;
-	pstReqUserData->dEl 		= pstReqKeyboard->dEl;	
-	fprintf(stderr, "Recv Keyboard Data\n");
-	return sizeof(REQ_KEYBOARD_DATA);
-}
-int buildResKeyboardData(const void* pvUserData, void* pvOutData)
-{
-	RES_AZ_EL_DATA *pstUserData			= (RES_AZ_EL_DATA *)(pvUserData);
-	RES_AZ_EL_DATA *pstResKeyboardData	= (RES_AZ_EL_DATA *)(pvOutData);
-	pstResKeyboardData->dAz 			= pstUserData->dAz;
-	pstResKeyboardData->dEl 			= pstUserData->dEl;
-	return sizeof(RES_AZ_EL_DATA);
-}

@@ -37,9 +37,9 @@ static void tcpServerAcceptCb(evutil_socket_t iListenFd, short nEvent, void *pvA
     }
 
     netSetNonblock(clientFd);
-
+    fprintf(stderr,"### %s():%d eRole is %d ###\n", __func__,__LINE__, pstTcpSvrRuntime->eRole);
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
-        TYPE_TCP_SVR, ROLE_REQUESTER,
+        pstTcpSvrRuntime->eType, pstTcpSvrRuntime->eRole,
         NULL, pstTcpSvrRuntime->pfWrite, pstTcpSvrRuntime->pfIoHandler
     );
 
@@ -83,9 +83,11 @@ tcpServerRuntimeCreate(EVENT_ENGINE *pstEventEngine,
         return NULL;
 
     pstTcpSvrRuntime->pstEventEngine    = pstEventEngine;
-    pstTcpSvrRuntime->unPort        = pstCfg->unPort;
+    pstTcpSvrRuntime->unPort            = pstCfg->unPort;
     pstTcpSvrRuntime->pchTag            = pstCfg->pchTag;
     pstTcpSvrRuntime->iSelfWorkerId     = pstCfg->iSelfWorkerId;
+    pstTcpSvrRuntime->eRole             = pstCfg->eRole;
+    pstTcpSvrRuntime->eType             = pstCfg->eType;
     pstTcpSvrRuntime->pfWrite           = pstCfg->pfWrite;
     pstTcpSvrRuntime->pfIoHandler       = pstCfg->pfIoHandler;
     pstTcpSvrRuntime->pvUserCtx         = pvUserCtx;

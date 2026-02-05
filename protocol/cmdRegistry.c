@@ -83,6 +83,11 @@ static CMD_DESC g_cmdTable[] = {
         sizeof(REQ_TRACKING_SELECT), sizeof(RES_TRACKING_SELECT),
         buildForwardReqTrackingSelect, dispatchCmdTrackingSelect, buildResTrackingSelect 
     },
+
+    {   CMD_KEYBOARD_AZ_EL, "RECV_KEYBOARD_AZ_EL",
+        sizeof(REQ_KEYBOARD_AZ_EL), sizeof(RES_KEYBOARD_AZ_EL),
+        buildForwardReqKeyboardAzEl, dispatchKeyboardAzEl, buildResKeyboardAzEl
+    },
     
     {   CMD_ACU_MODE_SELECT, "ACU_MODE_SELECT",
         sizeof(REQ_ACU_MODE), sizeof(RES_ACU_MODE),        
@@ -91,6 +96,10 @@ static CMD_DESC g_cmdTable[] = {
     {   CMD_AUTO_TRACKING_WAIT, "AUTO_TRACKING_WAIT",
         sizeof(REQ_AUTO_TRACKING_WAIT), sizeof(RES_AUTO_TRACKING_WAIT),        
         buildForwardReqAutoTrackingWait, dispatchCmdAutoTrackingWait, buildResAutoTrackingWait 
+    },
+    {   CMD_POSITIONER_AZ_EL, "SEND_CURR_AZ_EL",
+        0, sizeof(SEND_CURR_AZ_EL),        
+        buildForwardCurrAzEl, dispatchCurrAzEl, buildResCurrAzEl
     },
 
 
@@ -114,6 +123,10 @@ static CMD_DESC g_cmdTable[] = {
         0, sizeof(RES_AZ_EL_DATA),        
         NULL, NULL, buildResKeyboardData 
     },
+
+
+
+ 
     
     {   CMD_CTRL_AZ_EL_DATA, "CTRL_AZ_EL_DATA",
         0, sizeof(RES_AZ_EL_DATA),        
@@ -377,10 +390,10 @@ FRAME_ERR repackageResponse(void* pvData, MSG_ID* pstMsgId, int iFrameSize)
     getCmdCode(pvData, iFrameSize, &unCmd);
     FRAME_TAIL *pstTail = frameGetTailPtr(pvData, unCmd, FRAME_TYPE_RESPONSE);
 
-    fprintf(stderr,"### %s():%d Len:%d ###\n",__func__,__LINE__, getDataSize(unCmd, FRAME_TYPE_RESPONSE));    
+    // fprintf(stderr,"### %s():%d Cdm:%d Len:%d ###\n",__func__,__LINE__, unCmd, getDataSize(unCmd, FRAME_TYPE_RESPONSE));    
     pstFrameHeader->stMsgId.uchSrcId = pstMsgId->uchSrcId;
     pstFrameHeader->stMsgId.uchDstId = pstMsgId->uchDstId;
-    fprintf(stderr,"SRC:%02x, DST:%02x\n", pstFrameHeader->stMsgId.uchSrcId, pstFrameHeader->stMsgId.uchDstId);
+    // fprintf(stderr,"SRC:%02x, DST:%02x\n", pstFrameHeader->stMsgId.uchSrcId, pstFrameHeader->stMsgId.uchDstId);
     pstTail->uchCrc = frameCalcCrc(pvData, getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE));
     return FRAME_OK;
 }
@@ -449,7 +462,7 @@ char getIdInfo(char *puchData)
 int findFrameHeader(char *pchData, int iSize)
 {
     if (!pchData || iSize < 2)
-        return -1;
+        return 0;
 
     for (int i = 0; i <= iSize - 2; i++) {
         /* STX = 0xAA55 (network order) */
@@ -461,8 +474,8 @@ int findFrameHeader(char *pchData, int iSize)
     /* 만약 마지막 바이트가 0xAA 라면,
        다음 recv에서 0x55가 올 가능성 있음 */
     if ((unsigned char)pchData[iSize - 1] == 0xAA)
-        return -2;
+        return iSize - 1;
 
-    return -1;
+    return iSize;
 }
 

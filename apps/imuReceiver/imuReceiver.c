@@ -127,6 +127,8 @@ int run(char* pchUartPath)
         .iSelfWorkerId  = IMU_SND_TO_SF,
         .iDstWorkerId   = SF_RCV_SENSOR_DATA,
         .pchUdsPath     = UDS_2_PATH,
+        .eRole          = ROLE_REQUESTER,
+        .eType          = TYPE_UDS_CLI,
         .pchTag         = "IMU_SND_TO_SF"
     };
     

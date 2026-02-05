@@ -164,8 +164,9 @@ IO_CHANNEL* eventSourceCreateWithBev( EVENT_ENGINE* pstEventEngine, int iFd,
     }else{
         pstIoChannel->pstLogicEvent = NULL;
     }
-    
+    fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
     if(eRole == ROLE_REQUESTER){
+        fprintf(stderr,"### %s():%d ###\n", __func__,__LINE__);
         pstIoChannel->pstRequestEvent = event_new(pstEventEngine->pstEventBase,
             -1/* FD 없음 */,  EV_PERSIST, eventEngineHandleRequest,  pstIoChannel);
         pstIoChannel->pstRequestBuffer = evbuffer_new();

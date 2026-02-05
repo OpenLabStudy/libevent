@@ -341,20 +341,8 @@ static void commandEventCb(int iFd, short nEvent, void* pvData)
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[SF_RCV_CMD_FROM_TC] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
-                if (iOffset > 0) {
-                    /* 앞부분 garbage 제거 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[SF_RCV_CMD_FROM_TC] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
-                    /* STX half-match: 데이터 더 수신 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[SF_RCV_CMD_FROM_TC] STX half match, wait more data\n");
-                } else {
-                    /* STX 자체가 없음 → 전부 드랍 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[SF_RCV_CMD_FROM_TC] no STX, drop all\n");
-                }
+                int iDeleteDataSize = findFrameHeader(achRecvBuffer, iCopyLen);
+                evbuffer_drain(pstIoChannel->pstReadBuffer, iDeleteDataSize);
                 continue;
             }
             int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
@@ -431,20 +419,8 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
                 fprintf(stderr, "[SF_RCV_SENSOR_DATA] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
-                if (iOffset >= 0) {
-                    /* 앞부분 garbage 제거 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                    fprintf(stderr,"[SF_RCV_SENSOR_DATA] resync: drop %d bytes, retry decode\n", iOffset);
-                } else if (iOffset == -2) {
-                    /* STX half-match: 데이터 더 수신 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                    fprintf(stderr,"[SF_RCV_SENSOR_DATA] STX half match, wait more data\n");
-                } else {
-                    /* STX 자체가 없음 → 전부 드랍 */
-                    evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                    fprintf(stderr, "[SF_RCV_SENSOR_DATA] no STX, drop all\n");
-                }
+                int iDeleteDataSize = findFrameHeader(achRecvBuffer, iCopyLen);
+                evbuffer_drain(pstIoChannel->pstReadBuffer, iDeleteDataSize);
                 continue;
             }
 
@@ -536,6 +512,8 @@ int run(void)
         .pchTag         = "SF_RCV_SENSOR_DATA",
         .iSelfWorkerId  = SF_RCV_SENSOR_DATA,
         .iDstWorkerId   = IMU_SND_TO_SF|GPS_SND_TO_SF,
+        .eRole          = ROLE_REQUESTER,
+        .eType          = TYPE_UDS_SVR,
         .pfWrite        = NULL,
         .pfIoHandler    = sensorFusionRead
     };
@@ -543,12 +521,16 @@ int run(void)
         .iSelfWorkerId  = SF_RCV_CMD_FROM_TC,
         .iDstWorkerId   = TC_SND_CMD_TO_CLN,
         .pchUdsPath     = UDS_1_PATH,
+        .eRole          = ROLE_REQUESTER,
+        .eType          = TYPE_UDS_CLI,
         .pchTag         = "SF_RCV_CMD_FROM_TC"
     };    
     UDS_CLIENT_RUNTIME_CFG stSndAzElUdsClnRuntimeCfg = {
         .iSelfWorkerId  = SF_SND_AZ_EL_TO_AC,
         .iDstWorkerId   = AC_RCV_AZ_EL_FROM_SF,
         .pchUdsPath     = UDS_3_PATH,
+        .eRole          = ROLE_REQUESTER,
+        .eType          = TYPE_UDS_CLI,
         .pchTag         = "SF_SND_AZ_EL_TO_AC"
     };
     

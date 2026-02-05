@@ -56,20 +56,8 @@ static void udsClientRecvCommandCb(int iFd, short nEvent, void *pvArg)
         eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
         if (eErr != FRAME_OK) {
             fprintf(stderr, "[%s] frameDecode ERR: %s\n", getWorkerName(pstIoChannel->iWorkerId), frameErrToStr(eErr));
-            int iOffset = findFrameHeader(achRecvBuffer, iCopyLen);
-            if (iOffset > 0) {
-                /* 앞부분 garbage 제거 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iOffset);
-                fprintf(stderr,"[%s] resync: drop %d bytes, retry decode\n", getWorkerName(pstIoChannel->iWorkerId), iOffset);
-            } else if (iOffset == -2) {
-                /* STX half-match: 데이터 더 수신 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen-1);
-                fprintf(stderr,"[%s] STX half match, wait more data\n", getWorkerName(pstIoChannel->iWorkerId));
-            } else {
-                /* STX 자체가 없음 → 전부 드랍 */
-                evbuffer_drain(pstIoChannel->pstReadBuffer, iCopyLen);
-                fprintf(stderr, "[%s] no STX, drop all\n", getWorkerName(pstIoChannel->iWorkerId));
-            }
+            int iDeleteDataSize = findFrameHeader(achRecvBuffer, iCopyLen);
+            evbuffer_drain(pstIoChannel->pstReadBuffer, iDeleteDataSize);
         }
         int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
         /* === 프레임 소비 === */
@@ -154,11 +142,13 @@ UDS_CLIENT_RUNTIME* udsClientRuntimeCreate(EVENT_ENGINE *pstEventEngine,
     if (!pstUdsClnRuntime)
         return NULL;
 
-    pstUdsClnRuntime->pstEventEngine = pstEventEngine;
-    pstUdsClnRuntime->iSelfWorkerId  = pstCfg->iSelfWorkerId;
-    pstUdsClnRuntime->iDstWorkerId   = pstCfg->iDstWorkerId;
-    pstUdsClnRuntime->pchUdsPath     = pstCfg->pchUdsPath;
-    pstUdsClnRuntime->pchTag         = pstCfg->pchTag;    
+    pstUdsClnRuntime->pstEventEngine    = pstEventEngine;
+    pstUdsClnRuntime->iSelfWorkerId     = pstCfg->iSelfWorkerId;
+    pstUdsClnRuntime->iDstWorkerId      = pstCfg->iDstWorkerId;
+    pstUdsClnRuntime->pchUdsPath        = pstCfg->pchUdsPath;
+    pstUdsClnRuntime->pchTag            = pstCfg->pchTag;
+    pstUdsClnRuntime->eRole             = pstCfg->eRole;
+    pstUdsClnRuntime->eType             = pstCfg->eType;
     pstUdsClnRuntime->pfWriteRespCb     = pfWriteRespCb;
     if(pfRecvCommandCb == NULL){
         pstUdsClnRuntime->pfRecvCommandCb   = udsClientRecvCommandCb;
