@@ -337,11 +337,11 @@ int buildForwardCurrAzEl(const void* pvUserData, void* pvOutData)
 	SEND_CURR_AZ_EL *pstSndCurrAzEl		= (SEND_CURR_AZ_EL *)(pvOutData);
 	pstSndCurrAzEl->chExtSerialState	= pstUserData->chExtSerialState;
 	pstSndCurrAzEl->chTriggerState 		= pstUserData->chTriggerState;
-	pstSndCurrAzEl->iAz 				= htonl(pstUserData->iAz);
-	pstSndCurrAzEl->iEl 				= htonl(pstUserData->iEl);
-	pstSndCurrAzEl->iRecvAz 			= htonl(pstUserData->iRecvAz);
-	pstSndCurrAzEl->iRecvEl 			= htonl(pstUserData->iRecvEl);
-	pstSndCurrAzEl->iTime 				= htonl(pstUserData->iTime);
+	pstSndCurrAzEl->iAz 				= pstUserData->iAz;
+	pstSndCurrAzEl->iEl 				= pstUserData->iEl;
+	pstSndCurrAzEl->iRecvAz 			= pstUserData->iRecvAz;
+	pstSndCurrAzEl->iRecvEl 			= pstUserData->iRecvEl;
+	pstSndCurrAzEl->iTime 				= pstUserData->iTime;
 	return sizeof(SEND_CURR_AZ_EL);
 }
 int dispatchCurrAzEl(const void* pvRecvData, void* pvOutData)

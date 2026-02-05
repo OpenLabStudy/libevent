@@ -76,38 +76,40 @@ static void recvDataFromAC(int iFd, short nEvent, void* pvData)
 
             /* === 프레임 소비 === */
             char achCmdData[128];
-            char achCmdResult[128];
             char achResult[128];
             unsigned int uiReqId;
             int iResultSize;
             memset(achCmdData, 0x0, sizeof(achCmdData));
-            memset(achCmdResult, 0x0, sizeof(achCmdResult));
             memset(achResult, 0x0, sizeof(achResult));
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
             fprintf(stderr,"### %s():%d Request Id is %d ###\n",__func__,__LINE__, uiReqId);
             if(unCmd == CMD_ID_INFO){
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 ((RES_ID*)achCmdData)->chId = (char)TC_RCV_AZ_EL_FROM_AC;
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 MSG_ID stMsgId = { TC_RCV_AZ_EL_FROM_AC, AC_SND_AZ_EL_TO_TC };
-                eErr = createCmdResponse(unCmd, achCmdResult, &stMsgId, achResult);
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                eErr = createCmdResponse(unCmd, achCmdData, &stMsgId, achResult);
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                event_add(pstIoChannel->pstWriteEvent, NULL);
+            }else if(unCmd == CMD_POSITIONER_AZ_EL){
+                eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
+                if(eErr != FRAME_OK){
+                    fprintf(stderr, "[KEYBOARD-RECEIVER] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                    break;
+                }                
+                MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
+                createCmdResponse(CMD_KEYBOARD_AZ_EL, achCmdData, &stMsgId, achResult);
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
                 evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
-            }else if(unCmd == CMD_POSITIONER_AZ_EL){                
-                SEND_CURR_AZ_EL* pstSendCurrAzEl = (SEND_CURR_AZ_EL *)(achRecvBuffer+sizeof(FRAME_HEADER));
-                fprintf(stderr,"ACU Current AZ EL Value is %d[%.03lf], %d[%.03lf]\n", 
-                    pstSendCurrAzEl->iAz, (((double)pstSendCurrAzEl->iAz)/1000.0), 
-                    pstSendCurrAzEl->iEl, (((double)pstSendCurrAzEl->iEl)/1000.0));
-                IO_CHANNEL* pstSndAzElIo = ioFindChannelByWorkerId(pstEventEngine, TC_SND_AZ_EL_TO_CTRL_PC);
-                if(ioIsChannelAlive(pstSndAzElIo)){
-                    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
-                    MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-                    repackageResponse(achRecvBuffer, &stMsgId, iFrameSize);
-                    evbuffer_add(pstSndAzElIo->pstWriteBuffer, achRecvBuffer, iFrameSize);
-                    event_add(pstSndAzElIo->pstWriteEvent, NULL);
-                }
             }else{
-
+                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             }            
         }
         break;

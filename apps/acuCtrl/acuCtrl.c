@@ -242,11 +242,14 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
                     pstSendCurrAzEl->iAz, (((double)pstSendCurrAzEl->iAz)/1000.0), 
                     pstSendCurrAzEl->iEl, (((double)pstSendCurrAzEl->iEl)/1000.0));
             }
-            iSendSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL, FRAME_TYPE_REQUEST);
-            if(createCmdRequest(CMD_POSITIONER_AZ_EL, &stMsgId, achCmdResult, auchSendData) == FRAME_OK){
-                fprintf(stderr,"### %s():%d Send Size is %d ###\n",__func__,__LINE__, iSendSize);
-                eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
-                        pstEngine->uiRequestSeq, auchSendData, iSendSize);
+            IO_CHANNEL* pstKeyboardSndUdsIo = ioFindChannelByWorkerId(pstUartIo->pstEventEngine, AC_SND_AZ_EL_TO_TC);
+            if (ioIsChannelAlive(pstKeyboardSndUdsIo)) {
+                iSendSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL, FRAME_TYPE_REQUEST);
+                if(createCmdRequest(CMD_POSITIONER_AZ_EL, &stMsgId, achCmdResult, auchSendData) == FRAME_OK){
+                    fprintf(stderr,"### %s():%d Send Size is %d ###\n",__func__,__LINE__, iSendSize);
+                    eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
+                                            pstEngine->uiRequestSeq, auchSendData, iSendSize);
+                }
             }
         }
         break;
@@ -488,35 +491,49 @@ static void sendCurrAzElToTC(int iFd, short nEvent, void* pvData)
         if(iIndex%16 ==0)
             fprintf(stderr,"\n");
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     eErr = frameDecode(auchWriteBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if (eErr != FRAME_OK) {
         fprintf(stderr, "[AC_SND_AZ_EL_TO_TC] frameDecode ERR: %s\n", frameErrToStr(eErr));
         int iDeleteDataSize = findFrameHeader(auchWriteBuffer, iCopyLen);
         evbuffer_drain(pstIoChannel->pstWriteBuffer, iDeleteDataSize);
         iCopyLen-=iDeleteDataSize;
     }
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     int iFrameSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_REQUEST);
     if (iCopyLen < iFrameSize)
         return;
-
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     evbuffer_drain(pstIoChannel->pstWriteBuffer, iFrameSize);
+    fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
     if(unCmd == CMD_POSITIONER_AZ_EL){
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         eErr = cmdDispatch(auchWriteBuffer, iFrameSize, auchCmdData);
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         if(eErr != FRAME_OK){
             fprintf(stderr, "[AC_SND_AZ_EL_TO_TC] frameDecode ERR: %s\n", frameErrToStr(eErr));
             return;
         }
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         MSG_ID stMsgId = { AC_SND_AZ_EL_TO_TC, TC_RCV_AZ_EL_FROM_AC };
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         memset(auchWriteBuffer, 0x0, sizeof(auchWriteBuffer));
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         if(createCmdRequest(unCmd, &stMsgId, auchCmdData, auchWriteBuffer) == FRAME_OK) {
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             int iWriteSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL, FRAME_TYPE_REQUEST);
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             if (iWriteSize <= 0) {
                 perror("write");
                 return;
-            }    
+            }
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
             if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
                 event_del(pstIoChannel->pstWriteEvent);
+            fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
         }else{
             fprintf(stderr,"### %s():%d %d ###\n",__func__,__LINE__, unCmd);    
         }
@@ -603,7 +620,6 @@ int run(char *pchUartPath)
     struct event *pstPollEvt = event_new(stEventEngine.pstEventBase, -1,
                   EV_PERSIST | EV_TIMEOUT,
                   acuAzElPollingCb, &stEventEngine);
-
     event_add(pstPollEvt, &tvPoll);
         
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "ACU-CTRL");
