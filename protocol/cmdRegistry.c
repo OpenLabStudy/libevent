@@ -98,7 +98,7 @@ static CMD_DESC g_cmdTable[] = {
         buildForwardReqAutoTrackingWait, dispatchCmdAutoTrackingWait, buildResAutoTrackingWait 
     },
     {   CMD_POSITIONER_AZ_EL, "SEND_CURR_AZ_EL",
-        0, sizeof(SEND_CURR_AZ_EL),        
+        sizeof(SEND_CURR_AZ_EL), sizeof(SEND_CURR_AZ_EL),        
         buildForwardCurrAzEl, dispatchCurrAzEl, buildResCurrAzEl
     },
 

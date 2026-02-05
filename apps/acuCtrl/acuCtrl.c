@@ -185,7 +185,9 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
     EVENT_ENGINE* pstEngine = pstUartIo->pstEventEngine;
     ACU_CTRL_CTX* pstCtx = (ACU_CTRL_CTX*)pstEngine->pvSharedData;
     char acUartBuf[2048];
+    char auchSendData[UDS_MAX_BUFFER_SIZE];
     MSG_ID stMsgId;
+    int iSendSize;
     switch (eEventType)
     {
     case IO_EVT_RX_DATA: {
@@ -206,7 +208,11 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
             RES_POSITIONER_AZ_EL_SET* pstResPositionerAzElSet = (RES_POSITIONER_AZ_EL_SET *)achCmdResult;
             stMsgId.uchSrcId = AC_RCV_CMD_FROM_TC;
             stMsgId.uchDstId = TC_SND_CMD_TO_CLN;
-            pstResPositionerAzElSet->chResult = (uchResult == RESP_OK)?0x01:0x00;            
+            pstResPositionerAzElSet->chResult = (uchResult == RESP_OK)?0x01:0x00;
+            createCmdResponse(CMD_POSITIONER_AZ_EL_SET, achCmdResult, &stMsgId, auchSendData);
+            iSendSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL_SET, FRAME_TYPE_RESPONSE);
+            eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
+                        pstEngine->uiRequestSeq, auchSendData, iSendSize);
             break;
         }
         case CMD_ACU_MODE_SELECT:
@@ -214,11 +220,15 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
             RES_ACU_MODE* pstResAcuMode = (RES_ACU_MODE *)achCmdResult;
             stMsgId.uchSrcId = AC_RCV_CMD_FROM_TC;
             stMsgId.uchDstId = TC_SND_CMD_TO_CLN;
-            pstResAcuMode->chResult = (uchResult == RESP_OK)?0x01:0x00;            
+            pstResAcuMode->chResult = (uchResult == RESP_OK)?0x01:0x00;
+            createCmdResponse(CMD_ACU_MODE_SELECT, achCmdResult, &stMsgId, auchSendData);
+            iSendSize = getFrameSizeWithCmd(CMD_ACU_MODE_SELECT, FRAME_TYPE_RESPONSE);
+            eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
+                        pstEngine->uiRequestSeq, auchSendData, iSendSize);
             break;
         }
         case CMD_POSITIONER_AZ_EL:
-        {            
+        {
             SEND_CURR_AZ_EL* pstSendCurrAzEl = (SEND_CURR_AZ_EL *)achCmdResult;
             pstSendCurrAzEl->iTime = timePackHMSms();
             char *chSplitData[8];
@@ -232,17 +242,18 @@ static void uartReadCallback(int iFd, short nEvent, void *pvData)
                     pstSendCurrAzEl->iAz, ((double)pstSendCurrAzEl->iAz/1000.0), 
                     pstSendCurrAzEl->iEl, ((double)pstSendCurrAzEl->iEl)/1000.0);
             }
+            iSendSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL, FRAME_TYPE_REQUEST);
+            if(createCmdRequest(CMD_POSITIONER_AZ_EL, &stMsgId, achCmdResult, auchSendData) == FRAME_OK){
+                fprintf(stderr,"### %s():%d Send Size is %d ###\n",__func__,__LINE__, iSendSize);
+                eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
+                        pstEngine->uiRequestSeq, auchSendData, iSendSize);
+            }
         }
         break;
         default:
             break;
-        }
-        char achResult[UDS_MAX_BUFFER_SIZE];
-        memset(achResult, 0, sizeof(achResult));
-        createCmdResponse(pstCtx->unCmd, achCmdResult, &stMsgId, achResult);
-        int iResultSize = getFrameSizeWithCmd(pstCtx->unCmd, FRAME_TYPE_RESPONSE);
-        eventEngineHandleWorkerResponse(pstUartIo->pstEventEngine, pstUartIo,
-                    pstEngine->uiRequestSeq, achResult, iResultSize);
+        }        
+        
 
     }    
     pstCtx->eState = ACU_STATE_IDLE;
@@ -471,7 +482,13 @@ static void sendCurrAzElToTC(int iFd, short nEvent, void* pvData)
         return;
     memset(auchWriteBuffer, 0x00, sizeof(auchWriteBuffer));
     int iCopyLen = evbuffer_copyout(pstIoChannel->pstWriteBuffer, auchWriteBuffer, uiTotalRcvSize);
-    eErr = frameDecode(auchWriteBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
+    fprintf(stderr,"### %s():%d iCopy %d ###\n", __func__,__LINE__, iCopyLen);
+    for(int iIndex=1; iIndex <= iCopyLen; iIndex++){
+        fprintf(stderr,"%02X ", auchWriteBuffer[iIndex-1]);
+        if(iIndex%16 ==0)
+            fprintf(stderr,"\n");
+    }
+    eErr = frameDecode(auchWriteBuffer, iCopyLen, FRAME_TYPE_REQUEST, &unCmd);
     if (eErr != FRAME_OK) {
         fprintf(stderr, "[AC_SND_AZ_EL_TO_TC] frameDecode ERR: %s\n", frameErrToStr(eErr));
         int iDeleteDataSize = findFrameHeader(auchWriteBuffer, iCopyLen);
