@@ -288,9 +288,10 @@ static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short u
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.chWaitOnOff       = pstReqAutoTrackingWait->chWaitOnOff;
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz        = pstReqAutoTrackingWait->dStandbyAz;
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyEl        = pstReqAutoTrackingWait->dStandbyEl;
+            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyYaw       = pstSensorFusionCtx->stCommandState.stCurrImuData.dYaw;
             pstReqUserData->chResult = 0x01;
-            calcRefDCM(&pstSensorFusionCtx->stCommandState.stCurrImuData, 
-                pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dRefDcm);
+            // calcRefDCM(&pstSensorFusionCtx->stCommandState.stCurrImuData, 
+            //     pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dRefDcm);
             fprintf(stderr,"AUTO TRACKING WAIT %s, AZ:%.3lf, EL:%.3lf, HEADING:%.3lf\n",
                             (pstReqAutoTrackingWait->chWaitOnOff==0x01)? "ON" : "OFF",
                             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz,

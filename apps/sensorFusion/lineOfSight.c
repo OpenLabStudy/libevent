@@ -155,7 +155,12 @@ void stabilizerCompute(const IMU_DATA *pstImuData,
     double dcmRelT[3][3];
 
     /* 1) 상대 회전 DCM */
-    calcRelativeDCM(pstImuData, pstAutoTrackingWait->dRefDcm, dcmRel);
+    // calcRelativeDCM(pstImuData, pstAutoTrackingWait->dRefDcm, dcmRel);
+    calculateDCM(
+        DEGREE_TO_RADIAN(pstImuData->dRoll),
+        DEGREE_TO_RADIAN(pstImuData->dPitch),
+        DEGREE_TO_RADIAN(pstAutoTrackingWait->dStandbyYaw - pstImuData->dYaw),
+        dcmRel);
 
     /* 2) 역회전 */
     transpose3x3(dcmRel, dcmRelT);
@@ -184,5 +189,5 @@ void stabilizerCompute(const IMU_DATA *pstImuData,
 
     *outEl = RADIAN_TO_DEGREE(
         atan2(vCorrectedLos[2], sqrt(vCorrectedLos[0]*vCorrectedLos[0] + vCorrectedLos[1]*vCorrectedLos[1]))
-    ) * -1.0;
+    );// * -1.0;
 }

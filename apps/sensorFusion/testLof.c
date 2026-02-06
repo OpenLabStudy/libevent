@@ -29,7 +29,8 @@ int main(void)
     stAutoTrackingWait.chWaitOnOff       = 0x01;
     stAutoTrackingWait.dStandbyAz        = dStandbyAz;
     stAutoTrackingWait.dStandbyEl        = dStandbyEl;
-    calcRefDCM(&stImuData, stAutoTrackingWait.dRefDcm);
+    stAutoTrackingWait.dStandbyYaw       = yaw;
+    // calcRefDCM(&stImuData, stAutoTrackingWait.dRefDcm);
 
     while (1) {
         char buf[64];

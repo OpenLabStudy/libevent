@@ -46,6 +46,7 @@ typedef struct{
     char    chWaitOnOff;
     double  dStandbyAz;
     double  dStandbyEl;
+    double  dStandbyYaw;
     double  dRefDcm[3][3];
 }AUTO_TRACKING_WAIT;
 
