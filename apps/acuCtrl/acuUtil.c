@@ -21,7 +21,7 @@ int moveAzElPosition(double i_dAz, double i_dEl, char* pchOutData)
 {
 	memset(pchOutData, 0x0, ACU_COMMAND_LEN);
 	sprintf(pchOutData, "%s%.3f;%.3f\r\n", AZ_REMOTE_POSITION_SET, i_dAz, i_dEl);
-	fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, pchOutData);
+	// fprintf(stderr,"### %s():%d %s ###\n",__func__,__LINE__, pchOutData);
 	return strlen(pchOutData);
 }
 

@@ -10,25 +10,26 @@
  * ============================================================ */
 int main(void)
 {
-    double standbyAz, standbyEl, yaw;
+    double dStandbyAz, dStandbyEl, yaw;
     
 
     printf("=== Stabilizer Test Program ===\n");
     printf("Enter StandbyAz (deg): ");
-    scanf("%lf", &standbyAz);
+    scanf("%lf", &dStandbyAz);
     printf("Enter StandbyEl (deg): ");
-    scanf("%lf", &standbyEl);
+    scanf("%lf", &dStandbyEl);
     printf("Enter Yaw (deg): ");
     scanf("%lf", &yaw);
-    STABILIZER_REF stabRef;
-    IMU_DATA stImuData;
+    IMU_DATA stImuData = {  .dRoll = 0.0,
+                            .dPitch = 0.0,
+                            .dYaw = yaw };
+    AUTO_TRACKING_WAIT stAutoTrackingWait;
 
 /* 자세보정 진입 */
-    stImuData.dYaw = yaw;
-    stImuData.dRoll = 0.0;
-    stImuData.dPitch = 0.0;
-    stabilizerInit(&stabRef, &stImuData, standbyAz, standbyEl);
-    
+    stAutoTrackingWait.chWaitOnOff       = 0x01;
+    stAutoTrackingWait.dStandbyAz        = dStandbyAz;
+    stAutoTrackingWait.dStandbyEl        = dStandbyEl;
+    calcRefDCM(&stImuData, stAutoTrackingWait.dRefDcm);
 
     while (1) {
         char buf[64];
@@ -44,7 +45,7 @@ int main(void)
         imu.dRoll = atof(buf);
         scanf("%lf %lf", &imu.dPitch, &imu.dYaw);
 
-        stabilizerCompute(&imu, &stabRef, &outAz, &outEl);
+        stabilizerCompute(&imu, &stAutoTrackingWait, &outAz, &outEl);
 
         // stabilizerCompute(
         //     &imu,

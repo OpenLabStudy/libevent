@@ -15,31 +15,7 @@
 #include "udsClientRuntime.h"
 #include "tcpServerRuntime.h"
 
-// static void sendCurrAzElToCtrlPc(int iFd, short nEvent, void* pvData)
-// {
-//     (void)iFd;
-//     (void)nEvent;
-//     IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
-//     unsigned char auchWriteBuffer[2048];
-//     int iWriteSize;
-//     iWriteSize = evbuffer_get_length(pstIoChannel->pstWriteBuffer);
-//     if (iWriteSize == 0) {
-//         event_del(pstIoChannel->pstWriteEvent);
-//         return;
-//     }
-//     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
-//     MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-//     repackageResponse(auchWriteBuffer, &stMsgId, iWriteSize);
-//     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
-//     if (iWriteSize <= 0) {
-//         perror("write");
-//         return;
-//     }    
-//     if (evbuffer_get_length(pstIoChannel->pstWriteBuffer) == 0)
-//         event_del(pstIoChannel->pstWriteEvent);
-// }
-
-static void recvDataFromAC(int iFd, short nEvent, void* pvData)
+static void udsRecvDataFromAC(int iFd, short nEvent, void* pvData)
 {
     (void)iFd;
     (void)nEvent;
@@ -59,7 +35,7 @@ static void recvDataFromAC(int iFd, short nEvent, void* pvData)
     case IO_EVT_RX_DATA:
         while (1) {
             int iRecvLen = evbuffer_get_length(pstIoChannel->pstReadBuffer);
-            fprintf(stderr,"SF_RCV_CMD_FROM_TC %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
+            fprintf(stderr,"[TC_SND_AZ_EL_TO_CTRL_PC] %s():%d Recv Size is %d ###\n", __func__, __LINE__, iRecvLen);
             if (iRecvLen < (int)sizeof(FRAME_HEADER))
                 break;
 
@@ -67,7 +43,7 @@ static void recvDataFromAC(int iFd, short nEvent, void* pvData)
             int iCopyLen = evbuffer_copyout(pstIoChannel->pstReadBuffer, achRecvBuffer, iRecvLen);            
             eErr = frameDecode(achRecvBuffer, iCopyLen, FRAME_TYPE_RESPONSE, &unCmd);
             if (eErr != FRAME_OK) {
-                fprintf(stderr, "[SF_RCV_CMD_FROM_TC] frameDecode ERR: %s\n", frameErrToStr(eErr));
+                fprintf(stderr, "[TC_SND_AZ_EL_TO_CTRL_PC] frameDecode ERR: %s\n", frameErrToStr(eErr));
                 int iDeleteDataSize = findFrameHeader(achRecvBuffer, iCopyLen);
                 evbuffer_drain(pstIoChannel->pstReadBuffer, iDeleteDataSize);
                 continue;
@@ -83,38 +59,34 @@ static void recvDataFromAC(int iFd, short nEvent, void* pvData)
             memset(achResult, 0x0, sizeof(achResult));
             evbuffer_drain(pstIoChannel->pstReadBuffer, iFrameSize);
             evbuffer_remove(pstIoChannel->pstReadBuffer, &uiReqId, sizeof(unsigned int));
-            fprintf(stderr,"### %s():%d Request Id is %d ###\n",__func__,__LINE__, uiReqId);
+            fprintf(stderr,"### %s():%d Request Id is %d, Cmd is %04X###\n",__func__,__LINE__, uiReqId, unCmd);
             if(unCmd == CMD_ID_INFO){
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 ((RES_ID*)achCmdData)->chId = (char)TC_RCV_AZ_EL_FROM_AC;
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 MSG_ID stMsgId = { TC_RCV_AZ_EL_FROM_AC, AC_SND_AZ_EL_TO_TC };
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 eErr = createCmdResponse(unCmd, achCmdData, &stMsgId, achResult);
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
                 event_add(pstIoChannel->pstWriteEvent, NULL);
             }else if(unCmd == CMD_POSITIONER_AZ_EL){
-                eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
-                if(eErr != FRAME_OK){
-                    fprintf(stderr, "[KEYBOARD-RECEIVER] frameDecode ERR: %s\n", frameErrToStr(eErr));
-                    break;
-                }                
-                MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
-                createCmdResponse(CMD_KEYBOARD_AZ_EL, achCmdData, &stMsgId, achResult);
-                iResultSize = getFrameSizeWithCmd(unCmd, FRAME_TYPE_RESPONSE);
-                evbuffer_add(pstIoChannel->pstWriteBuffer, achResult, iResultSize);
-                event_add(pstIoChannel->pstWriteEvent, NULL);
+                IO_CHANNEL* pstSndAzElIo = ioFindChannelByWorkerId(pstEventEngine, TC_SND_AZ_EL_TO_CTRL_PC);
+                if(ioIsChannelAlive(pstSndAzElIo)){
+                    eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
+                    if(eErr != FRAME_OK){
+                        fprintf(stderr, "[TC_SND_AZ_EL_TO_CTRL_PC] cmdDispatch ERR: %s\n", frameErrToStr(eErr));
+                        break;
+                    }                
+                    MSG_ID stMsgId = { TCP_SVR_ID, TCP_CLN_ID };
+                    createCmdResponse(CMD_POSITIONER_AZ_EL, achCmdData, &stMsgId, achResult);
+                    iResultSize = getFrameSizeWithCmd(CMD_POSITIONER_AZ_EL, FRAME_TYPE_RESPONSE);
+                    evbuffer_add(pstSndAzElIo->pstWriteBuffer, achResult, iResultSize);
+                    event_add(pstSndAzElIo->pstWriteEvent, NULL);
+                }
             }else{
-                fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+                fprintf(stderr,"### %s():%d Unknown CMD ###\n",__func__,__LINE__);
             }            
         }
         break;
     default:
-        /* TX-only: ignore */
         break;
     }
     pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
@@ -155,7 +127,7 @@ int run()
     eventEngineInit(&stEventEngine, 0);
     TCP_SERVER_RUNTIME *pstTcpSndAzElSvr = tcpServerRuntimeCreate(&stEventEngine, &stTcpSndAzElSvrRuntimeCfg, NULL); 
     UDS_CLIENT_RUNTIME *pstUdsClnRuntime = udsClientRuntimeCreate(&stEventEngine, &stUdsClnRuntimeCfg, 
-        recvDataFromAC, NULL);
+        udsRecvDataFromAC, NULL);
     APP_SIGNAL_HANDLE *pstSigHandle = appSignalCreate(&stEventEngine, "SEND_CURRENT_AZ_EL_TO_CTRL_PC");
     fprintf(stderr,"[SEND_CURRENT_AZ_EL_TO_CTRL_PC] Listening on port %d\n", KEYBOARD_RCV_PORT);
 

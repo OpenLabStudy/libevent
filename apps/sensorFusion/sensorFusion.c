@@ -85,7 +85,7 @@ typedef struct{
     char chTrackingStartStop;
     double dCurrHeading;
     IMU_DATA stCurrImuData;
-    AUTO_TRACKING_WAIT stAutoTrackingWait;    
+    AUTO_TRACKING_WAIT stAutoTrackingWait;
 } COMMAND_STATE;
 /* ========================================================================== */
 /* SENSOR_STATE                                                               */
@@ -221,8 +221,9 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
 
     case TRIG_GPS:
     case TRIG_IMU:
-        fprintf(stderr, "[SF_SND_AZ_EL_TO_AC] GPS+IMU attitude compensation (%s)\n",
-                eTrigger == TRIG_GPS ? "GPS-trigger" : "IMU-trigger");
+    {
+        // fprintf(stderr, "[SF_SND_AZ_EL_TO_AC] GPS+IMU attitude compensation (%s)\n",
+        //         eTrigger == TRIG_GPS ? "GPS-trigger" : "IMU-trigger");
         double dAz, dEl;
         // GPS+IMU 융합 후 자세교정을 위한 알고리즘 수행후 → ACU제어 값 생성 후 UDS3으로 전송        
         pstSensorState->stGpsState.chValid = 0;
@@ -239,7 +240,7 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         fprintf(stderr,"AZ:%lf, EL:%lf(%lf), Heading:%lf\n", dAz, dEl, -dEl, 
             pstSensorFusionCtx->stCommandState.dCurrHeading);
         break;
-
+    }
     default:
         break;
     }
@@ -433,15 +434,14 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
             memset(achCmdData, 0x0, sizeof(achCmdData));
             memset(achResult, 0x0, sizeof(achResult));
             eErr = cmdDispatch(achRecvBuffer, iCopyLen, achCmdData);
-            fprintf(stderr,"[SF_RCV_SENSOR_DATA] ");
             switch(unCmd){
                 case CDM_GPS_DATA: {
                     memcpy(&pstSensorState->stGpsState.stGps, achRecvBuffer+sizeof(FRAME_HEADER), sizeof(RES_GPS_DATA));
                     pstSensorState->stGpsState.chValid = 1;
                     pstSensorState->stGpsState.ulUsec  = ulUsec;
-                    fprintf(stderr,"GPS LATITUDE %.8lf, LONGITUDE %.8lf, ALTITUDE %.3f, HEADING %.3f\n", 
-                        pstSensorState->stGpsState.stGps.dLatitude, pstSensorState->stGpsState.stGps.dLongitude, 
-                        pstSensorState->stGpsState.stGps.fAltitude, pstSensorState->stGpsState.stGps.fHeading);
+                    // fprintf(stderr,"GPS LATITUDE %.8lf, LONGITUDE %.8lf, ALTITUDE %.3f, HEADING %.3f\n", 
+                    //     pstSensorState->stGpsState.stGps.dLatitude, pstSensorState->stGpsState.stGps.dLongitude, 
+                    //     pstSensorState->stGpsState.stGps.fAltitude, pstSensorState->stGpsState.stGps.fHeading);
                     break;                
                 }
                 case CDM_IMU_DATA: {
@@ -449,8 +449,8 @@ static void sensorFusionRead(int iFd, short nEvent, void* pvData)
                     pstSensorState->stImuState.chValid = 1;
                     pstSensorState->stImuState.ulUsec  = ulUsec;
                     pstSensorFusionCtx->stCommandState.dCurrHeading = pstSensorState->stImuState.stImu.dYaw;                    
-                    fprintf(stderr,"IMU ROLL %lf, PITCH %lf, YAW %lf [%02X]\n", pstSensorState->stImuState.stImu.dRoll,
-                        pstSensorState->stImuState.stImu.dPitch, pstSensorState->stImuState.stImu.dYaw, pstSensorFusionCtx->chFusionPending);
+                    // fprintf(stderr,"IMU ROLL %lf, PITCH %lf, YAW %lf [%02X]\n", pstSensorState->stImuState.stImu.dRoll,
+                    //     pstSensorState->stImuState.stImu.dPitch, pstSensorState->stImuState.stImu.dYaw, pstSensorFusionCtx->chFusionPending);
                     break;
                 }
                 case CDM_SP_DATA: {

@@ -53,7 +53,7 @@ void writeCallback(int iFd, short nEvent, void* pvData)
         event_del(pstIoChannel->pstWriteEvent);
         return;
     }
-    fprintf(stderr,"### %s():%d Size is %d ###\n",__func__,__LINE__, iWriteSize);    
+    // fprintf(stderr,"### %s():%d Size is %d ###\n",__func__,__LINE__, iWriteSize);    
     iWriteSize = evbuffer_remove(pstIoChannel->pstWriteBuffer, auchWriteBuffer, iWriteSize);
     iWriteSize = write(pstIoChannel->iFd, auchWriteBuffer, iWriteSize);
     if (iWriteSize <= 0) {

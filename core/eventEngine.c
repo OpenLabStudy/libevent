@@ -262,7 +262,7 @@ REQUEST_CONTEXT* createRequestContext(int iUdsId, EVENT_ENGINE* pstEventEngine, 
     while (pstIo) {
         if (pstIo->eRole == ROLE_WORKER) {            
             int iWorkerId = (int)pstIo->chWorkerId;
-            fprintf(stderr,"### %s():%d  %d:%d:%d ###\n", __func__,__LINE__, iWorkerIndex, iWorkerId, iUdsId);
+            // fprintf(stderr,"### %s():%d  %d:%d:%d ###\n", __func__,__LINE__, iWorkerIndex, iWorkerId, iUdsId);
             if(iWorkerId == (iUdsId & iWorkerId)){
                 
                 pstReq->pstWorkerInfoList[iWorkerIndex].iWorkerId = iWorkerId;
@@ -308,7 +308,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         if (evbuffer_get_length(pstRequester->pstRequestBuffer) < sizeof(int))
             break;        
         evbuffer_remove(pstRequester->pstRequestBuffer, &iUdsWorkerId, sizeof(int));
-        fprintf(stderr,"### %s():%d ID is %d ###\n",__func__,__LINE__, iUdsWorkerId);
+        // fprintf(stderr,"### %s():%d ID is %d ###\n",__func__,__LINE__, iUdsWorkerId);
         unsigned int uiRemain = evbuffer_get_length(pstRequester->pstRequestBuffer);
         unsigned char auchBuf[2048];
         unsigned int uiCopySize = evbuffer_remove(pstRequester->pstRequestBuffer, auchBuf, uiRemain);        
@@ -321,7 +321,7 @@ void eventEngineHandleRequest(int iFd, short nEvent, void* pvData)
         while (pstIo && pstReq) {            
             if (pstIo->eRole == ROLE_WORKER){                
                 int iWorkerId = (int)pstIo->chWorkerId;
-                fprintf(stderr,"Worker ID is %d, UDS ID is %d\n", iWorkerId, iUdsWorkerId);
+                // fprintf(stderr,"Worker ID is %d, UDS ID is %d\n", iWorkerId, iUdsWorkerId);
                 if(iWorkerId == (iUdsWorkerId & iWorkerId) && (pstReq->uiExpectedMask & (1u << iWorkerId))){
                     evbuffer_add(pstIo->pstWriteBuffer, auchBuf, uiCopySize);
                     event_add(pstIo->pstWriteEvent, NULL);

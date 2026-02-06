@@ -165,8 +165,8 @@ void stabilizerCompute(const IMU_DATA *pstImuData,
     double dStandbyEl = DEGREE_TO_RADIAN(pstAutoTrackingWait->dStandbyEl);
 
     double vRefLos[3] = {
-        cos(dStandbyEl) * sin(dStandbyAz),  // X
-        cos(dStandbyEl) * cos(dStandbyAz),  // Y
+        cos(dStandbyEl) * cos(dStandbyAz),  // X
+        cos(dStandbyEl) * sin(dStandbyAz),  // Y
         sin(dStandbyEl)                     // Z
     };
 
@@ -179,7 +179,7 @@ void stabilizerCompute(const IMU_DATA *pstImuData,
 
     /* 5) Az / El 변환 (Body 기준) */
     *outAz = wrapDeg180(
-        RADIAN_TO_DEGREE(atan2(vCorrectedLos[0], vCorrectedLos[1]))
+        RADIAN_TO_DEGREE(atan2(vCorrectedLos[1], vCorrectedLos[0]))
     );
 
     *outEl = RADIAN_TO_DEGREE(

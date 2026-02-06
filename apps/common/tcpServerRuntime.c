@@ -15,6 +15,33 @@
 #include "cmdRegistry.h"
 #include "icdCommand.h"
 
+static void tcpRecvSocketDisconnect(int iFd, short nEvent, void* pvData)
+{
+    (void)iFd;
+    (void)nEvent;
+    IO_CHANNEL* pstIoChannel = (IO_CHANNEL *)pvData;
+    EVENT_ENGINE* pstEventEngine = pstIoChannel->pstEventEngine;
+    IO_EVENT_TYPE eEventType = pstIoChannel->ePendingLogicEvent;
+
+    char achRecvBuffer[2048];
+    unsigned short unCmd = 0;
+    FRAME_ERR eErr;
+    switch (eEventType) {
+    case IO_EVT_RX_DATA:
+        fprintf(stderr,"### %s():%d ###\n",__func__,__LINE__);
+        break;
+
+    case IO_EVT_CHANNEL_CLOSED:
+    case IO_EVT_ERROR:
+        printf("[TC_SND_AZ_EL_TO_CTRL_PC] channel closed fd=%d\n", pstIoChannel->iFd);
+        event_active(pstIoChannel->pstShutdownEvent, 0, 0);
+        break;
+
+    default:
+        break;
+    }
+    pstIoChannel->ePendingLogicEvent = IO_EVENT_NONE;
+}
 
 /* ============================================================
  * accept callback
@@ -24,6 +51,7 @@ static void tcpServerAcceptCb(int iFd, short nEvent, void* pvData)
     (void)nEvent;
     TCP_SERVER_RUNTIME *pstTcpSvrRt = (TCP_SERVER_RUNTIME *)pvData;
     EVENT_ENGINE *pstEventEngine = pstTcpSvrRt->pstEventEngine;
+    void (*pfIoHandler)(int iFd, short nEvent, void *pvData);
 
     struct sockaddr_un addr;
     socklen_t len = sizeof(addr);
@@ -35,10 +63,15 @@ static void tcpServerAcceptCb(int iFd, short nEvent, void* pvData)
         return;
     }
     netSetNonblock(clientFd);
+    if(pstTcpSvrRt->pfIoHandler == NULL){
+        pfIoHandler = tcpRecvSocketDisconnect;
+    }else{
+        pfIoHandler = pstTcpSvrRt->pfIoHandler;
+    }
 
     IO_CHANNEL *pstNewIo = eventSourceCreateWithBev(pstEventEngine, clientFd,
         pstTcpSvrRt->eType, pstTcpSvrRt->eRole,
-        NULL, pstTcpSvrRt->pfWrite, pstTcpSvrRt->pfIoHandler);
+        NULL, pstTcpSvrRt->pfWrite, pfIoHandler);
     if (!pstNewIo) {
         close(clientFd);
         return;

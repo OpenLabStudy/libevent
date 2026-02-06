@@ -347,7 +347,7 @@ int buildForwardCurrAzEl(const void* pvUserData, void* pvOutData)
 int dispatchCurrAzEl(const void* pvRecvData, void* pvOutData)
 {
 	SEND_CURR_AZ_EL *pstUserData	= (SEND_CURR_AZ_EL *)(pvOutData);
-	SEND_CURR_AZ_EL *pstRcvCurrAzEl	= (SEND_CURR_AZ_EL *)(pvRecvData);
+	SEND_CURR_AZ_EL *pstRcvCurrAzEl	= (SEND_CURR_AZ_EL *)(pvRecvData);	
 	pstUserData->chExtSerialState	= pstRcvCurrAzEl->chExtSerialState;
 	pstUserData->chTriggerState 	= pstRcvCurrAzEl->chTriggerState;
 	pstUserData->iAz 				= pstRcvCurrAzEl->iAz;
@@ -355,6 +355,9 @@ int dispatchCurrAzEl(const void* pvRecvData, void* pvOutData)
 	pstUserData->iRecvAz 			= pstRcvCurrAzEl->iRecvAz;
 	pstUserData->iRecvEl 			= pstRcvCurrAzEl->iRecvEl;
 	pstUserData->iTime 				= pstRcvCurrAzEl->iTime;
+	fprintf(stderr,"ACU Current AZ EL Value is %d[%.03lf], %d[%.03lf]\n", 
+                    pstUserData->iAz, (((double)pstUserData->iAz)/1000.0), 
+                    pstUserData->iEl, (((double)pstUserData->iEl)/1000.0));
 	return sizeof(SEND_CURR_AZ_EL);
 }
 int buildResCurrAzEl(const void* pvUserData, void* pvOutData)
