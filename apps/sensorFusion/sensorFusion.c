@@ -232,12 +232,12 @@ static void fusionDispatch(EVENT_ENGINE* pstEventEngine)
         pstSensorFusionCtx->stCommandState.stCurrImuData.dPitch = pstSensorState->stImuState.stImu.dPitch;
         pstSensorFusionCtx->stCommandState.stCurrImuData.dYaw = pstSensorState->stImuState.stImu.dYaw;
 
-        stabilizerCompute(  &pstSensorFusionCtx->stCommandState.stCurrImuData,
-                            &pstSensorFusionCtx->stCommandState.stAutoTrackingWait,
+        stabilizerUpdate(  &pstSensorFusionCtx->stCommandState.stAutoTrackingWait.stStabilizerRef,
+                            &pstSensorFusionCtx->stCommandState.stCurrImuData,                            
                             &dAz, &dEl);
-        pstCtrlAzElData->dAz = dAz;
-        pstCtrlAzElData->dEl = -dEl;
-        fprintf(stderr,"AZ:%lf, EL:%lf(%lf), Heading:%lf\n", dAz, dEl, -dEl, 
+        pstCtrlAzElData->dAz = RADIAN_TO_DEGREE(dAz);
+        pstCtrlAzElData->dEl = RADIAN_TO_DEGREE(dEl);
+        fprintf(stderr,"AZ:%lf, EL:%lf, Heading:%lf\n", pstCtrlAzElData->dAz, pstCtrlAzElData->dEl, 
             pstSensorFusionCtx->stCommandState.dCurrHeading);
         break;
     }
@@ -288,7 +288,7 @@ static void applyCommand(SENSOR_FUSION_CTX* pstSensorFusionCtx, unsigned short u
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.chWaitOnOff       = pstReqAutoTrackingWait->chWaitOnOff;
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyAz        = pstReqAutoTrackingWait->dStandbyAz;
             pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyEl        = pstReqAutoTrackingWait->dStandbyEl;
-            pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dStandbyYaw       = pstSensorFusionCtx->stCommandState.stCurrImuData.dYaw;
+            stabilizerSetReference(&pstSensorFusionCtx->stCommandState.stAutoTrackingWait, &pstSensorFusionCtx->stCommandState.stCurrImuData);
             pstReqUserData->chResult = 0x01;
             // calcRefDCM(&pstSensorFusionCtx->stCommandState.stCurrImuData, 
             //     pstSensorFusionCtx->stCommandState.stAutoTrackingWait.dRefDcm);

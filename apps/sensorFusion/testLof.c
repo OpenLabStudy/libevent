@@ -3,65 +3,53 @@
 #include <string.h>
 #include <math.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <time.h>
 #include "lineOfSight.h"
 
 /* ============================================================
  *  메인 테스트 루프
  * ============================================================ */
+
 int main(void)
 {
-    double dStandbyAz, dStandbyEl, yaw;
-    
+    AUTO_TRACKING_WAIT stAutoTrackingWait = {0,};
+    IMU_DATA stImuData = {0,};
+    stAutoTrackingWait.chWaitOnOff = 1;
+    stAutoTrackingWait.dStandbyAz = 20.0;
+    stAutoTrackingWait.dStandbyEl = 5.0;
+    stImuData.dRoll = 0.5;
+    stImuData.dPitch = 0.8;
+    stImuData.dYaw = 0.0;
+    double randVal;
 
-    printf("=== Stabilizer Test Program ===\n");
-    printf("Enter StandbyAz (deg): ");
-    scanf("%lf", &dStandbyAz);
-    printf("Enter StandbyEl (deg): ");
-    scanf("%lf", &dStandbyEl);
-    printf("Enter Yaw (deg): ");
-    scanf("%lf", &yaw);
-    IMU_DATA stImuData = {  .dRoll = 0.0,
-                            .dPitch = 0.0,
-                            .dYaw = yaw };
-    AUTO_TRACKING_WAIT stAutoTrackingWait;
+    /* ===============================
+     * 기준 설정
+     * =============================== */
+    stabilizerSetReference(&stAutoTrackingWait, &stImuData);
 
-/* 자세보정 진입 */
-    stAutoTrackingWait.chWaitOnOff       = 0x01;
-    stAutoTrackingWait.dStandbyAz        = dStandbyAz;
-    stAutoTrackingWait.dStandbyEl        = dStandbyEl;
-    stAutoTrackingWait.dStandbyYaw       = yaw;
-    // calcRefDCM(&stImuData, stAutoTrackingWait.dRefDcm);
+    printf("===== Reference Set =====\n");
+    printf("AZ=%.2f  EL=%.2f\n",
+           stAutoTrackingWait.dStandbyAz, stAutoTrackingWait.dStandbyEl);
 
-    while (1) {
-        char buf[64];
-        IMU_DATA imu;
-        double outAz, outEl;
+    printf("\n===== Yaw Sweep Test =====\n");
 
-        printf("\nEnter Roll Pitch Yaw (deg) or 'q' to quit: ");
-        scanf("%63s", buf);
+    for(int i=0; i<360; i++)
+    {
+        double dAzCmd, dElCmd;
 
-        if (strcmp(buf, "q") == 0 || strcmp(buf, "exit") == 0)
-            break;
+        stabilizerUpdate(&stAutoTrackingWait.stStabilizerRef, &stImuData,
+                         &dAzCmd, &dElCmd);
 
-        imu.dRoll = atof(buf);
-        scanf("%lf %lf", &imu.dPitch, &imu.dYaw);
+        printf("YAW=%6.2f deg  ->  AZ=%7.2f  EL=%7.2f\n",
+               stImuData.dYaw,
+               RADIAN_TO_DEGREE(dAzCmd),
+               RADIAN_TO_DEGREE(dElCmd));
 
-        stabilizerCompute(&imu, &stAutoTrackingWait, &outAz, &outEl);
-
-        // stabilizerCompute(
-        //     &imu,
-        //     standbyAz, standbyEl,
-        //     &outAz, &outEl
-        // );
-
-        printf("--------------------------------------------------\n");
-        printf("Input  : Roll=%7.3f  Pitch=%7.3f  Yaw=%7.3f\n",
-                imu.dRoll, imu.dPitch, imu.dYaw);
-        printf("Output : AZ = %7.3f deg,  EL = %7.3f deg\n",
-                outAz, outEl);
-        printf("--------------------------------------------------\n");
+        stImuData.dRoll = 0.1 + (0.4 - 0.1) * ((double)rand() / RAND_MAX);
+        stImuData.dPitch = 0.1 + (0.4 - 0.1) * ((double)rand() / RAND_MAX);
+        stImuData.dYaw += 1.0;
     }
 
-    printf("Program terminated.\n");
     return 0;
 }
