@@ -1,3 +1,11 @@
+#pragma once
+
+#include <stdint.h>
+#include <sys/time.h>
+
+/* forward declarations to keep headers light */
+struct event;
+typedef struct _IO_CHANNEL IO_CHANNEL;
 
 /* ========================================================================== */
 /* ACU STATE                                                                  */
@@ -8,7 +16,7 @@ typedef enum {
 } ACU_STATE;
 
 /* ========================================================================== */
-/* COMMAND STATE (ACU 내부 설정값)                                             */
+/* COMMAND STATE (ACU 내부 설정값)                                            */
 /* ========================================================================== */
 typedef struct {
     char    chSendOnOff;
@@ -19,33 +27,35 @@ typedef struct {
 
 /* ========================================================================== */
 /* Pending command (UART 응답 매칭용)                                         */
-/*  - "현재 1개 pending"만 처리 (필요시 큐로 확장)                            */
 /* ========================================================================== */
 typedef struct {
-    int             bInUse;
+    char            chInUse;
     unsigned short  unCmd;
     unsigned int    uiReqId;
-    IO_CHANNEL*     pstUdsIo;   /* 응답을 보낼 UDS 채널 */
+    IO_CHANNEL*     pstUdsIo;
 } ACU_PENDING_CMD;
 
 /* ========================================================================== */
-/* ACU CONTEXT (전역 대체)                                                     */
+/* ACU CONTEXT                                                                */
 /* ========================================================================== */
 typedef struct {
-    ACU_STATE        eState;
+    ACU_STATE        eAcuState;
+
+    /* 원본 acuCtrl.c에서 사용하던 req 관리 값들 */
+    unsigned int     uiReqId;
+    unsigned int     uiLocalReqId;
+    unsigned short   unCmd;
+
     ACU_PENDING_CMD  stPending;
 
-    struct event*    pstTimeoutEvt; /* 200ms timer (reused) */
+    struct event*    pstTimeoutEvt;
+    char             chIsUartAlive;
 
-    int              iIsUartAlive;     /* 1: 정상, 0: 비정상 */
-
-    /* ============================= */
-    /* [ADDED] AZ/EL Polling 관련   */
-    /* ============================= */
-    int              iIsSendCommand;     // polling 명령 전송 중 여부
-    struct timeval   stLastAzElRxTime;         // 마지막 AZ/EL 수신 시간
+    /* AZ/EL Polling 관련 */
+    char             chIsSendCommand;
+    struct timeval   stLastAzElRxTime;
 
     COMMAND_STATE    stCommandState;
 } ACU_CTRL_CTX;
 
-//acuCtrl.c, acuCtrl.h, acuCtrlForTest.c, acuUartProc.c, acuUartProc.h, acuUds1Proc.c, acuUds1Proc.h, acuUds3Proc.c, acuUds3Proc.h, acuUds4Proc.c, acuUds4Proc.h, acuUtil.c, acuUtil.h
+int run(char *pchUartPath);
